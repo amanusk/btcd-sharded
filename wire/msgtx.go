@@ -178,8 +178,8 @@ var scriptPool scriptFreeList = make(chan []byte, freeListMaxItems)
 // OutPoint defines a bitcoin data type that is used to track previous
 // transaction outputs.
 type OutPoint struct {
-	Hash  chainhash.Hash
-	Index uint32
+	Hash  chainhash.Hash // Hash of previous block
+	Index uint32         // This is MAX on coinbase TXs
 }
 
 // NewOutPoint returns a new bitcoin transaction outpoint point with the

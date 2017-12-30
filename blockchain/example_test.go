@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -17,25 +18,29 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
+const (
+	testdb = "/home/amanusk/go/src/github.com/btcsuite/btcd/blockchain/testdb"
+)
+
 // This example demonstrates how to create a new chain instance and use
 // ProcessBlock to attempt to attempt add a block to the chain.  As the package
 // overview documentation describes, this includes all of the Bitcoin consensus
 // rules.  This example intentionally attempts to insert a duplicate genesis
 // block to illustrate how an invalid block is handled.
-func ExampleBlockChain_ProcessBlock() {
+func ExampleBlockChain_ProcessBlockTest(t *testing.T) {
 	// Create a new database to store the accepted blocks into.  Typically
 	// this would be opening an existing database and would not be deleting
 	// and creating a new database like this, but it is done here so this is
 	// a complete working example and does not leave temporary files laying
 	// around.
-	dbPath := filepath.Join(os.TempDir(), "exampleprocessblock")
+	dbPath := filepath.Join(testdb, "exampleprocessblock")
 	_ = os.RemoveAll(dbPath)
 	db, err := database.Create("ffldb", dbPath, chaincfg.MainNetParams.Net)
 	if err != nil {
 		fmt.Printf("Failed to create database: %v\n", err)
 		return
 	}
-	defer os.RemoveAll(dbPath)
+	//defer os.RemoveAll(dbPath)
 	defer db.Close()
 
 	// Create a new BlockChain instance using the underlying database for
