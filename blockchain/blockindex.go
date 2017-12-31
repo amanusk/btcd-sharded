@@ -131,6 +131,13 @@ func newBlockNode(blockHeader *wire.BlockHeader, height int32) *blockNode {
 	return &node
 }
 
+// Same as above but public
+func NewBlockNode(blockHeader *wire.BlockHeader, height int32) *blockNode {
+	var node blockNode
+	initBlockNode(&node, blockHeader, height)
+	return &node
+}
+
 // Header constructs a block header from the node and returns it.
 //
 // This function is safe for concurrent access.
@@ -239,6 +246,16 @@ type blockIndex struct {
 func newBlockIndex(db database.DB, chainParams *chaincfg.Params) *blockIndex {
 	return &blockIndex{
 		db:          db,
+		chainParams: chainParams,
+		index:       make(map[chainhash.Hash]*blockNode),
+	}
+}
+
+// newBlockIndex returns a new empty instance of a block index.  The index will
+// be dynamically populated as block nodes are loaded from the database and
+// manually added.
+func MyNewBlockIndex(chainParams *chaincfg.Params) *blockIndex {
+	return &blockIndex{
 		chainParams: chainParams,
 		index:       make(map[chainhash.Hash]*blockNode),
 	}
