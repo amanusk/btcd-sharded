@@ -87,7 +87,7 @@ type thresholdConditionChecker interface {
 	// has been met.  This typically involves checking whether or not the
 	// bit assocaited with the condition is set, but can be more complex as
 	// needed.
-	Condition(*blockNode) (bool, error)
+	Condition(*BlockNode) (bool, error)
 }
 
 // thresholdStateCache provides a type to cache the threshold states of each
@@ -126,7 +126,7 @@ func newThresholdCaches(numCaches uint32) []thresholdStateCache {
 // threshold states for previous windows are only calculated once.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) thresholdState(prevNode *blockNode, checker thresholdConditionChecker, cache *thresholdStateCache) (ThresholdState, error) {
+func (b *BlockChain) thresholdState(prevNode *BlockNode, checker thresholdConditionChecker, cache *thresholdStateCache) (ThresholdState, error) {
 	// The threshold state for the window that contains the genesis block is
 	// defined by definition.
 	confirmationWindow := int32(checker.MinerConfirmationWindow())
@@ -142,7 +142,7 @@ func (b *BlockChain) thresholdState(prevNode *blockNode, checker thresholdCondit
 
 	// Iterate backwards through each of the previous confirmation windows
 	// to find the most recently cached threshold state.
-	var neededStates []*blockNode
+	var neededStates []*BlockNode
 	for prevNode != nil {
 		// Nothing more to do if the state of the block is already
 		// cached.
@@ -296,7 +296,7 @@ func (b *BlockChain) IsDeploymentActive(deploymentID uint32) (bool, error) {
 // AFTER the passed node.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) deploymentState(prevNode *blockNode, deploymentID uint32) (ThresholdState, error) {
+func (b *BlockChain) deploymentState(prevNode *BlockNode, deploymentID uint32) (ThresholdState, error) {
 	if deploymentID > uint32(len(b.chainParams.Deployments)) {
 		return ThresholdFailed, DeploymentError(deploymentID)
 	}

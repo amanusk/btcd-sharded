@@ -20,8 +20,8 @@ var testNoncePrng = rand.New(rand.NewSource(0))
 // chainedNodes returns the specified number of nodes constructed such that each
 // subsequent node points to the previous one to create a chain.  The first node
 // will point to the passed parent which can be nil if desired.
-func chainedNodes(parent *blockNode, numNodes int) []*blockNode {
-	nodes := make([]*blockNode, numNodes)
+func chainedNodes(parent *BlockNode, numNodes int) []*BlockNode {
+	nodes := make([]*BlockNode, numNodes)
 	tip := parent
 	for i := 0; i < numNodes; i++ {
 		// This is invalid, but all that is needed is enough to get the
@@ -42,20 +42,20 @@ func chainedNodes(parent *blockNode, numNodes int) []*blockNode {
 }
 
 // String returns the block node as a human-readable name.
-func (node blockNode) String() string {
+func (node BlockNode) String() string {
 	return fmt.Sprintf("%s(%d)", node.hash, node.height)
 }
 
 // tstTip is a convenience function to grab the tip of a chain of block nodes
 // created via chainedNodes.
-func tstTip(nodes []*blockNode) *blockNode {
+func tstTip(nodes []*BlockNode) *BlockNode {
 	return nodes[len(nodes)-1]
 }
 
 // locatorHashes is a convenience function that returns the hashes for all of
 // the passed indexes of the provided nodes.  It is used to construct expected
 // block locators in the tests.
-func locatorHashes(nodes []*blockNode, indexes ...int) BlockLocator {
+func locatorHashes(nodes []*BlockNode, indexes ...int) BlockLocator {
 	hashes := make(BlockLocator, 0, len(indexes))
 	for _, idx := range indexes {
 		hashes = append(hashes, &nodes[idx].hash)
@@ -90,13 +90,13 @@ func TestChainView(t *testing.T) {
 	tests := []struct {
 		name       string
 		view       *chainView   // active view
-		genesis    *blockNode   // expected genesis block of active view
-		tip        *blockNode   // expected tip of active view
+		genesis    *BlockNode   // expected genesis block of active view
+		tip        *BlockNode   // expected tip of active view
 		side       *chainView   // side chain view
-		sideTip    *blockNode   // expected tip of side chain view
-		fork       *blockNode   // expected fork node
-		contains   []*blockNode // expected nodes in active view
-		noContains []*blockNode // expected nodes NOT in active view
+		sideTip    *BlockNode   // expected tip of side chain view
+		fork       *BlockNode   // expected fork node
+		contains   []*BlockNode // expected nodes in active view
+		noContains []*BlockNode // expected nodes NOT in active view
 		equal      *chainView   // view expected equal to active view
 		unequal    *chainView   // view expected NOT equal to active
 		locator    BlockLocator // expected locator for active view tip
@@ -262,7 +262,7 @@ testLoop:
 		// next node.
 		for i, node := range test.contains {
 			// Final node expects nil for the next node.
-			var expected *blockNode
+			var expected *BlockNode
 			if i < len(test.contains)-1 {
 				expected = test.contains[i+1]
 			}
@@ -354,24 +354,24 @@ func TestChainViewSetTip(t *testing.T) {
 	tests := []struct {
 		name     string
 		view     *chainView     // active view
-		tips     []*blockNode   // tips to set
-		contains [][]*blockNode // expected nodes in view for each tip
+		tips     []*BlockNode   // tips to set
+		contains [][]*BlockNode // expected nodes in view for each tip
 	}{
 		{
 			// Create an empty view and set the tip to increasingly
 			// longer chains.
 			name:     "increasing",
 			view:     newChainView(nil),
-			tips:     []*blockNode{tip(branch0Nodes), tip(branch1Nodes)},
-			contains: [][]*blockNode{branch0Nodes, branch1Nodes},
+			tips:     []*BlockNode{tip(branch0Nodes), tip(branch1Nodes)},
+			contains: [][]*BlockNode{branch0Nodes, branch1Nodes},
 		},
 		{
 			// Create a view with a longer chain and set the tip to
 			// increasingly shorter chains.
 			name:     "decreasing",
 			view:     newChainView(tip(branch1Nodes)),
-			tips:     []*blockNode{tip(branch0Nodes), nil},
-			contains: [][]*blockNode{branch0Nodes, nil},
+			tips:     []*BlockNode{tip(branch0Nodes), nil},
+			contains: [][]*BlockNode{branch0Nodes, nil},
 		},
 		{
 			// Create a view with a shorter chain and set the tip to
@@ -379,8 +379,8 @@ func TestChainViewSetTip(t *testing.T) {
 			// shorter chain.
 			name:     "small-large-small",
 			view:     newChainView(tip(branch0Nodes)),
-			tips:     []*blockNode{tip(branch1Nodes), tip(branch0Nodes)},
-			contains: [][]*blockNode{branch1Nodes, branch0Nodes},
+			tips:     []*BlockNode{tip(branch1Nodes), tip(branch0Nodes)},
+			contains: [][]*BlockNode{branch1Nodes, branch0Nodes},
 		},
 		{
 			// Create a view with a longer chain and set the tip to
@@ -388,8 +388,8 @@ func TestChainViewSetTip(t *testing.T) {
 			// longer chain.
 			name:     "large-small-large",
 			view:     newChainView(tip(branch1Nodes)),
-			tips:     []*blockNode{tip(branch0Nodes), tip(branch1Nodes)},
-			contains: [][]*blockNode{branch0Nodes, branch1Nodes},
+			tips:     []*BlockNode{tip(branch0Nodes), tip(branch1Nodes)},
+			contains: [][]*BlockNode{branch0Nodes, branch1Nodes},
 		},
 	}
 

@@ -194,7 +194,7 @@ func (b *BlockChain) calcEasiestDifficulty(bits uint32, duration time.Duration) 
 // did not have the special testnet minimum difficulty rule applied.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) findPrevTestNetDifficulty(startNode *blockNode) uint32 {
+func (b *BlockChain) findPrevTestNetDifficulty(startNode *BlockNode) uint32 {
 	// Search backwards through the chain for the last block without
 	// the special rule applied.
 	iterNode := startNode
@@ -218,7 +218,7 @@ func (b *BlockChain) findPrevTestNetDifficulty(startNode *blockNode) uint32 {
 // This function differs from the exported CalcNextRequiredDifficulty in that
 // the exported version uses the current best chain as the previous block node
 // while this function accepts any block node.
-func (b *BlockChain) calcNextRequiredDifficulty(lastNode *blockNode, newBlockTime time.Time) (uint32, error) {
+func (b *BlockChain) calcNextRequiredDifficulty(lastNode *BlockNode, newBlockTime time.Time) (uint32, error) {
 	// Genesis block.
 	if lastNode == nil {
 		return b.chainParams.PowLimitBits, nil

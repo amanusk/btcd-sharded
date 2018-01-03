@@ -84,7 +84,7 @@ func (b *BlockChain) verifyCheckpoint(height int32, hash *chainhash.Hash) bool {
 // should really only happen for blocks before the first checkpoint).
 //
 // This function MUST be called with the chain lock held (for reads).
-func (b *BlockChain) findPreviousCheckpoint() (*blockNode, error) {
+func (b *BlockChain) findPreviousCheckpoint() (*BlockNode, error) {
 	if !b.HasCheckpoints() {
 		return nil, nil
 	}

@@ -69,7 +69,7 @@ type BestState struct {
 }
 
 // newBestState returns a new best stats instance for the given parameters.
-func newBestState(node *blockNode, blockSize, blockWeight, numTxns,
+func newBestState(node *BlockNode, blockSize, blockWeight, numTxns,
 	totalTxns uint64, medianTime time.Time) *BestState {
 
 	return &BestState{
@@ -122,7 +122,7 @@ type BlockChain struct {
 	//
 	// bestChain tracks the current active chain by making use of an
 	// efficient chain view into the block index.
-	index     *blockIndex
+	index     *BlockIndex
 	bestChain *chainView
 
 	// These fields are related to handling of orphan blocks.  They are
@@ -135,7 +135,7 @@ type BlockChain struct {
 	// These fields are related to checkpoint handling.  They are protected
 	// by the chain lock.
 	nextCheckpoint *chaincfg.Checkpoint
-	checkpointNode *blockNode
+	checkpointNode *BlockNode
 
 	// The state is used as a fairly efficient way to cache information
 	// about the current best chain state that is returned to callers when
@@ -358,7 +358,7 @@ func (b *BlockChain) CalcSequenceLock(tx *btcutil.Tx, utxoView *UtxoViewpoint, m
 // transaction. See the exported version, CalcSequenceLock for further details.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) calcSequenceLock(node *blockNode, tx *btcutil.Tx, utxoView *UtxoViewpoint, mempool bool) (*SequenceLock, error) {
+func (b *BlockChain) calcSequenceLock(node *BlockNode, tx *btcutil.Tx, utxoView *UtxoViewpoint, mempool bool) (*SequenceLock, error) {
 	// A value of -1 for each relative lock type represents a relative time
 	// lock value that will allow a transaction to be included in a block
 	// at any given height or time. This value is returned as the relative
@@ -394,7 +394,7 @@ func (b *BlockChain) calcSequenceLock(node *blockNode, tx *btcutil.Tx, utxoView 
 		return sequenceLock, nil
 	}
 
-	// Grab the next height from the PoV of the passed blockNode to use for
+	// Grab the next height from the PoV of the passed BlockNode to use for
 	// inputs present in the mempool.
 	nextHeight := node.height + 1
 
@@ -438,8 +438,8 @@ func (b *BlockChain) calcSequenceLock(node *blockNode, tx *btcutil.Tx, utxoView 
 			if prevInputHeight < 0 {
 				prevInputHeight = 0
 			}
-			blockNode := node.Ancestor(prevInputHeight)
-			medianTime := blockNode.CalcPastMedianTime()
+			BlockNode := node.Ancestor(prevInputHeight)
+			medianTime := BlockNode.CalcPastMedianTime()
 
 			// Time based relative time-locks as defined by BIP 68
 			// have a time granularity of RelativeLockSeconds, so
@@ -496,7 +496,7 @@ func LockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 // passed node is not on a side chain.
 //
 // This function MUST be called with the chain state lock held (for reads).
-func (b *BlockChain) getReorganizeNodes(node *blockNode) (*list.List, *list.List) {
+func (b *BlockChain) getReorganizeNodes(node *BlockNode) (*list.List, *list.List) {
 	attachNodes := list.New()
 	detachNodes := list.New()
 
@@ -528,7 +528,7 @@ func (b *BlockChain) getReorganizeNodes(node *blockNode) (*list.List, *list.List
 		var next *list.Element
 		for e := attachNodes.Front(); e != nil; e = next {
 			next = e.Next()
-			n := attachNodes.Remove(e).(*blockNode)
+			n := attachNodes.Remove(e).(*BlockNode)
 			b.index.SetStatusFlags(n, statusInvalidAncestor)
 		}
 		return detachNodes, attachNodes
@@ -569,7 +569,7 @@ func dbMaybeStoreBlock(dbTx database.Tx, block *btcutil.Block) error {
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
+func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
 	// Make sure it's extending the end of the best chain.
 	prevHash := &block.MsgBlock().Header.PrevBlock
 	if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
@@ -686,7 +686,7 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block, view *U
 // the main (best) chain.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) disconnectBlock(node *blockNode, block *btcutil.Block, view *UtxoViewpoint) error {
+func (b *BlockChain) disconnectBlock(node *BlockNode, block *btcutil.Block, view *UtxoViewpoint) error {
 	// Make sure the node being disconnected is the end of the best chain.
 	if !node.hash.IsEqual(&b.bestChain.Tip().hash) {
 		return AssertError("disconnectBlock must be called with the " +
@@ -824,7 +824,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	view := NewUtxoViewpoint()
 	view.SetBestHash(&b.bestChain.Tip().hash)
 	for e := detachNodes.Front(); e != nil; e = e.Next() {
-		n := e.Value.(*blockNode)
+		n := e.Value.(*BlockNode)
 		var block *btcutil.Block
 		err := b.db.View(func(dbTx database.Tx) error {
 			var err error
@@ -877,7 +877,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	// issues before ever modifying the chain.
 	var validationError error
 	for e := attachNodes.Front(); e != nil; e = e.Next() {
-		n := e.Value.(*blockNode)
+		n := e.Value.(*BlockNode)
 
 		// If any previous nodes in attachNodes failed validation,
 		// mark this one as having an invalid ancestor.
@@ -947,7 +947,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 
 	// Disconnect blocks from the main chain.
 	for i, e := 0, detachNodes.Front(); e != nil; i, e = i+1, e.Next() {
-		n := e.Value.(*blockNode)
+		n := e.Value.(*BlockNode)
 		block := detachBlocks[i]
 
 		// Load all of the utxos referenced by the block that aren't
@@ -973,7 +973,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 
 	// Connect the new best chain blocks.
 	for i, e := 0, attachNodes.Front(); e != nil; i, e = i+1, e.Next() {
-		n := e.Value.(*blockNode)
+		n := e.Value.(*BlockNode)
 		block := attachBlocks[i]
 
 		// Load all of the utxos referenced by the block that aren't
@@ -1002,9 +1002,9 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 
 	// Log the point where the chain forked and old and new best chain
 	// heads.
-	firstAttachNode := attachNodes.Front().Value.(*blockNode)
-	firstDetachNode := detachNodes.Front().Value.(*blockNode)
-	lastAttachNode := attachNodes.Back().Value.(*blockNode)
+	firstAttachNode := attachNodes.Front().Value.(*BlockNode)
+	firstDetachNode := detachNodes.Front().Value.(*BlockNode)
+	lastAttachNode := attachNodes.Back().Value.(*BlockNode)
 	log.Infof("REORGANIZE: Chain forks at %v", firstAttachNode.parent.hash)
 	log.Infof("REORGANIZE: Old best chain head was %v", firstDetachNode.hash)
 	log.Infof("REORGANIZE: New best chain head is %v", lastAttachNode.hash)
@@ -1026,7 +1026,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 //    This is useful when using checkpoints.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) connectBestChain(node *BlockNode, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
 	fastAdd := flags&BFFastAdd == BFFastAdd
 
 	// We are extending the main (best) chain with a new block.  This is the
@@ -1043,7 +1043,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		view.SetBestHash(parentHash)
 		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
 		if !fastAdd {
-			err := b.checkConnectBlock(node, block, view, &stxos)
+			err := b.checkConnectBlock(node, block, view, &stxos) // This is what we need to replace
 			if err != nil {
 				if _, ok := err.(RuleError); ok {
 					b.index.SetStatusFlags(node, statusValidateFailed)
@@ -1318,7 +1318,7 @@ func (b *BlockChain) HeightRange(startHeight, endHeight int32) ([]chainhash.Hash
 // functions.
 //
 // This function MUST be called with the chain state lock held (for reads).
-func (b *BlockChain) locateInventory(locator BlockLocator, hashStop *chainhash.Hash, maxEntries uint32) (*blockNode, uint32) {
+func (b *BlockChain) locateInventory(locator BlockLocator, hashStop *chainhash.Hash, maxEntries uint32) (*BlockNode, uint32) {
 	// There are no block locators so a specific block is being requested
 	// as identified by the stop hash.
 	stopNode := b.index.LookupNode(hashStop)

@@ -778,6 +778,7 @@ func deserializeUtxoEntry(serialized []byte) (*UtxoEntry, error) {
 	return entry, nil
 }
 
+// NOTE: replace here for fetch
 // dbFetchUtxoEntry uses an existing database transaction to fetch all unspent
 // outputs for the provided Bitcoin transaction hash from the utxo set.
 //
@@ -818,6 +819,7 @@ func dbFetchUtxoEntry(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry, error
 	return entry, nil
 }
 
+// NOTE: replace here for store
 // dbPutUtxoView uses an existing database transaction to update the utxo set
 // in the database based on the provided utxo view contents and state.  In
 // particular, only the entries that have been marked as modified are written
@@ -1153,8 +1155,8 @@ func (b *BlockChain) initChainState() error {
 		// pressure on the GC.
 		log.Infof("Loading block index.  This might take a while...")
 		bestHeight := int32(state.height)
-		blockNodes := make([]blockNode, bestHeight+1)
-		var tip *blockNode
+		BlockNodes := make([]BlockNode, bestHeight+1)
+		var tip *BlockNode
 		for height := int32(0); height <= bestHeight; height++ {
 			header, err := dbFetchHeaderByHeight(dbTx, height)
 			if err != nil {
@@ -1163,7 +1165,7 @@ func (b *BlockChain) initChainState() error {
 
 			// Initialize the block node for the block, connect it,
 			// and add it to the block index.
-			node := &blockNodes[height]
+			node := &BlockNodes[height]
 			initBlockNode(node, header, height)
 			node.status = statusDataStored | statusValid
 			if tip != nil {
@@ -1256,7 +1258,7 @@ func dbFetchHeaderByHeight(dbTx database.Tx, height int32) (*wire.BlockHeader, e
 // dbFetchBlockByNode uses an existing database transaction to retrieve the
 // raw block for the provided node, deserialize it, and return a btcutil.Block
 // with the height set.
-func dbFetchBlockByNode(dbTx database.Tx, node *blockNode) (*btcutil.Block, error) {
+func dbFetchBlockByNode(dbTx database.Tx, node *BlockNode) (*btcutil.Block, error) {
 	// Load the raw block bytes from the database.
 	blockBytes, err := dbTx.FetchBlock(&node.hash)
 	if err != nil {

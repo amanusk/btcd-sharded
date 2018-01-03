@@ -60,10 +60,10 @@ func (status blockStatus) KnownInvalid() bool {
 	return status&(statusValidateFailed|statusInvalidAncestor) != 0
 }
 
-// blockNode represents a block within the block chain and is primarily used to
+// BlockNode represents a block within the block chain and is primarily used to
 // aid in selecting the best chain to be the main chain.  The main chain is
 // stored into the block database.
-type blockNode struct {
+type BlockNode struct {
 	// NOTE: Additions, deletions, or modifications to the order of the
 	// definitions in this struct should not be changed without considering
 	// how it affects alignment on 64-bit platforms.  The current order is
@@ -72,7 +72,7 @@ type blockNode struct {
 	// padding adds up.
 
 	// parent is the parent block for this node.
-	parent *blockNode
+	parent *BlockNode
 
 	// hash is the double sha 256 of the block.
 	hash chainhash.Hash
@@ -97,7 +97,7 @@ type blockNode struct {
 	// status is a bitfield representing the validation state of the block. The
 	// status field, unlike the other fields, may be written to and so should
 	// only be accessed using the concurrent-safe NodeStatus method on
-	// blockIndex once the node has been added to the global index.
+	// BlockIndex once the node has been added to the global index.
 	status blockStatus
 }
 
@@ -108,8 +108,8 @@ type blockNode struct {
 //
 // This function is NOT safe for concurrent access.  It must only be called when
 // initially creating a node.
-func initBlockNode(node *blockNode, blockHeader *wire.BlockHeader, height int32) {
-	*node = blockNode{
+func initBlockNode(node *BlockNode, blockHeader *wire.BlockHeader, height int32) {
+	*node = BlockNode{
 		hash:       blockHeader.BlockHash(),
 		workSum:    CalcWork(blockHeader.Bits),
 		height:     height,
@@ -125,15 +125,15 @@ func initBlockNode(node *blockNode, blockHeader *wire.BlockHeader, height int32)
 // completely disconnected from the chain and the workSum value is just the work
 // for the passed block.  The work sum must be updated accordingly when the node
 // is inserted into a chain.
-func newBlockNode(blockHeader *wire.BlockHeader, height int32) *blockNode {
-	var node blockNode
+func newBlockNode(blockHeader *wire.BlockHeader, height int32) *BlockNode {
+	var node BlockNode
 	initBlockNode(&node, blockHeader, height)
 	return &node
 }
 
 // Same as above but public
-func NewBlockNode(blockHeader *wire.BlockHeader, height int32) *blockNode {
-	var node blockNode
+func NewBlockNode(blockHeader *wire.BlockHeader, height int32) *BlockNode {
+	var node BlockNode
 	initBlockNode(&node, blockHeader, height)
 	return &node
 }
@@ -141,7 +141,7 @@ func NewBlockNode(blockHeader *wire.BlockHeader, height int32) *blockNode {
 // Header constructs a block header from the node and returns it.
 //
 // This function is safe for concurrent access.
-func (node *blockNode) Header() wire.BlockHeader {
+func (node *BlockNode) Header() wire.BlockHeader {
 	// No lock is needed because all accessed fields are immutable.
 	prevHash := zeroHash
 	if node.parent != nil {
@@ -163,7 +163,7 @@ func (node *blockNode) Header() wire.BlockHeader {
 // than zero.
 //
 // This function is safe for concurrent access.
-func (node *blockNode) Ancestor(height int32) *blockNode {
+func (node *BlockNode) Ancestor(height int32) *BlockNode {
 	if height < 0 || height > node.height {
 		return nil
 	}
@@ -176,12 +176,27 @@ func (node *blockNode) Ancestor(height int32) *blockNode {
 	return n
 }
 
+// Sets the parent of the node to the received node
+func (node *BlockNode) SetParent(pNode *BlockNode) {
+	node.parent = pNode
+}
+
+// Sets height to the passed int
+func (node *BlockNode) SetHeight(height int32) {
+	node.height = height
+}
+
+// Sets height to the passed int
+func (node *BlockNode) GetHeight() int32 {
+	return node.height
+}
+
 // RelativeAncestor returns the ancestor block node a relative 'distance' blocks
 // before this node.  This is equivalent to calling Ancestor with the node's
 // height minus provided distance.
 //
 // This function is safe for concurrent access.
-func (node *blockNode) RelativeAncestor(distance int32) *blockNode {
+func (node *BlockNode) RelativeAncestor(distance int32) *BlockNode {
 	return node.Ancestor(node.height - distance)
 }
 
@@ -189,7 +204,7 @@ func (node *blockNode) RelativeAncestor(distance int32) *blockNode {
 // prior to, and including, the block node.
 //
 // This function is safe for concurrent access.
-func (node *blockNode) CalcPastMedianTime() time.Time {
+func (node *BlockNode) CalcPastMedianTime() time.Time {
 	// Create a slice of the previous few block timestamps used to calculate
 	// the median per the number defined by the constant medianTimeBlocks.
 	timestamps := make([]int64, medianTimeBlocks)
@@ -224,12 +239,12 @@ func (node *blockNode) CalcPastMedianTime() time.Time {
 	return time.Unix(medianTimestamp, 0)
 }
 
-// blockIndex provides facilities for keeping track of an in-memory index of the
+// BlockIndex provides facilities for keeping track of an in-memory index of the
 // block chain.  Although the name block chain suggests a single chain of
 // blocks, it is actually a tree-shaped structure where any node can have
 // multiple children.  However, there can only be one active branch which does
 // indeed form a chain from the tip all the way back to the genesis block.
-type blockIndex struct {
+type BlockIndex struct {
 	// The following fields are set when the instance is created and can't
 	// be changed afterwards, so there is no need to protect them with a
 	// separate mutex.
@@ -237,34 +252,34 @@ type blockIndex struct {
 	chainParams *chaincfg.Params
 
 	sync.RWMutex
-	index map[chainhash.Hash]*blockNode
+	index map[chainhash.Hash]*BlockNode
 }
 
 // newBlockIndex returns a new empty instance of a block index.  The index will
 // be dynamically populated as block nodes are loaded from the database and
 // manually added.
-func newBlockIndex(db database.DB, chainParams *chaincfg.Params) *blockIndex {
-	return &blockIndex{
+func newBlockIndex(db database.DB, chainParams *chaincfg.Params) *BlockIndex {
+	return &BlockIndex{
 		db:          db,
 		chainParams: chainParams,
-		index:       make(map[chainhash.Hash]*blockNode),
+		index:       make(map[chainhash.Hash]*BlockNode),
 	}
 }
 
 // newBlockIndex returns a new empty instance of a block index.  The index will
 // be dynamically populated as block nodes are loaded from the database and
 // manually added.
-func MyNewBlockIndex(chainParams *chaincfg.Params) *blockIndex {
-	return &blockIndex{
+func MyNewBlockIndex(chainParams *chaincfg.Params) *BlockIndex {
+	return &BlockIndex{
 		chainParams: chainParams,
-		index:       make(map[chainhash.Hash]*blockNode),
+		index:       make(map[chainhash.Hash]*BlockNode),
 	}
 }
 
 // HaveBlock returns whether or not the block index contains the provided hash.
 //
 // This function is safe for concurrent access.
-func (bi *blockIndex) HaveBlock(hash *chainhash.Hash) bool {
+func (bi *BlockIndex) HaveBlock(hash *chainhash.Hash) bool {
 	bi.RLock()
 	_, hasBlock := bi.index[*hash]
 	bi.RUnlock()
@@ -275,7 +290,7 @@ func (bi *blockIndex) HaveBlock(hash *chainhash.Hash) bool {
 // return nil if there is no entry for the hash.
 //
 // This function is safe for concurrent access.
-func (bi *blockIndex) LookupNode(hash *chainhash.Hash) *blockNode {
+func (bi *BlockIndex) LookupNode(hash *chainhash.Hash) *BlockNode {
 	bi.RLock()
 	node := bi.index[*hash]
 	bi.RUnlock()
@@ -286,7 +301,7 @@ func (bi *blockIndex) LookupNode(hash *chainhash.Hash) *blockNode {
 // checked so it is up to caller to avoid adding them.
 //
 // This function is safe for concurrent access.
-func (bi *blockIndex) AddNode(node *blockNode) {
+func (bi *BlockIndex) AddNode(node *BlockNode) {
 	bi.Lock()
 	bi.index[node.hash] = node
 	bi.Unlock()
@@ -295,7 +310,7 @@ func (bi *blockIndex) AddNode(node *blockNode) {
 // NodeStatus provides concurrent-safe access to the status field of a node.
 //
 // This function is safe for concurrent access.
-func (bi *blockIndex) NodeStatus(node *blockNode) blockStatus {
+func (bi *BlockIndex) NodeStatus(node *BlockNode) blockStatus {
 	bi.RLock()
 	status := node.status
 	bi.RUnlock()
@@ -307,7 +322,7 @@ func (bi *blockIndex) NodeStatus(node *blockNode) blockStatus {
 // flags currently on.
 //
 // This function is safe for concurrent access.
-func (bi *blockIndex) SetStatusFlags(node *blockNode, flags blockStatus) {
+func (bi *BlockIndex) SetStatusFlags(node *BlockNode, flags blockStatus) {
 	bi.Lock()
 	node.status |= flags
 	bi.Unlock()
@@ -317,7 +332,7 @@ func (bi *blockIndex) SetStatusFlags(node *blockNode, flags blockStatus) {
 // regardless of whether they were on or off previously.
 //
 // This function is safe for concurrent access.
-func (bi *blockIndex) UnsetStatusFlags(node *blockNode, flags blockStatus) {
+func (bi *BlockIndex) UnsetStatusFlags(node *BlockNode, flags blockStatus) {
 	bi.Lock()
 	node.status &^= flags
 	bi.Unlock()
