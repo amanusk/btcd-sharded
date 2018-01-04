@@ -1276,6 +1276,6 @@ func (b *BlockChain) CheckConnectBlockTemplate(block *btcutil.Block) error {
 	view.SetBestHash(&tip.hash)
 	newNode := newBlockNode(&header, tip.height+1)
 	newNode.parent = tip
-	newNode.workSum = newNode.workSum.Add(tip.workSum, newNode.workSum)
+	newNode.WorkSum = newNode.WorkSum.Add(tip.WorkSum, newNode.WorkSum)
 	return b.checkConnectBlock(newNode, block, view, nil)
 }

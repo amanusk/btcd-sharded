@@ -7,6 +7,7 @@ package blockchain
 import (
 	"fmt"
 
+	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/txscript"
@@ -490,6 +491,39 @@ func (view *UtxoViewpoint) fetchUtxosMain(db database.DB, txSet map[chainhash.Ha
 	})
 }
 
+// fetchUtxosMain fetches unspent transaction output data about the provided
+// set of transactions from the point of view of the end of the main chain at
+// the time of the call.
+//
+// Upon completion of this function, the view will contain an entry for each
+// requested transaction.  Fully spent transactions, or those which otherwise
+// don't exist, will result in a nil entry in the view.
+func (view *UtxoViewpoint) sqlFetchUtxosMain(db *sql.DB, txSet map[chainhash.Hash]struct{}) error {
+	// Nothing to do if there are no requested hashes.
+	if len(txSet) == 0 {
+		return nil
+	}
+
+	// Load the unspent transaction output information for the requested set
+	// of transactions from the point of view of the end of the main chain.
+	//
+	// NOTE: Missing entries are not considered an error here and instead
+	// will result in nil entries in the view.  This is intentionally done
+	// since other code uses the presence of an entry in the store as a way
+	// to optimize spend and unspend updates to apply only to the specific
+	// utxos that the caller needs access to.
+	for hash := range txSet {
+		hashCopy := hash
+		entry, err := sqlDbFetchUtxoEntry(db, &hashCopy)
+		if err != nil {
+			return err
+		}
+
+		view.entries[hash] = entry
+	}
+	return nil
+}
+
 // fetchUtxos loads utxo details about provided set of transaction hashes into
 // the view from the database as needed unless they already exist in the view in
 // which case they are ignored.
@@ -566,6 +600,60 @@ func (view *UtxoViewpoint) fetchInputUtxos(db database.DB, block *btcutil.Block)
 
 	// Request the input utxos from the database.
 	return view.fetchUtxosMain(db, txNeededSet)
+}
+
+// fetchInputUtxos loads utxo details about the input transactions referenced
+// by the transactions in the given block into the view from the database as
+// needed.  In particular, referenced entries that are earlier in the block are
+// added to the view and entries that are already in the view are not modified.
+func (view *UtxoViewpoint) sqlFetchInputUtxos(db *sql.DB, block *btcutil.Block) error {
+	// Build a map of in-flight transactions because some of the inputs in
+	// this block could be referencing other transactions earlier in this
+	// block which are not yet in the chain.
+	txInFlight := map[chainhash.Hash]int{}
+	transactions := block.Transactions()
+	for i, tx := range transactions {
+		txInFlight[*tx.Hash()] = i
+	}
+
+	// Loop through all of the transaction inputs (except for the coinbase
+	// which has no inputs) collecting them into sets of what is needed and
+	// what is already known (in-flight).
+	txNeededSet := make(map[chainhash.Hash]struct{})
+	for i, tx := range transactions[1:] {
+		for _, txIn := range tx.MsgTx().TxIn {
+			// It is acceptable for a transaction input to reference
+			// the output of another transaction in this block only
+			// if the referenced transaction comes before the
+			// current one in this block.  Add the outputs of the
+			// referenced transaction as available utxos when this
+			// is the case.  Otherwise, the utxo details are still
+			// needed.
+			//
+			// NOTE: The >= is correct here because i is one less
+			// than the actual position of the transaction within
+			// the block due to skipping the coinbase.
+			originHash := &txIn.PreviousOutPoint.Hash
+			if inFlightIndex, ok := txInFlight[*originHash]; ok &&
+				i >= inFlightIndex {
+
+				originTx := transactions[inFlightIndex]
+				view.AddTxOuts(originTx, block.Height())
+				continue
+			}
+
+			// Don't request entries that are already in the view
+			// from the database.
+			if _, ok := view.entries[*originHash]; ok {
+				continue
+			}
+
+			txNeededSet[*originHash] = struct{}{}
+		}
+	}
+
+	// Request the input utxos from the database.
+	return view.sqlFetchUtxosMain(db, txNeededSet)
 }
 
 // NewUtxoViewpoint returns a new empty unspent transaction output view.

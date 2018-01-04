@@ -20,8 +20,8 @@ import (
 type blockStatus byte
 
 const (
-	// statusDataStored indicates that the block's payload is stored on disk.
-	statusDataStored blockStatus = 1 << iota
+	// StatusDataStored indicates that the block's payload is stored on disk.
+	StatusDataStored blockStatus = 1 << iota
 
 	// statusValid indicates that the block has been fully validated.
 	statusValid
@@ -43,7 +43,7 @@ const (
 // will return false for a block node where only the header is downloaded or
 // kept.
 func (status blockStatus) HaveData() bool {
-	return status&statusDataStored != 0
+	return status&StatusDataStored != 0
 }
 
 // KnownValid returns whether the block is known to be valid. This will return
@@ -77,9 +77,9 @@ type BlockNode struct {
 	// hash is the double sha 256 of the block.
 	hash chainhash.Hash
 
-	// workSum is the total amount of work in the chain up to and including
+	// WorkSum is the total amount of work in the chain up to and including
 	// this node.
-	workSum *big.Int
+	WorkSum *big.Int
 
 	// height is the position in the block chain.
 	height int32
@@ -98,11 +98,11 @@ type BlockNode struct {
 	// status field, unlike the other fields, may be written to and so should
 	// only be accessed using the concurrent-safe NodeStatus method on
 	// BlockIndex once the node has been added to the global index.
-	status blockStatus
+	Status blockStatus
 }
 
 // initBlockNode initializes a block node from the given header and height.  The
-// node is completely disconnected from the chain and the workSum value is just
+// node is completely disconnected from the chain and the WorkSum value is just
 // the work for the passed block.  The work sum must be updated accordingly when
 // the node is inserted into a chain.
 //
@@ -111,7 +111,7 @@ type BlockNode struct {
 func initBlockNode(node *BlockNode, blockHeader *wire.BlockHeader, height int32) {
 	*node = BlockNode{
 		hash:       blockHeader.BlockHash(),
-		workSum:    CalcWork(blockHeader.Bits),
+		WorkSum:    CalcWork(blockHeader.Bits),
 		height:     height,
 		version:    blockHeader.Version,
 		bits:       blockHeader.Bits,
@@ -122,7 +122,7 @@ func initBlockNode(node *BlockNode, blockHeader *wire.BlockHeader, height int32)
 }
 
 // newBlockNode returns a new block node for the given block header.  It is
-// completely disconnected from the chain and the workSum value is just the work
+// completely disconnected from the chain and the WorkSum value is just the work
 // for the passed block.  The work sum must be updated accordingly when the node
 // is inserted into a chain.
 func newBlockNode(blockHeader *wire.BlockHeader, height int32) *BlockNode {
@@ -312,7 +312,7 @@ func (bi *BlockIndex) AddNode(node *BlockNode) {
 // This function is safe for concurrent access.
 func (bi *BlockIndex) NodeStatus(node *BlockNode) blockStatus {
 	bi.RLock()
-	status := node.status
+	status := node.Status
 	bi.RUnlock()
 	return status
 }
@@ -324,7 +324,7 @@ func (bi *BlockIndex) NodeStatus(node *BlockNode) blockStatus {
 // This function is safe for concurrent access.
 func (bi *BlockIndex) SetStatusFlags(node *BlockNode, flags blockStatus) {
 	bi.Lock()
-	node.status |= flags
+	node.Status |= flags
 	bi.Unlock()
 }
 
@@ -334,6 +334,6 @@ func (bi *BlockIndex) SetStatusFlags(node *BlockNode, flags blockStatus) {
 // This function is safe for concurrent access.
 func (bi *BlockIndex) UnsetStatusFlags(node *BlockNode, flags blockStatus) {
 	bi.Lock()
-	node.status &^= flags
+	node.Status &^= flags
 	bi.Unlock()
 }

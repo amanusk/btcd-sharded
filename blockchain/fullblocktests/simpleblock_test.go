@@ -26,13 +26,6 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
-type blockStatus byte
-
-const (
-	// statusDataStored indicates that the block's payload is stored on disk.
-	statusDataStored blockStatus = 1 << iota
-)
-
 // Main function to test generating and inserting blocks
 func TestSimpleBlock(t *testing.T) {
 	// init log file
@@ -70,10 +63,13 @@ func TestSimpleBlock(t *testing.T) {
 
 	addBlock(db, g.tip)
 
+	MymaybeAcceptBlock(db, index, btcutil.NewBlock(g.tip), blockchain.BFNone)
+
 	// Now comes logic to connect the block to the best chain
 
 	// Generate 100 blocks and add them to the in memory chain
-	coinbaseMaturity := g.params.CoinbaseMaturity
+	//coinbaseMaturity := g.params.CoinbaseMaturity
+	coinbaseMaturity := uint16(2)
 	t.Log("Coinmbase maturity", coinbaseMaturity)
 	for i := uint16(0); i < coinbaseMaturity; i++ {
 		blockName := fmt.Sprintf("bm%d", i)
@@ -132,6 +128,14 @@ func initDB() *sql.DB {
 			"Timestamp TIMESTAMP, " +
 			"Bits INT, " +
 			"Nonce INT)")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create headers table
+	_, err = db.Exec(
+		"CREATE TABLE IF NOT EXISTS utxos (txHash BYTES PRIMARY KEY," +
+			"utxoData BYTES)")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -237,6 +241,7 @@ func MymaybeAcceptBlock(db *sql.DB, index *blockchain.BlockIndex, block *btcutil
 
 	blockHeight := prevNode.GetHeight() + 1
 	block.SetHeight(blockHeight)
+	log.Println("Block height set to ", blockHeight)
 
 	// The block must pass all of the validation rules which depend on the
 	// position of the block within the block chain.
@@ -260,21 +265,21 @@ func MymaybeAcceptBlock(db *sql.DB, index *blockchain.BlockIndex, block *btcutil
 	// block chain (could be either a side chain or the main chain).
 	blockHeader := &block.MsgBlock().Header
 	newNode := blockchain.NewBlockNode(blockHeader, blockHeight)
-	newNode.status = statusDataStored
+	newNode.Status = blockchain.StatusDataStored
 	if prevNode != nil {
 		newNode.SetParent(prevNode)
 		newNode.SetHeight(blockHeight)
-		newNode.workSum.Add(prevNode.workSum, newNode.workSum)
+		newNode.WorkSum.Add(prevNode.WorkSum, newNode.WorkSum)
 	}
 	index.AddNode(newNode)
-	//
-	//	// Connect the passed block to the chain while respecting proper chain
-	//	// selection according to the chain with the most proof of work.  This
-	//	// also handles validation of the transaction scripts.
-	//	isMainChain, err := b.connectBestChain(newNode, block, flags)
-	//	if err != nil {
-	//		return false, err
-	//	}
+
+	// Connect the passed block to the chain while respecting proper chain
+	// selection according to the chain with the most proof of work.  This
+	// also handles validation of the transaction scripts.
+	isMainChain, err := blockchain.ConnectBestChain(db, newNode, index, block, flags)
+	if err != nil {
+		return false, err
+	}
 	//
 	//	// Notify the caller that the new block was accepted into the block
 	//	// chain.  The caller would typically want to react by relaying the
@@ -283,7 +288,6 @@ func MymaybeAcceptBlock(db *sql.DB, index *blockchain.BlockIndex, block *btcutil
 	//	b.sendNotification(NTBlockAccepted, block)
 	//	b.chainLock.Lock()
 
-	isMainChain := true // for now
 	return isMainChain, nil
 }
 

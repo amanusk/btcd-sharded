@@ -293,6 +293,6 @@ func newFakeNode(parent *BlockNode, blockVersion int32, bits uint32, timestamp t
 	}
 	node := newBlockNode(header, parent.height+1)
 	node.parent = parent
-	node.workSum.Add(parent.workSum, node.workSum)
+	node.WorkSum.Add(parent.WorkSum, node.WorkSum)
 	return node
 }

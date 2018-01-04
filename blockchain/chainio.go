@@ -8,14 +8,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	reallog "log"
 	"math/big"
 	"sort"
 	"time"
 
+	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	_ "github.com/lib/pq"
 )
 
 var (
@@ -819,6 +822,42 @@ func dbFetchUtxoEntry(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry, error
 	return entry, nil
 }
 
+func sqlDbFetchUtxoEntry(db *sql.DB, hash *chainhash.Hash) (*UtxoEntry, error) {
+	// Fetch the unspent transaction output information for the passed
+	// transaction hash.  Return nil when there is no entry.
+	var serializedUtxo []byte
+	err := db.QueryRow(
+		"SELECT * FROM utxos WHERE utxoHash = $1", hash[:]).Scan(&serializedUtxo)
+	if serializedUtxo == nil {
+		return nil, nil
+	}
+
+	// A non-nil zero-length entry means there is an entry in the database
+	// for a fully spent transaction which should never be the case.
+	//if len(serializedUtxo) == 0 {
+	//	return nil, AssertError(fmt.Sprintf("database contains entry "+
+	//		"for fully spent tx %v", hash))
+	//}
+
+	// Deserialize the utxo entry and return it.
+	entry, err := deserializeUtxoEntry(serializedUtxo)
+	if err != nil {
+		// Ensure any deserialization errors are returned as database
+		// corruption errors.
+		if isDeserializeErr(err) {
+			return nil, database.Error{
+				ErrorCode: database.ErrCorruption,
+				Description: fmt.Sprintf("corrupt utxo entry "+
+					"for %v: %v", hash, err),
+			}
+		}
+
+		return nil, err
+	}
+
+	return entry, nil
+}
+
 // NOTE: replace here for store
 // dbPutUtxoView uses an existing database transaction to update the utxo set
 // in the database based on the provided utxo view contents and state.  In
@@ -858,6 +897,59 @@ func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
 		err = utxoBucket.Put(txHash[:], serialized)
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+// dbPutUtxoView uses an existing database transaction to update the utxo set
+// in the database based on the provided utxo view contents and state.  In
+// particular, only the entries that have been marked as modified are written
+// to the database.
+func sqlDbPutUtxoView(db *sql.DB, view *UtxoViewpoint) error {
+	for txHashIter, entry := range view.entries {
+		// No need to update the database if the entry was not modified.
+		if entry == nil || !entry.modified {
+			continue
+		}
+
+		// Serialize the utxo entry without any entries that have been
+		// spent.
+		serialized, err := serializeUtxoEntry(entry)
+		if err != nil {
+			return err
+		}
+
+		// Make a copy of the hash because the iterator changes on each
+		// loop iteration and thus slicing it directly would cause the
+		// data to change out from under the put/delete funcs below.
+		txHash := txHashIter
+
+		// Remove the utxo entry if it is now fully spent.
+		//if serialized == nil {
+		//	if err := utxoBucket.Delete(txHash[:]); err != nil {
+		//		return err
+		//	}
+
+		//	continue
+		//}
+
+		// At this point the utxo entry is not fully spent, so store its
+		// serialization in the database.
+		//err = utxoBucket.Put(txHash[:], serialized)
+		//if err != nil {
+		//	return err
+		//}
+
+		_, err = db.Exec(
+			"INSERT INTO utxos (txhash, utxoData)"+
+				"VALUES ($1, $2) ", txHash[:], serialized)
+		if err != nil {
+			// Should be checked or something, left for debug
+			reallog.Print(err)
+		} else {
+			reallog.Print("Save tx ", txHash)
 		}
 	}
 
@@ -976,16 +1068,16 @@ type bestChainState struct {
 	hash      chainhash.Hash
 	height    uint32
 	totalTxns uint64
-	workSum   *big.Int
+	WorkSum   *big.Int
 }
 
 // serializeBestChainState returns the serialization of the passed block best
 // chain state.  This is data to be stored in the chain state bucket.
 func serializeBestChainState(state bestChainState) []byte {
 	// Calculate the full size needed to serialize the chain state.
-	workSumBytes := state.workSum.Bytes()
-	workSumBytesLen := uint32(len(workSumBytes))
-	serializedLen := chainhash.HashSize + 4 + 8 + 4 + workSumBytesLen
+	WorkSumBytes := state.WorkSum.Bytes()
+	WorkSumBytesLen := uint32(len(WorkSumBytes))
+	serializedLen := chainhash.HashSize + 4 + 8 + 4 + WorkSumBytesLen
 
 	// Serialize the chain state.
 	serializedData := make([]byte, serializedLen)
@@ -995,9 +1087,9 @@ func serializeBestChainState(state bestChainState) []byte {
 	offset += 4
 	byteOrder.PutUint64(serializedData[offset:], state.totalTxns)
 	offset += 8
-	byteOrder.PutUint32(serializedData[offset:], workSumBytesLen)
+	byteOrder.PutUint32(serializedData[offset:], WorkSumBytesLen)
 	offset += 4
-	copy(serializedData[offset:], workSumBytes)
+	copy(serializedData[offset:], WorkSumBytes)
 	return serializedData[:]
 }
 
@@ -1022,32 +1114,32 @@ func deserializeBestChainState(serializedData []byte) (bestChainState, error) {
 	offset += 4
 	state.totalTxns = byteOrder.Uint64(serializedData[offset : offset+8])
 	offset += 8
-	workSumBytesLen := byteOrder.Uint32(serializedData[offset : offset+4])
+	WorkSumBytesLen := byteOrder.Uint32(serializedData[offset : offset+4])
 	offset += 4
 
 	// Ensure the serialized data has enough bytes to deserialize the work
 	// sum.
-	if uint32(len(serializedData[offset:])) < workSumBytesLen {
+	if uint32(len(serializedData[offset:])) < WorkSumBytesLen {
 		return bestChainState{}, database.Error{
 			ErrorCode:   database.ErrCorruption,
 			Description: "corrupt best chain state",
 		}
 	}
-	workSumBytes := serializedData[offset : offset+workSumBytesLen]
-	state.workSum = new(big.Int).SetBytes(workSumBytes)
+	WorkSumBytes := serializedData[offset : offset+WorkSumBytesLen]
+	state.WorkSum = new(big.Int).SetBytes(WorkSumBytes)
 
 	return state, nil
 }
 
 // dbPutBestState uses an existing database transaction to update the best chain
 // state with the given parameters.
-func dbPutBestState(dbTx database.Tx, snapshot *BestState, workSum *big.Int) error {
+func dbPutBestState(dbTx database.Tx, snapshot *BestState, WorkSum *big.Int) error {
 	// Serialize the current best chain state.
 	serializedData := serializeBestChainState(bestChainState{
 		hash:      snapshot.Hash,
 		height:    uint32(snapshot.Height),
 		totalTxns: snapshot.TotalTxns,
-		workSum:   workSum,
+		WorkSum:   WorkSum,
 	})
 
 	// Store the current best chain state into the database.
@@ -1062,7 +1154,7 @@ func (b *BlockChain) createChainState() error {
 	genesisBlock := btcutil.NewBlock(b.chainParams.GenesisBlock)
 	header := &genesisBlock.MsgBlock().Header
 	node := newBlockNode(header, 0)
-	node.status = statusDataStored | statusValid
+	node.Status = StatusDataStored | statusValid
 	b.bestChain.SetTip(node)
 
 	// Add the new node to the index which is used for faster lookups.
@@ -1116,7 +1208,7 @@ func (b *BlockChain) createChainState() error {
 		}
 
 		// Store the current best chain state into the database.
-		err = dbPutBestState(dbTx, b.stateSnapshot, node.workSum)
+		err = dbPutBestState(dbTx, b.stateSnapshot, node.WorkSum)
 		if err != nil {
 			return err
 		}
@@ -1167,11 +1259,11 @@ func (b *BlockChain) initChainState() error {
 			// and add it to the block index.
 			node := &BlockNodes[height]
 			initBlockNode(node, header, height)
-			node.status = statusDataStored | statusValid
+			node.Status = StatusDataStored | statusValid
 			if tip != nil {
 				node.parent = tip
-				node.workSum = node.workSum.Add(tip.workSum,
-					node.workSum)
+				node.WorkSum = node.WorkSum.Add(tip.WorkSum,
+					node.WorkSum)
 			}
 			b.index.AddNode(node)
 

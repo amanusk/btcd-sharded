@@ -64,11 +64,11 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	// block chain (could be either a side chain or the main chain).
 	blockHeader := &block.MsgBlock().Header
 	newNode := newBlockNode(blockHeader, blockHeight)
-	newNode.status = statusDataStored
+	newNode.Status = StatusDataStored
 	if prevNode != nil {
 		newNode.parent = prevNode
 		newNode.height = blockHeight
-		newNode.workSum.Add(prevNode.workSum, newNode.workSum)
+		newNode.WorkSum.Add(prevNode.WorkSum, newNode.WorkSum)
 	}
 	b.index.AddNode(newNode)
 

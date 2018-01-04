@@ -7,9 +7,11 @@ package blockchain
 import (
 	"container/list"
 	"fmt"
+	reallog "log"
 	"sync"
 	"time"
 
+	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
@@ -613,7 +615,7 @@ func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view *U
 	// Atomically insert info into the database.
 	err := b.db.Update(func(dbTx database.Tx) error {
 		// Update best block state.
-		err := dbPutBestState(dbTx, state, node.workSum)
+		err := dbPutBestState(dbTx, state, node.WorkSum)
 		if err != nil {
 			return err
 		}
@@ -682,6 +684,114 @@ func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view *U
 	return nil
 }
 
+// sqlConnectBlock handles connecting the passed node/block to the end of the main
+// (best) chain.
+//
+// This passed utxo view must have all referenced txos the block spends marked
+// as spent and all of the new txos the block creates added to it.  In addition,
+// the passed stxos slice must be populated with all of the information for the
+// spent txos.  This approach is used because the connection validation that
+// must happen prior to calling this function requires the same details, so
+// it would be inefficient to repeat it.
+//
+// This function MUST be called with the chain state lock held (for writes).
+func sqlConnectBlock(db *sql.DB, node *BlockNode, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
+	// Make sure it's extending the end of the best chain.
+	//prevHash := &block.MsgBlock().Header.PrevBlock
+	//if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
+	//	return AssertError("connectBlock must be called with a block " +
+	//		"that extends the main chain")
+	//}
+
+	// Sanity check the correct number of stxos are provided.
+	if len(stxos) != countSpentOutputs(block) {
+		return AssertError("connectBlock called with inconsistent " +
+			"spent transaction out information")
+	}
+
+	//// Generate a new best state snapshot that will be used to update the
+	//// database and later memory if all database updates are successful.
+	//b.stateLock.RLock()
+	//curTotalTxns := b.stateSnapshot.TotalTxns
+	//b.stateLock.RUnlock()
+	//numTxns := uint64(len(block.MsgBlock().Transactions))
+	//blockSize := uint64(block.MsgBlock().SerializeSize())
+	//blockWeight := uint64(GetBlockWeight(block))
+	//state := newBestState(node, blockSize, blockWeight, numTxns,
+	//	curTotalTxns+numTxns, node.CalcPastMedianTime())
+
+	//// Atomically insert info into the database.
+	//err := b.db.Update(func(dbTx database.Tx) error {
+	//	// Update best block state.
+	//	err := dbPutBestState(dbTx, state, node.WorkSum)
+	//	if err != nil {
+	//		return err
+	//	}
+
+	// Add the block hash and height to the block index which tracks
+	// the main chain.
+	//err = dbPutBlockIndex(dbTx, block.Hash(), node.height)
+	//if err != nil {
+	//	return err
+	//}
+
+	// Update the utxo set using the state of the utxo view.  This
+	// entails removing all of the utxos spent and adding the new
+	// ones created by the block.
+	err := sqlDbPutUtxoView(db, view)
+	if err != nil {
+		return err
+	}
+
+	//	// Update the transaction spend journal by adding a record for
+	//	// the block that contains all txos spent by it.
+	//	err = dbPutSpendJournalEntry(dbTx, block.Hash(), stxos)
+	//	if err != nil {
+	//		return err
+	//	}
+
+	//	// Allow the index manager to call each of the currently active
+	//	// optional indexes with the block being connected so they can
+	//	// update themselves accordingly.
+	//	if b.indexManager != nil {
+	//		err := b.indexManager.ConnectBlock(dbTx, block, view)
+	//		if err != nil {
+	//			return err
+	//		}
+	//	}
+
+	//	return nil
+	//})
+	//if err != nil {
+	//	return err
+	//}
+
+	// Prune fully spent entries and mark all entries in the view unmodified
+	// now that the modifications have been committed to the database.
+	view.commit()
+
+	//// This node is now the end of the best chain.
+	//b.bestChain.SetTip(node)
+
+	//// Update the state for the best block.  Notice how this replaces the
+	//// entire struct instead of updating the existing one.  This effectively
+	//// allows the old version to act as a snapshot which callers can use
+	//// freely without needing to hold a lock for the duration.  See the
+	//// comments on the state variable for more details.
+	//b.stateLock.Lock()
+	//b.stateSnapshot = state
+	//b.stateLock.Unlock()
+
+	//// Notify the caller that the block was connected to the main chain.
+	//// The caller would typically want to react with actions such as
+	//// updating wallets.
+	//b.chainLock.Unlock()
+	//b.sendNotification(NTBlockConnected, block)
+	//b.chainLock.Lock()
+
+	return nil
+}
+
 // disconnectBlock handles disconnecting the passed node/block from the end of
 // the main (best) chain.
 //
@@ -719,7 +829,7 @@ func (b *BlockChain) disconnectBlock(node *BlockNode, block *btcutil.Block, view
 
 	err = b.db.Update(func(dbTx database.Tx) error {
 		// Update best block state.
-		err := dbPutBestState(dbTx, state, node.workSum)
+		err := dbPutBestState(dbTx, state, node.WorkSum)
 		if err != nil {
 			return err
 		}
@@ -1083,7 +1193,7 @@ func (b *BlockChain) connectBestChain(node *BlockNode, block *btcutil.Block, fla
 
 	// We're extending (or creating) a side chain, but the cumulative
 	// work for this new side chain is not enough to make it the new chain.
-	if node.workSum.Cmp(b.bestChain.Tip().workSum) <= 0 {
+	if node.WorkSum.Cmp(b.bestChain.Tip().WorkSum) <= 0 {
 		// Log information about how the block is forking the chain.
 		fork := b.bestChain.FindFork(node)
 		if fork.hash.IsEqual(parentHash) {
@@ -1114,6 +1224,114 @@ func (b *BlockChain) connectBestChain(node *BlockNode, block *btcutil.Block, fla
 	if err != nil {
 		return false, err
 	}
+
+	return true, nil
+}
+
+// connectBestChain handles connecting the passed block to the chain while
+// respecting proper chain selection according to the chain with the most
+// proof of work.  In the typical case, the new block simply extends the main
+// chain.  However, it may also be extending (or creating) a side chain (fork)
+// which may or may not end up becoming the main chain depending on which fork
+// cumulatively has the most proof of work.  It returns whether or not the block
+// ended up on the main chain (either due to extending the main chain or causing
+// a reorganization to become the main chain).
+//
+// The flags modify the behavior of this function as follows:
+//  - BFFastAdd: Avoids several expensive transaction validation operations.
+//    This is useful when using checkpoints.
+//
+// This function MUST be called with the chain state lock held (for writes).
+func ConnectBestChain(db *sql.DB, node *BlockNode, index *BlockIndex, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
+	fastAdd := true
+
+	// We are extending the main (best) chain with a new block.  This is the
+	// most common case.
+	parentHash := &block.MsgBlock().Header.PrevBlock
+	if true {
+		// Perform several checks to verify the block can be connected
+		// to the main chain without violating any rules and without
+		// actually connecting the block.
+		view := NewUtxoViewpoint()
+		view.SetBestHash(parentHash)
+		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
+
+		//if !fastAdd {
+		//	err := b.checkConnectBlock(node, block, view, &stxos)
+
+		//	if err != nil {
+		//		if _, ok := err.(RuleError); ok {
+		//			index.SetStatusFlags(node, statusValidateFailed)
+		//		}
+		//		return false, err
+		//	}
+		//	index.SetStatusFlags(node, statusValid)
+		//}
+
+		// In the fast add case the code to check the block connection
+		// was skipped, so the utxo view needs to load the referenced
+		// utxos, spend them, and add the new utxos being created by
+		// this block.
+		if fastAdd {
+			err := view.sqlFetchInputUtxos(db, block)
+			if err != nil {
+				reallog.Fatal("Unable to fetch Input Utxos")
+				return false, err
+			}
+			err = view.connectTransactions(block, &stxos)
+			if err != nil {
+				return false, err
+			}
+		}
+
+		// Connect the block to the main chain.
+		// NOTE: This writes all the updated databases to the DB
+		err := sqlConnectBlock(db, node, block, view, stxos)
+		if err != nil {
+			reallog.Printf("Failed to connect block")
+			return false, err
+		}
+
+		return true, nil
+	}
+	//if fastAdd {
+	//	log.Warnf("fastAdd set in the side chain case? %v\n",
+	//		block.Hash())
+	//}
+
+	//// We're extending (or creating) a side chain, but the cumulative
+	//// work for this new side chain is not enough to make it the new chain.
+	//if node.WorkSum.Cmp(b.bestChain.Tip().WorkSum) <= 0 {
+	//	// Log information about how the block is forking the chain.
+	//	fork := b.bestChain.FindFork(node)
+	//	if fork.hash.IsEqual(parentHash) {
+	//		log.Infof("FORK: Block %v forks the chain at height %d"+
+	//			"/block %v, but does not cause a reorganize",
+	//			node.hash, fork.height, fork.hash)
+	//	} else {
+	//		log.Infof("EXTEND FORK: Block %v extends a side chain "+
+	//			"which forks the chain at height %d/block %v",
+	//			node.hash, fork.height, fork.hash)
+	//	}
+
+	//	return false, nil
+	//}
+
+	// We're extending (or creating) a side chain and the cumulative work
+	// for this new side chain is more than the old best chain, so this side
+	// chain needs to become the main chain.  In order to accomplish that,
+	// find the common ancestor of both sides of the fork, disconnect the
+	// blocks that form the (now) old fork from the main chain, and attach
+	// the blocks that form the new chain to the main chain starting at the
+	// common ancenstor (the point where the chain forked).
+	//detachNodes, attachNodes := b.getReorganizeNodes(node)
+
+	// Reorganize the chain.
+	//log.Infof("REORGANIZE: Block %v is causing a reorganize.", node.hash)
+	//err := b.reorganizeChain(detachNodes, attachNodes)
+	//if err != nil {
+	//	return false, err
+	//}
 
 	return true, nil
 }
@@ -1618,7 +1836,7 @@ func New(config *Config) (*BlockChain, error) {
 	bestNode := b.bestChain.Tip()
 	log.Infof("Chain state (height %d, hash %v, totaltx %d, work %v)",
 		bestNode.height, bestNode.hash, b.stateSnapshot.TotalTxns,
-		bestNode.workSum)
+		bestNode.WorkSum)
 
 	return &b, nil
 }

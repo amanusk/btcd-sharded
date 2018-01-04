@@ -920,7 +920,7 @@ func TestUtxoEntryDeserializeErrors(t *testing.T) {
 func TestBestChainStateSerialization(t *testing.T) {
 	t.Parallel()
 
-	workSum := new(big.Int)
+	WorkSum := new(big.Int)
 	tests := []struct {
 		name       string
 		state      bestChainState
@@ -932,9 +932,9 @@ func TestBestChainStateSerialization(t *testing.T) {
 				hash:      *newHashFromStr("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"),
 				height:    0,
 				totalTxns: 1,
-				workSum: func() *big.Int {
-					workSum.Add(workSum, CalcWork(486604799))
-					return new(big.Int).Set(workSum)
+				WorkSum: func() *big.Int {
+					WorkSum.Add(WorkSum, CalcWork(486604799))
+					return new(big.Int).Set(WorkSum)
 				}(), // 0x0100010001
 			},
 			serialized: hexToBytes("6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000000000000100000000000000050000000100010001"),
@@ -945,9 +945,9 @@ func TestBestChainStateSerialization(t *testing.T) {
 				hash:      *newHashFromStr("00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048"),
 				height:    1,
 				totalTxns: 2,
-				workSum: func() *big.Int {
-					workSum.Add(workSum, CalcWork(486604799))
-					return new(big.Int).Set(workSum)
+				WorkSum: func() *big.Int {
+					WorkSum.Add(WorkSum, CalcWork(486604799))
+					return new(big.Int).Set(WorkSum)
 				}(), // 0x0200020002
 			},
 			serialized: hexToBytes("4860eb18bf1b1620e37e9490fc8a427514416fd75159ab86688e9a8300000000010000000200000000000000050000000200020002"),
