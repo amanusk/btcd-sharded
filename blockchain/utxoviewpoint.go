@@ -6,6 +6,7 @@ package blockchain
 
 import (
 	"fmt"
+	reallog "log"
 
 	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -205,6 +206,13 @@ func (view *UtxoViewpoint) BestHash() *chainhash.Hash {
 	return &view.bestHash
 }
 
+// Print utxos in view to log
+func (view *UtxoViewpoint) PrintToLog() {
+	for idx, utxo := range view.entries {
+		reallog.Println("Utxo id,", idx, "Val: ", utxo)
+	}
+}
+
 // SetBestHash sets the hash of the best block in the chain the view currently
 // respresents.
 func (view *UtxoViewpoint) SetBestHash(hash *chainhash.Hash) {
@@ -334,12 +342,17 @@ func (view *UtxoViewpoint) connectTransaction(tx *btcutil.Tx, blockHeight int32,
 // In addition, when the 'stxos' argument is not nil, it will be updated to
 // append an entry for each spent txout.
 func (view *UtxoViewpoint) connectTransactions(block *btcutil.Block, stxos *[]spentTxOut) error {
+	reallog.Printf("stxos Before", stxos)
 	for _, tx := range block.Transactions() {
 		err := view.connectTransaction(tx, block.Height(), stxos)
+
+		reallog.Printf("Connected tx", tx)
 		if err != nil {
+			reallog.Printf("Error connecting", tx)
 			return err
 		}
 	}
+	reallog.Printf("stxos After", stxos)
 
 	// Update the best hash for view to include this block since all of its
 	// transactions have been connected.

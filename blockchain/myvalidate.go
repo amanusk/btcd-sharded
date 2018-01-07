@@ -72,7 +72,7 @@ func MyCheckBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource Medi
 	// sane before continuing.
 	for _, tx := range transactions {
 		// Import log as reallog
-		reallog.Println("Checking", tx)
+		reallog.Println("Sanity check on tx", tx)
 		err := CheckTransactionSanity(tx)
 		if err != nil {
 			return err

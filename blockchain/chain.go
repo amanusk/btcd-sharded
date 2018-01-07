@@ -742,6 +742,7 @@ func sqlConnectBlock(db *sql.DB, node *BlockNode, block *btcutil.Block, view *Ut
 	if err != nil {
 		return err
 	}
+	view.PrintToLog()
 
 	//	// Update the transaction spend journal by adding a record for
 	//	// the block that contains all txos spent by it.
@@ -1277,6 +1278,9 @@ func ConnectBestChain(db *sql.DB, node *BlockNode, index *BlockIndex, block *btc
 			if err != nil {
 				reallog.Fatal("Unable to fetch Input Utxos")
 				return false, err
+			} else {
+				reallog.Println("Fetched Input utxos")
+				view.PrintToLog()
 			}
 			err = view.connectTransactions(block, &stxos)
 			if err != nil {

@@ -32,6 +32,7 @@ func TestSimpleBlock(t *testing.T) {
 	f, err := os.OpenFile("testlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	defer f.Close()
 	log.SetOutput(f)
+	log.SetFlags(log.Lshortfile)
 	log.Println("This is a test log entry")
 
 	db := initDB()
@@ -87,9 +88,13 @@ func TestSimpleBlock(t *testing.T) {
 		op := g.oldestCoinbaseOut()
 		outs = append(outs, &op)
 	}
+	// Start adding blocks
 	g.nextBlock("b1", outs[0])
+	processBlock(db, btcutil.NewBlock(g.tip), index, g.params.PowLimit)
 
-	addBlock(db, g.tip)
+	g.nextBlock("b2", outs[1])
+	processBlock(db, btcutil.NewBlock(g.tip), index, g.params.PowLimit)
+
 	blockHash := g.tip.BlockHash()
 
 	// Query all txs from databse

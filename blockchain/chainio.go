@@ -826,8 +826,11 @@ func sqlDbFetchUtxoEntry(db *sql.DB, hash *chainhash.Hash) (*UtxoEntry, error) {
 	// Fetch the unspent transaction output information for the passed
 	// transaction hash.  Return nil when there is no entry.
 	var serializedUtxo []byte
+	reallog.Print("Trying to fetch", hash[:])
 	err := db.QueryRow(
-		"SELECT * FROM utxos WHERE utxoHash = $1", hash[:]).Scan(&serializedUtxo)
+		"SELECT utxodata FROM utxos WHERE txhash = $1", hash[:]).Scan(&serializedUtxo)
+	reallog.Print("Fetched Serialized UTXO", serializedUtxo)
+	reallog.Print("Err ", err)
 	if serializedUtxo == nil {
 		return nil, nil
 	}
@@ -942,12 +945,12 @@ func sqlDbPutUtxoView(db *sql.DB, view *UtxoViewpoint) error {
 		//	return err
 		//}
 
-		_, err = db.Exec(
-			"INSERT INTO utxos (txhash, utxoData)"+
-				"VALUES ($1, $2) ", txHash[:], serialized)
+		_, err = db.Exec("INSERT INTO utxos (txhash, utxodata)"+
+			"VALUES ($1, $2)", txHash[:], serialized)
+		reallog.Print("Inserting TX", txHash[:], "Serialized: ", serialized)
 		if err != nil {
 			// Should be checked or something, left for debug
-			reallog.Print(err)
+			reallog.Print("SQL Insert Err:", err)
 		} else {
 			reallog.Print("Save tx ", txHash)
 		}
