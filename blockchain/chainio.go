@@ -829,8 +829,11 @@ func sqlDbFetchUtxoEntry(db *sql.DB, hash *chainhash.Hash) (*UtxoEntry, error) {
 	reallog.Print("Trying to fetch", hash[:])
 	err := db.QueryRow(
 		"SELECT utxodata FROM utxos WHERE txhash = $1", hash[:]).Scan(&serializedUtxo)
-	reallog.Print("Fetched Serialized UTXO", serializedUtxo)
-	reallog.Print("Err ", err)
+	if err != nil {
+		reallog.Print("Err ", err)
+	} else {
+		reallog.Print("Fetched Serialized UTXO", serializedUtxo)
+	}
 	if serializedUtxo == nil {
 		return nil, nil
 	}
@@ -930,23 +933,20 @@ func sqlDbPutUtxoView(db *sql.DB, view *UtxoViewpoint) error {
 		txHash := txHashIter
 
 		// Remove the utxo entry if it is now fully spent.
-		//if serialized == nil {
-		//	if err := utxoBucket.Delete(txHash[:]); err != nil {
-		//		return err
-		//	}
-
-		//	continue
-		//}
+		if serialized == nil {
+			_, err = db.Exec("DELETE FROM utxos WHERE txhash in ($1);", txHash[:])
+			if err != nil {
+				// Should be checked or something, left for debug
+				reallog.Print("SQL Remove Err", err)
+			} else {
+				reallog.Print("Removing spent TX ", serialized)
+			}
+		}
 
 		// At this point the utxo entry is not fully spent, so store its
-		// serialization in the database.
-		//err = utxoBucket.Put(txHash[:], serialized)
-		//if err != nil {
-		//	return err
-		//}
-
 		_, err = db.Exec("INSERT INTO utxos (txhash, utxodata)"+
-			"VALUES ($1, $2)", txHash[:], serialized)
+			"VALUES ($1, $2) ON CONFLICT (txhash) DO "+
+			"UPDATE SET utxodata=$2;", txHash[:], serialized)
 		reallog.Print("Inserting TX", txHash[:], "Serialized: ", serialized)
 		if err != nil {
 			// Should be checked or something, left for debug
