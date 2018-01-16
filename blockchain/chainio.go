@@ -1222,6 +1222,119 @@ func (b *BlockChain) createChainState() error {
 	return err
 }
 
+// Adds a block header to the headers table in the blockchain database
+func addBlock(db *sql.DB, block *wire.MsgBlock) {
+	addBlockHeader(db, block.Header)
+	blockHash := block.BlockHash()
+	for idx, val := range block.Transactions {
+		addTX(db, blockHash[:], idx, val)
+	}
+}
+
+// Adds a block header to the headers table in the blockchain database
+func addBlockHeader(db *sql.DB, h wire.BlockHeader) {
+	blockHash := h.BlockHash()
+	_, err := db.Exec(
+		"INSERT INTO headers (blockHash, version, PervBlock, MerkleRoot, Timestamp, Bits, Nonce)"+
+			"VALUES ($1, $2, $3, $4, $5, $6, $7) ", blockHash[:], h.Version, h.PrevBlock[:], h.MerkleRoot[:], h.Timestamp, h.Bits, h.Nonce)
+	if err != nil {
+		// Should be checked or something, left for debug
+		reallog.Print(err)
+	}
+}
+
+// Stores a tx in the database
+func addTX(db *sql.DB, blockHash []byte, idx int, tx *wire.MsgTx) {
+	txHash := tx.TxHash()
+	// Serialize tx to save
+	var bb bytes.Buffer
+	tx.Serialize(&bb)
+	buf := bb.Bytes()
+
+	_, err := db.Exec(
+		"INSERT INTO txs (txhash, blockHash, BlockIndex, txData)"+
+			"VALUES ($1, $2, $3, $4) ", txHash[:], blockHash, idx, buf)
+	if err != nil {
+		// Should be checked or something, left for debug
+		reallog.Print(err)
+	}
+}
+
+// SqlCreateChainState initializes both the database and the chain state to the
+// genesis block.  This includes creating the necessary buckets and inserting
+// the genesis block, so it must only be called on an uninitialized database.
+func (b *BlockChain) sqlCreateChainState() error {
+
+	// Create a new node from the genesis block and set it as the best node.
+	genesisBlock := btcutil.NewBlock(b.chainParams.GenesisBlock)
+	header := &genesisBlock.MsgBlock().Header
+	node := newBlockNode(header, 0)
+	node.Status = StatusDataStored | statusValid
+	b.bestChain.SetTip(node)
+
+	// Add the new node to the index which is used for faster lookups.
+	b.index.AddNode(node)
+
+	// Initialize the state related to the best block.  Since it is the
+	// genesis block, use its timestamp for the median time.
+	numTxns := uint64(len(genesisBlock.MsgBlock().Transactions))
+	blockSize := uint64(genesisBlock.MsgBlock().SerializeSize())
+	blockWeight := uint64(GetBlockWeight(genesisBlock))
+	b.stateSnapshot = newBestState(node, blockSize, blockWeight, numTxns,
+		numTxns, time.Unix(node.timestamp, 0))
+
+	// Create the initial the database chain state including creating the
+	// necessary index buckets and inserting the genesis block.
+
+	// Store the genesis block into the database.
+	//return dbTx.StoreBlock(genesisBlock)
+
+	// Create headers table
+	_, err := b.SqlDB.Exec(
+		"CREATE TABLE IF NOT EXISTS headers (blockHash BYTES PRIMARY KEY," +
+			"Version INT, " +
+			"PervBlock BYTES, " +
+			"MerkleRoot BYTES, " +
+			"Timestamp TIMESTAMP, " +
+			"Bits INT, " +
+			"Nonce INT)")
+	if err != nil {
+		reallog.Fatal(err)
+	}
+
+	// Create headers table
+	_, err = b.SqlDB.Exec(
+		"CREATE TABLE IF NOT EXISTS utxos (txHash BYTES PRIMARY KEY," +
+			"utxoData BYTES)")
+	if err != nil {
+		reallog.Fatal(err)
+	}
+
+	// Create transactions table
+	_, err = b.SqlDB.Exec(
+		"CREATE TABLE IF NOT EXISTS txs (txHash BYTES PRIMARY KEY," +
+			"blockHash BYTES, " +
+			"BlockIndex INT, " +
+			"txData BYTES)")
+	if err != nil {
+		reallog.Fatal(err)
+	}
+
+	addBlock(b.SqlDB, genesisBlock.MsgBlock())
+
+	return err
+}
+
+// sqlInitChainState attempts to load and initialize the chain state from the SQL
+// database.  When the db does not yet contain any chain state, both it and the
+// chain state are initialized to the genesis block.
+func (b *BlockChain) sqlInitChainState() error {
+
+	// At this point the database has not already been initialized, so
+	// initialize both it and the chain state to the genesis block.
+	return b.sqlCreateChainState()
+}
+
 // initChainState attempts to load and initialize the chain state from the
 // database.  When the db does not yet contain any chain state, both it and the
 // chain state are initialized to the genesis block.

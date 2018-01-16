@@ -6,6 +6,7 @@ package blockchain
 
 import (
 	"fmt"
+	reallog "log"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -241,4 +242,19 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 	log.Debugf("Accepted block %v", blockHash)
 
 	return isMainChain, false, nil
+}
+
+// Simplified block process using the sqlDB
+func (b *BlockChain) SqlProcessBlock(block *btcutil.Block, flags BehaviorFlags) {
+
+	blockHash := block.Hash()
+	reallog.Printf("Processing block %v", blockHash)
+
+	err := SqlCheckBlockSanity(block, b.chainParams.PowLimit, b.timeSource, flags)
+	if err != nil {
+		reallog.Fatal(err)
+	}
+
+	b.SqlMaybeAcceptBlock(block, BFNone)
+
 }

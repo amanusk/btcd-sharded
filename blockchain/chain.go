@@ -6,12 +6,13 @@ package blockchain
 
 import (
 	"container/list"
+	"database/sql"
 	"fmt"
+	_ "github.com/lib/pq"
 	reallog "log"
 	"sync"
 	"time"
 
-	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
@@ -97,6 +98,7 @@ type BlockChain struct {
 	checkpoints         []chaincfg.Checkpoint
 	checkpointsByHeight map[int32]*chaincfg.Checkpoint
 	db                  database.DB
+	SqlDB               *sql.DB
 	chainParams         *chaincfg.Params
 	timeSource          MedianTimeSource
 	sigCache            *txscript.SigCache
@@ -1243,7 +1245,7 @@ func (b *BlockChain) connectBestChain(node *BlockNode, block *btcutil.Block, fla
 //    This is useful when using checkpoints.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func ConnectBestChain(db *sql.DB, node *BlockNode, index *BlockIndex, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) SqlConnectBestChain(node *BlockNode, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
 	fastAdd := true
 
 	// We are extending the main (best) chain with a new block.  This is the
@@ -1274,7 +1276,7 @@ func ConnectBestChain(db *sql.DB, node *BlockNode, index *BlockIndex, block *btc
 		// utxos, spend them, and add the new utxos being created by
 		// this block.
 		if fastAdd {
-			err := view.sqlFetchInputUtxos(db, block)
+			err := view.sqlFetchInputUtxos(b.SqlDB, block)
 			if err != nil {
 				reallog.Fatal("Unable to fetch Input Utxos")
 				return false, err
@@ -1290,7 +1292,7 @@ func ConnectBestChain(db *sql.DB, node *BlockNode, index *BlockIndex, block *btc
 
 		// Connect the block to the main chain.
 		// NOTE: This writes all the updated databases to the DB
-		err := sqlConnectBlock(db, node, block, view, stxos)
+		err := sqlConnectBlock(b.SqlDB, node, block, view, stxos)
 		if err != nil {
 			reallog.Printf("Failed to connect block")
 			return false, err
@@ -1705,6 +1707,9 @@ type Config struct {
 	// This field is required.
 	DB database.DB
 
+	// sqlDB for my simplified blockchain
+	SqlDB *sql.DB
+
 	// Interrupt specifies a channel the caller can close to signal that
 	// long running operations, such as catching up indexes or performing
 	// database migrations, should be interrupted.
@@ -1841,6 +1846,93 @@ func New(config *Config) (*BlockChain, error) {
 	log.Infof("Chain state (height %d, hash %v, totaltx %d, work %v)",
 		bestNode.height, bestNode.hash, b.stateSnapshot.TotalTxns,
 		bestNode.WorkSum)
+
+	return &b, nil
+}
+
+// New returns a BlockChain instance using the provided configuration details.
+func SqlNew(config *Config) (*BlockChain, error) {
+	// Enforce required config fields.
+	if config.SqlDB == nil {
+		return nil, AssertError("blockchain.New database is nil")
+	}
+	if config.ChainParams == nil {
+		return nil, AssertError("blockchain.New chain parameters nil")
+	}
+	if config.TimeSource == nil {
+		return nil, AssertError("blockchain.New timesource is nil")
+	}
+
+	// Generate a checkpoint by height map from the provided checkpoints
+	// and assert the provided checkpoints are sorted by height as required.
+	var checkpointsByHeight map[int32]*chaincfg.Checkpoint
+	var prevCheckpointHeight int32
+	if len(config.Checkpoints) > 0 {
+		checkpointsByHeight = make(map[int32]*chaincfg.Checkpoint)
+		for i := range config.Checkpoints {
+			checkpoint := &config.Checkpoints[i]
+			if checkpoint.Height <= prevCheckpointHeight {
+				return nil, AssertError("blockchain.New " +
+					"checkpoints are not sorted by height")
+			}
+
+			checkpointsByHeight[checkpoint.Height] = checkpoint
+			prevCheckpointHeight = checkpoint.Height
+		}
+	}
+
+	params := config.ChainParams
+	targetTimespan := int64(params.TargetTimespan / time.Second)
+	targetTimePerBlock := int64(params.TargetTimePerBlock / time.Second)
+	adjustmentFactor := params.RetargetAdjustmentFactor
+	b := BlockChain{
+		checkpoints:         config.Checkpoints,
+		checkpointsByHeight: checkpointsByHeight,
+		SqlDB:               config.SqlDB,
+		chainParams:         params,
+		timeSource:          config.TimeSource,
+		sigCache:            config.SigCache,
+		indexManager:        config.IndexManager,
+		minRetargetTimespan: targetTimespan / adjustmentFactor,
+		maxRetargetTimespan: targetTimespan * adjustmentFactor,
+		blocksPerRetarget:   int32(targetTimespan / targetTimePerBlock),
+		index:               newBlockIndex(config.DB, params),
+		hashCache:           config.HashCache,
+		bestChain:           newChainView(nil),
+		orphans:             make(map[chainhash.Hash]*orphanBlock),
+		prevOrphans:         make(map[chainhash.Hash][]*orphanBlock),
+		warningCaches:       newThresholdCaches(vbNumBits),
+		deploymentCaches:    newThresholdCaches(chaincfg.DefinedDeployments),
+	}
+
+	// Initialize the chain state from the passed database.  When the db
+	// does not yet contain any chain state, both it and the chain state
+	// will be initialized to contain only the genesis block.
+
+	if err := b.sqlInitChainState(); err != nil {
+		return nil, err
+	}
+
+	// Initialize and catch up all of the currently active optional indexes
+	// as needed.
+	if config.IndexManager != nil {
+		err := config.IndexManager.Init(&b, config.Interrupt)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Initialize rule change threshold state caches.
+	if err := b.initThresholdCaches(); err != nil {
+		return nil, err
+	}
+
+	bestNode := b.bestChain.Tip()
+	log.Infof("Chain state (height %d, hash %v, totaltx %d, work %v)",
+		bestNode.height, bestNode.hash, b.stateSnapshot.TotalTxns,
+		bestNode.WorkSum)
+
+	// Initialize the coordinator
 
 	return &b, nil
 }
