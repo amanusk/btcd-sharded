@@ -3,7 +3,6 @@ package blockchain
 import (
 	"bufio"
 	"encoding/gob"
-	"fmt"
 	"github.com/pkg/errors"
 	"io"
 	reallog "log"
@@ -17,13 +16,30 @@ type Client struct {
 	socket  net.Conn
 	data    chan []byte
 	handler map[string]ClientHandleFunc
+	Index   *BlockIndex
+	SqlDB   *SqlBlockDB
 	m       sync.RWMutex
 }
 
-func NewClient(connection net.Conn) *Client {
+// Creates a new client connection for a coordintor to use.
+// It has a connection and a channel to receive data from the server
+func NewClientConnection(connection net.Conn) *Client {
 	client := &Client{
 		socket: connection,
 		data:   make(chan []byte),
+	}
+	return client
+}
+
+// Creates a new client for a coordintor to use.
+// It has a connection and a channel to receive data from the server
+func NewClient(connection net.Conn, index *BlockIndex, db *SqlBlockDB) *Client {
+	client := &Client{
+		Index:   index,
+		SqlDB:   db,
+		handler: map[string]ClientHandleFunc{},
+		socket:  connection,
+		data:    make(chan []byte),
 	}
 	return client
 }
@@ -136,28 +152,18 @@ func (client *Client) handleMessages(conn net.Conn) {
 	}
 }
 
-func StartClientMode() {
-
-	fmt.Println("Starting client...")
-	connection, error := net.Dial("tcp", "localhost:12345")
-	if error != nil {
-		fmt.Println(error)
-	}
-	client := &Client{
-		socket:  connection,
-		handler: map[string]ClientHandleFunc{},
-	}
-	go client.receive()
+func (c *Client) StartClient() {
+	go c.receive()
 	for {
 		reader := bufio.NewReader(os.Stdin)
 		message, _ := reader.ReadString('\n')
 		message = strings.TrimRight(message, "\n")
 		if message == "STRING" {
-			connection.Write([]byte(message))
-			client.sendStringGob()
+			c.socket.Write([]byte(message))
+			c.sendStringGob()
 		} else if message == "GOB" {
-			connection.Write([]byte(message))
-			client.sendGob()
+			c.socket.Write([]byte(message))
+			c.sendGob()
 		}
 	}
 }

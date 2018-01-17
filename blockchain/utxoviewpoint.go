@@ -8,7 +8,6 @@ import (
 	"fmt"
 	reallog "log"
 
-	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/txscript"
@@ -511,7 +510,7 @@ func (view *UtxoViewpoint) fetchUtxosMain(db database.DB, txSet map[chainhash.Ha
 // Upon completion of this function, the view will contain an entry for each
 // requested transaction.  Fully spent transactions, or those which otherwise
 // don't exist, will result in a nil entry in the view.
-func (view *UtxoViewpoint) sqlFetchUtxosMain(db *sql.DB, txSet map[chainhash.Hash]struct{}) error {
+func (view *UtxoViewpoint) sqlFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error {
 	// Nothing to do if there are no requested hashes.
 	if len(txSet) == 0 {
 		return nil
@@ -619,7 +618,7 @@ func (view *UtxoViewpoint) fetchInputUtxos(db database.DB, block *btcutil.Block)
 // by the transactions in the given block into the view from the database as
 // needed.  In particular, referenced entries that are earlier in the block are
 // added to the view and entries that are already in the view are not modified.
-func (view *UtxoViewpoint) sqlFetchInputUtxos(db *sql.DB, block *btcutil.Block) error {
+func (view *UtxoViewpoint) sqlFetchInputUtxos(db *SqlBlockDB, block *btcutil.Block) error {
 	// Build a map of in-flight transactions because some of the inputs in
 	// this block could be referencing other transactions earlier in this
 	// block which are not yet in the chain.

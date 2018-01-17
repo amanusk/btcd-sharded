@@ -13,12 +13,10 @@ import (
 	"sort"
 	"time"
 
-	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	_ "github.com/lib/pq"
 )
 
 var (
@@ -822,12 +820,12 @@ func dbFetchUtxoEntry(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry, error
 	return entry, nil
 }
 
-func sqlDbFetchUtxoEntry(db *sql.DB, hash *chainhash.Hash) (*UtxoEntry, error) {
+func sqlDbFetchUtxoEntry(db *SqlBlockDB, hash *chainhash.Hash) (*UtxoEntry, error) {
 	// Fetch the unspent transaction output information for the passed
 	// transaction hash.  Return nil when there is no entry.
 	var serializedUtxo []byte
 	reallog.Print("Trying to fetch", hash[:])
-	err := db.QueryRow(
+	err := db.db.QueryRow(
 		"SELECT utxodata FROM utxos WHERE txhash = $1", hash[:]).Scan(&serializedUtxo)
 	if err != nil {
 		reallog.Print("Err ", err)
@@ -913,7 +911,7 @@ func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
 // in the database based on the provided utxo view contents and state.  In
 // particular, only the entries that have been marked as modified are written
 // to the database.
-func sqlDbPutUtxoView(db *sql.DB, view *UtxoViewpoint) error {
+func sqlDbPutUtxoView(db *SqlBlockDB, view *UtxoViewpoint) error {
 	for txHashIter, entry := range view.entries {
 		// No need to update the database if the entry was not modified.
 		if entry == nil || !entry.modified {
@@ -934,26 +932,11 @@ func sqlDbPutUtxoView(db *sql.DB, view *UtxoViewpoint) error {
 
 		// Remove the utxo entry if it is now fully spent.
 		if serialized == nil {
-			_, err = db.Exec("DELETE FROM utxos WHERE txhash in ($1);", txHash[:])
-			if err != nil {
-				// Should be checked or something, left for debug
-				reallog.Print("SQL Remove Err", err)
-			} else {
-				reallog.Print("Removing spent TX ", serialized)
-			}
+			db.RemoveUTXO(txHash)
 		}
 
 		// At this point the utxo entry is not fully spent, so store its
-		_, err = db.Exec("INSERT INTO utxos (txhash, utxodata)"+
-			"VALUES ($1, $2) ON CONFLICT (txhash) DO "+
-			"UPDATE SET utxodata=$2;", txHash[:], serialized)
-		reallog.Print("Inserting TX", txHash[:], "Serialized: ", serialized)
-		if err != nil {
-			// Should be checked or something, left for debug
-			reallog.Print("SQL Insert Err:", err)
-		} else {
-			reallog.Print("Save tx ", txHash)
-		}
+		db.StoreUTXO(txHash, serialized)
 	}
 
 	return nil
@@ -1222,47 +1205,10 @@ func (b *BlockChain) createChainState() error {
 	return err
 }
 
-// Adds a block header to the headers table in the blockchain database
-func addBlock(db *sql.DB, block *wire.MsgBlock) {
-	addBlockHeader(db, block.Header)
-	blockHash := block.BlockHash()
-	for idx, val := range block.Transactions {
-		addTX(db, blockHash[:], idx, val)
-	}
-}
-
-// Adds a block header to the headers table in the blockchain database
-func addBlockHeader(db *sql.DB, h wire.BlockHeader) {
-	blockHash := h.BlockHash()
-	_, err := db.Exec(
-		"INSERT INTO headers (blockHash, version, PervBlock, MerkleRoot, Timestamp, Bits, Nonce)"+
-			"VALUES ($1, $2, $3, $4, $5, $6, $7) ", blockHash[:], h.Version, h.PrevBlock[:], h.MerkleRoot[:], h.Timestamp, h.Bits, h.Nonce)
-	if err != nil {
-		// Should be checked or something, left for debug
-		reallog.Print(err)
-	}
-}
-
-// Stores a tx in the database
-func addTX(db *sql.DB, blockHash []byte, idx int, tx *wire.MsgTx) {
-	txHash := tx.TxHash()
-	// Serialize tx to save
-	var bb bytes.Buffer
-	tx.Serialize(&bb)
-	buf := bb.Bytes()
-
-	_, err := db.Exec(
-		"INSERT INTO txs (txhash, blockHash, BlockIndex, txData)"+
-			"VALUES ($1, $2, $3, $4) ", txHash[:], blockHash, idx, buf)
-	if err != nil {
-		// Should be checked or something, left for debug
-		reallog.Print(err)
-	}
-}
-
 // SqlCreateChainState initializes both the database and the chain state to the
 // genesis block.  This includes creating the necessary buckets and inserting
 // the genesis block, so it must only be called on an uninitialized database.
+// NOTE Start from removing the database related parts from here
 func (b *BlockChain) sqlCreateChainState() error {
 
 	// Create a new node from the genesis block and set it as the best node.
@@ -1290,37 +1236,9 @@ func (b *BlockChain) sqlCreateChainState() error {
 	//return dbTx.StoreBlock(genesisBlock)
 
 	// Create headers table
-	_, err := b.SqlDB.Exec(
-		"CREATE TABLE IF NOT EXISTS headers (blockHash BYTES PRIMARY KEY," +
-			"Version INT, " +
-			"PervBlock BYTES, " +
-			"MerkleRoot BYTES, " +
-			"Timestamp TIMESTAMP, " +
-			"Bits INT, " +
-			"Nonce INT)")
-	if err != nil {
-		reallog.Fatal(err)
-	}
+	err := b.SqlDB.InitTables()
 
-	// Create headers table
-	_, err = b.SqlDB.Exec(
-		"CREATE TABLE IF NOT EXISTS utxos (txHash BYTES PRIMARY KEY," +
-			"utxoData BYTES)")
-	if err != nil {
-		reallog.Fatal(err)
-	}
-
-	// Create transactions table
-	_, err = b.SqlDB.Exec(
-		"CREATE TABLE IF NOT EXISTS txs (txHash BYTES PRIMARY KEY," +
-			"blockHash BYTES, " +
-			"BlockIndex INT, " +
-			"txData BYTES)")
-	if err != nil {
-		reallog.Fatal(err)
-	}
-
-	addBlock(b.SqlDB, genesisBlock.MsgBlock())
+	b.SqlDB.AddBlock(genesisBlock.MsgBlock())
 
 	return err
 }

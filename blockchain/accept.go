@@ -136,7 +136,7 @@ func (b *BlockChain) SqlMaybeAcceptBlock(block *btcutil.Block, flags BehaviorFla
 	// expensive connection logic.  It also has some other nice properties
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
-	addBlock(b.SqlDB, block.MsgBlock())
+	b.SqlDB.AddBlock(block.MsgBlock())
 
 	// Create a new block node for the block and add it to the in-memory
 	// block chain (could be either a side chain or the main chain).

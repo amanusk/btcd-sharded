@@ -15,9 +15,6 @@ import (
 	"strings"
 	"testing"
 
-	"database/sql"
-	_ "github.com/lib/pq"
-
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/blockchain/fullblocktests"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -63,19 +60,6 @@ func isSupportedDbType(dbType string) bool {
 	return false
 }
 
-// Function to open the sqlDB to use with our blockchain
-// DB needs to be created and running
-// Start with cockroach start --insecure --host=localhost
-func openDB() *sql.DB {
-	// Open the sql DB and join it
-	db, err := sql.Open("postgres", "postgresql://amanusk@localhost:26257/blockchain?sslmode=disable")
-	if err != nil {
-		panic(err)
-	}
-
-	return db
-}
-
 // chainSetup is used to create a new db and chain instance with the genesis
 // block already inserted.  In addition to the new chain instance, it returns
 // a teardown function the caller should invoke when done testing to clean up.
@@ -84,7 +68,7 @@ func chainSetup(dbName string, params *chaincfg.Params) (*blockchain.BlockChain,
 	// Handle memory database specially since it doesn't need the disk
 	// specific handling.
 	var teardown func()
-	sqlDB := openDB()
+	sqlDB := blockchain.OpenDB()
 
 	// Setup a teardown function for cleaning up.  This function is
 	// returned to the caller to be invoked when it is done testing.
@@ -158,9 +142,9 @@ func TestFullBlocksSQL(t *testing.T) {
 		go manager.Start()
 
 		// Wait for all the clients to get connected
-		for manager.GetNumClientes() < 0 {
+		for manager.GetNumClientes() < 1 {
 			connection, _ := manager.Listener.Accept()
-			client := blockchain.NewClient(connection)
+			client := blockchain.NewClientConnection(connection)
 			manager.Register(client)
 			go manager.Receive(client)
 			go manager.Send(client)
@@ -222,7 +206,32 @@ func TestFullBlocksSQL(t *testing.T) {
 			}
 		}
 	} else {
-		fmt.Print("Server mode\n")
-		blockchain.StartClientMode()
+		// Setting up my logging system
+		f, err := os.OpenFile("ctestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			t.Fatalf("Failed to create Client log file: %v", err)
+		}
+		defer f.Close()
+
+		reallog.SetOutput(f)
+		reallog.SetFlags(reallog.Lshortfile)
+		reallog.Println("This is a test log entry")
+
+		fmt.Print("Client mode\n")
+		index := blockchain.MyNewBlockIndex(&chaincfg.RegressionNetParams)
+		sqlDB := blockchain.OpenDB()
+
+		reallog.Printf("Index is", index)
+		reallog.Printf("DB is", sqlDB)
+
+		fmt.Println("Starting client...")
+		connection, err := net.Dial("tcp", "localhost:12345")
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		c := blockchain.NewClient(connection, index, sqlDB)
+		c.StartClient()
+
 	}
 }

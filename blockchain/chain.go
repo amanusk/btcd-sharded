@@ -6,9 +6,7 @@ package blockchain
 
 import (
 	"container/list"
-	"database/sql"
 	"fmt"
-	_ "github.com/lib/pq"
 	reallog "log"
 	"sync"
 	"time"
@@ -98,7 +96,7 @@ type BlockChain struct {
 	checkpoints         []chaincfg.Checkpoint
 	checkpointsByHeight map[int32]*chaincfg.Checkpoint
 	db                  database.DB
-	SqlDB               *sql.DB
+	SqlDB               *SqlBlockDB
 	chainParams         *chaincfg.Params
 	timeSource          MedianTimeSource
 	sigCache            *txscript.SigCache
@@ -697,7 +695,7 @@ func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view *U
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func sqlConnectBlock(db *sql.DB, node *BlockNode, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
+func sqlConnectBlock(db *SqlBlockDB, node *BlockNode, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
 	// Make sure it's extending the end of the best chain.
 	//prevHash := &block.MsgBlock().Header.PrevBlock
 	//if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
@@ -1708,7 +1706,7 @@ type Config struct {
 	DB database.DB
 
 	// sqlDB for my simplified blockchain
-	SqlDB *sql.DB
+	SqlDB *SqlBlockDB
 
 	// Interrupt specifies a channel the caller can close to signal that
 	// long running operations, such as catching up indexes or performing
