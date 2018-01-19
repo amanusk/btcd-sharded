@@ -2,6 +2,7 @@ package blockchain
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/gob"
 	"fmt"
 	"github.com/pkg/errors"
@@ -11,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/btcsuite/btcd/wire"
 )
 
 type Client struct {
@@ -71,21 +74,38 @@ func handleStatusRequest(conn net.Conn) {
 
 func (client *Client) receive() {
 	fmt.Printf("Client started recieving")
-	client.AddHandleFunc("STATUS", handleStatusRequest)
-	client.handleMessages(client.Socket)
-	//defer os.Exit(0)
-	//for {
-	//	message := make([]byte, 4096)
-	//	length, err := client.socket.Read(message)
-	//	if err != nil {
-	//		client.socket.Close()
-	//		break
-	//	}
-	//	// Here the client needs to send back his state
-	//	if length > 0 {
-	//		fmt.Println("RECEIVED: " + string(message))
-	//	}
-	//}
+	//client.AddHandleFunc("STATUS", handleStatusRequest)
+	//client.handleMessages(client.Socket)
+	// NOTE: This should be replaced with various message handling
+	for {
+		reallog.Print("Receive GOB data:")
+		var data TxGob
+
+		dec := gob.NewDecoder(client.Socket)
+		err := dec.Decode(&data)
+		if err != nil {
+			reallog.Println("Error decoding GOB data:", err)
+			return
+		}
+
+		// Process the transactions
+		for idx, txBytes := range data.TXs {
+			var msgTx wire.MsgTx
+			err = msgTx.Deserialize(bytes.NewReader(txBytes))
+			if err != nil {
+				reallog.Println("Error decoding TX data:", err)
+			}
+			fmt.Println(msgTx)
+			// TODO the idx should be uniqe and passed as part of the GOB
+			client.SqlDB.AddTX(data.BlockHash[:], idx, &msgTx)
+		}
+
+		// Sending a shardDone message to the coordinator
+		message := "SHARDDONE"
+		client.Socket.Write([]byte(message))
+
+	}
+
 }
 
 func (client *Client) sendGob() error {

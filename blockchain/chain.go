@@ -1348,6 +1348,105 @@ func (b *BlockChain) SqlConnectBestChain(node *BlockNode, block *btcutil.Block, 
 	return true, nil
 }
 
+// A function to use by  a shard connecting TXs to the blockchain
+// This is similar to ConnectBestChain but much simplified
+func ShardConnectBestChain(db *sqlDB.DB, block *btcutil.Block) (bool, error) {
+	fastAdd := true
+
+	// We are extending the main (best) chain with a new block.  This is the
+	// most common case.
+	// parentHash := &block.MsgBlock().Header.PrevBlock
+	if true {
+		// Perform several checks to verify the block can be connected
+		// to the main chain without violating any rules and without
+		// actually connecting the block.
+		view := NewUtxoViewpoint()
+		//view.SetBestHash(parentHash)
+		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
+
+		//if !fastAdd {
+		//	err := b.checkConnectBlock(node, block, view, &stxos)
+
+		//	if err != nil {
+		//		if _, ok := err.(RuleError); ok {
+		//			index.SetStatusFlags(node, statusValidateFailed)
+		//		}
+		//		return false, err
+		//	}
+		//	index.SetStatusFlags(node, statusValid)
+		//}
+
+		// In the fast add case the code to check the block connection
+		// was skipped, so the utxo view needs to load the referenced
+		// utxos, spend them, and add the new utxos being created by
+		// this block.
+		if fastAdd {
+			err := view.sqlFetchInputUtxos(b.SqlDB, block)
+			if err != nil {
+				reallog.Fatal("Unable to fetch Input Utxos")
+				return false, err
+			} else {
+				reallog.Println("Fetched Input utxos")
+				view.PrintToLog()
+			}
+			err = view.connectTransactions(block, &stxos)
+			if err != nil {
+				return false, err
+			}
+		}
+
+		// Connect the block to the main chain.
+		// NOTE: This writes all the updated databases to the DB
+		err := sqlConnectBlock(b.SqlDB, node, block, view, stxos)
+		if err != nil {
+			reallog.Printf("Failed to connect block")
+			return false, err
+		}
+
+		return true, nil
+	}
+	//if fastAdd {
+	//	log.Warnf("fastAdd set in the side chain case? %v\n",
+	//		block.Hash())
+	//}
+
+	//// We're extending (or creating) a side chain, but the cumulative
+	//// work for this new side chain is not enough to make it the new chain.
+	//if node.WorkSum.Cmp(b.bestChain.Tip().WorkSum) <= 0 {
+	//	// Log information about how the block is forking the chain.
+	//	fork := b.bestChain.FindFork(node)
+	//	if fork.hash.IsEqual(parentHash) {
+	//		log.Infof("FORK: Block %v forks the chain at height %d"+
+	//			"/block %v, but does not cause a reorganize",
+	//			node.hash, fork.height, fork.hash)
+	//	} else {
+	//		log.Infof("EXTEND FORK: Block %v extends a side chain "+
+	//			"which forks the chain at height %d/block %v",
+	//			node.hash, fork.height, fork.hash)
+	//	}
+
+	//	return false, nil
+	//}
+
+	// We're extending (or creating) a side chain and the cumulative work
+	// for this new side chain is more than the old best chain, so this side
+	// chain needs to become the main chain.  In order to accomplish that,
+	// find the common ancestor of both sides of the fork, disconnect the
+	// blocks that form the (now) old fork from the main chain, and attach
+	// the blocks that form the new chain to the main chain starting at the
+	// common ancenstor (the point where the chain forked).
+	//detachNodes, attachNodes := b.getReorganizeNodes(node)
+
+	// Reorganize the chain.
+	//log.Infof("REORGANIZE: Block %v is causing a reorganize.", node.hash)
+	//err := b.reorganizeChain(detachNodes, attachNodes)
+	//if err != nil {
+	//	return false, err
+	//}
+
+	return true, nil
+}
+
 // isCurrent returns whether or not the chain believes it is current.  Several
 // factors are used to guess, but the key factors that allow the chain to
 // believe it is current are:

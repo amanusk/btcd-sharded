@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	reallog "log"
@@ -18,6 +19,7 @@ import (
 	"runtime/pprof"
 	"strings"
 
+	"encoding/gob"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/blockchain/fullblocktests"
 	"github.com/btcsuite/btcd/blockchain/indexers"
@@ -440,16 +442,33 @@ func main() {
 			clients := manager.GetClients()
 
 			//manager.Chain.SqlProcessBlock(block, blockchain.BFNone)
-			manager.ProcessBlock(&block.MsgBlock().Header, blockchain.BFNone)
-			if err != nil {
-				reallog.Printf("block %q (hash %s, height %d) should "+
-					"have been accepted: %v", item.Name,
-					block.Hash(), blockHeight, err)
+			//if err != nil {
+			//	reallog.Printf("block %q (hash %s, height %d) should "+
+			//		"have been accepted: %v", item.Name,
+			//		block.Hash(), blockHeight, err)
+			//}
+
+			// Create a gob of transactions to send to shards
+			txToSend := blockchain.TxGob{
+				BlockHash: block.MsgBlock().Header.BlockHash(),
+				TXs:       make([][]byte, 0),
 			}
 
-			for idx, tx := range block.MsgBlock().Transactions {
-				clients[idx%numClients].Socket.Write(tx.Serialize)
+			// Try with one shard at first
+			for _, tx := range block.MsgBlock().Transactions {
+				var bb bytes.Buffer
+				tx.Serialize(&bb)
+				buf := bb.Bytes()
+				txToSend.TXs = append(txToSend.TXs, buf)
 			}
+
+			enc := gob.NewEncoder(clients[0].Socket)
+			err = enc.Encode(txToSend)
+			if err != nil {
+				reallog.Println(err, "Encode failed for struct: %#v", txToSend)
+			}
+
+			manager.ProcessBlock(&block.MsgBlock().Header, blockchain.BFNone)
 
 			// Ensure the main chain and orphan flags match the values
 			// specified in the test.

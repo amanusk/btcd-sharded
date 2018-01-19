@@ -9,18 +9,20 @@ import (
 	_ "strconv"
 	"sync"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 )
 
 type Coordinator struct {
-	clients    map[*Client]bool
-	broadcast  chan []byte
-	register   chan *Client
-	unregister chan *Client
-	handler    map[string]HandleFunc
-	Connected  chan bool // Sends a sigal that a client connection completed
-	Listener   net.Listener
-	Chain      *BlockChain
+	clients       map[*Client]bool
+	broadcast     chan []byte
+	register      chan *Client
+	unregister    chan *Client
+	handler       map[string]HandleFunc
+	allShardsDone chan bool
+	Connected     chan bool // Sends a sigal that a client connection completed
+	Listener      net.Listener
+	Chain         *BlockChain
 
 	m sync.RWMutex
 
@@ -30,14 +32,15 @@ type Coordinator struct {
 // Cerates and returns a new coordinator
 func NewCoordinator(listener net.Listener, blockchain *BlockChain) *Coordinator {
 	coord := Coordinator{
-		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		handler:    map[string]HandleFunc{},
-		Connected:  make(chan bool),
-		Chain:      blockchain,
-		Listener:   listener,
+		clients:       make(map[*Client]bool),
+		broadcast:     make(chan []byte),
+		register:      make(chan *Client),
+		unregister:    make(chan *Client),
+		allShardsDone: make(chan bool),
+		handler:       map[string]HandleFunc{},
+		Connected:     make(chan bool),
+		Chain:         blockchain,
+		Listener:      listener,
 	}
 	return &coord
 }
@@ -50,6 +53,11 @@ type complexData struct {
 	M map[string]int
 	P []byte
 	C *complexData
+}
+
+type TxGob struct {
+	BlockHash chainhash.Hash
+	TXs       [][]byte
 }
 
 type stringData struct {
@@ -67,6 +75,7 @@ func (c *Coordinator) Register(client *Client) {
 func (coord *Coordinator) Start() {
 	coord.AddHandleFunc("STRING", handleStrings)
 	coord.AddHandleFunc("GOB", handleGob)
+	coord.AddHandleFunc("SHARDDONE", handleBlockCheck)
 	for {
 		select {
 		case connection := <-coord.register:
@@ -107,9 +116,8 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 			return
 		}
 
-		reallog.Print("Receive command " + string(message))
 		cmd := (string(message[:n]))
-		reallog.Print(cmd)
+		reallog.Print("Recived command", cmd)
 
 		coord.m.RLock()
 		handleCommand, ok := coord.handler[cmd]
@@ -165,6 +173,12 @@ func handleGob(conn net.Conn, coord *Coordinator) {
 	reallog.Printf("Inner complexData struct: \n%#v\n", data.C)
 }
 
+func handleBlockCheck(conn net.Conn, coord *Coordinator) {
+	reallog.Print("Receive Block Confirmation")
+	coord.allShardsDone <- true
+
+}
+
 func (coord *Coordinator) Send(client *Client) {
 	defer client.Socket.Close()
 	for {
@@ -196,6 +210,10 @@ func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorF
 	err := CheckBlockHeaderSanity(header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
 	if err != nil {
 		return err
+	}
+	// Wait for all the shards to send finish report
+	for i := 0; i < len(coord.clients); i++ {
+		<-coord.allShardsDone
 	}
 	return nil
 }
