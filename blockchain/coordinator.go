@@ -8,6 +8,8 @@ import (
 	"net"
 	_ "strconv"
 	"sync"
+
+	"github.com/btcsuite/btcd/wire"
 )
 
 type Coordinator struct {
@@ -16,7 +18,7 @@ type Coordinator struct {
 	register   chan *Client
 	unregister chan *Client
 	handler    map[string]HandleFunc
-	Connected  chan bool
+	Connected  chan bool // Sends a sigal that a client connection completed
 	Listener   net.Listener
 	Chain      *BlockChain
 
@@ -25,8 +27,9 @@ type Coordinator struct {
 	ClientsMutex sync.RWMutex
 }
 
+// Cerates and returns a new coordinator
 func NewCoordinator(listener net.Listener, blockchain *BlockChain) *Coordinator {
-	manager := Coordinator{
+	coord := Coordinator{
 		clients:    make(map[*Client]bool),
 		broadcast:  make(chan []byte),
 		register:   make(chan *Client),
@@ -36,10 +39,10 @@ func NewCoordinator(listener net.Listener, blockchain *BlockChain) *Coordinator 
 		Chain:      blockchain,
 		Listener:   listener,
 	}
-	return &manager
+	return &coord
 }
 
-type HandleFunc func(conn net.Conn, manager *Coordinator)
+type HandleFunc func(conn net.Conn, coord *Coordinator)
 
 type complexData struct {
 	N int
@@ -61,29 +64,29 @@ func (c *Coordinator) Register(client *Client) {
 	c.register <- client
 }
 
-func (manager *Coordinator) Start() {
-	manager.AddHandleFunc("STRING", handleStrings)
-	manager.AddHandleFunc("GOB", handleGob)
+func (coord *Coordinator) Start() {
+	coord.AddHandleFunc("STRING", handleStrings)
+	coord.AddHandleFunc("GOB", handleGob)
 	for {
 		select {
-		case connection := <-manager.register:
-			manager.clients[connection] = true
+		case connection := <-coord.register:
+			coord.clients[connection] = true
 			fmt.Println("Added new connection!")
-			manager.Connected <- true
-		case connection := <-manager.unregister:
-			if _, ok := manager.clients[connection]; ok {
+			coord.Connected <- true
+		case connection := <-coord.unregister:
+			if _, ok := coord.clients[connection]; ok {
 				close(connection.data)
-				delete(manager.clients, connection)
+				delete(coord.clients, connection)
 				fmt.Println("A connection has terminated!")
 			}
 		// TODO Replace with fucntion
-		case message := <-manager.broadcast:
-			for connection := range manager.clients {
+		case message := <-coord.broadcast:
+			for connection := range coord.clients {
 				select {
 				case connection.data <- message:
 				default:
 					close(connection.data)
-					delete(manager.clients, connection)
+					delete(coord.clients, connection)
 				}
 			}
 		}
@@ -121,17 +124,17 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 	}
 }
 
-func (manager *Coordinator) AddHandleFunc(name string, f HandleFunc) {
-	manager.m.Lock()
-	manager.handler[name] = f
-	manager.m.Unlock()
+func (coord *Coordinator) AddHandleFunc(name string, f HandleFunc) {
+	coord.m.Lock()
+	coord.handler[name] = f
+	coord.m.Unlock()
 }
 
-func (manager *Coordinator) Receive(client *Client) {
-	manager.HandleMessages(client.socket)
+func (coord *Coordinator) Receive(client *Client) {
+	coord.HandleMessages(client.Socket)
 }
 
-func handleStrings(conn net.Conn, manager *Coordinator) {
+func handleStrings(conn net.Conn, coord *Coordinator) {
 	reallog.Print("Receive STATUS REQUEST data:")
 	var data stringData
 
@@ -144,10 +147,10 @@ func handleStrings(conn net.Conn, manager *Coordinator) {
 
 	//reallog.Printf("Outer stringData struct: \n%#v\n", data)
 
-	manager.broadcast <- []byte("STATUS")
+	coord.broadcast <- []byte("STATUS")
 }
 
-func handleGob(conn net.Conn, manager *Coordinator) {
+func handleGob(conn net.Conn, coord *Coordinator) {
 	reallog.Print("Receive GOB data:")
 	var data complexData
 
@@ -162,16 +165,37 @@ func handleGob(conn net.Conn, manager *Coordinator) {
 	reallog.Printf("Inner complexData struct: \n%#v\n", data.C)
 }
 
-func (manager *Coordinator) Send(client *Client) {
-	defer client.socket.Close()
+func (coord *Coordinator) Send(client *Client) {
+	defer client.Socket.Close()
 	for {
 		select {
 		case message, ok := <-client.data:
 			if !ok {
 				return
 			}
-			client.socket.Write(message)
+			client.Socket.Write(message)
 		}
 	}
 
+}
+
+// Returns all the clients in the coordinator clients maps
+func (coord *Coordinator) GetClients() []*Client {
+	clients := make([]*Client, 0, len(coord.clients))
+
+	for key, _ := range coord.clients {
+		clients = append(clients, key)
+	}
+	return clients
+
+}
+
+// Process block will make a sanity check on the block header and will wait for confirmations from all the shards
+// that the block has been processed
+func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags) error {
+	err := CheckBlockHeaderSanity(header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
+	if err != nil {
+		return err
+	}
+	return nil
 }

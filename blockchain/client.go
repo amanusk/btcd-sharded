@@ -3,6 +3,7 @@ package blockchain
 import (
 	"bufio"
 	"encoding/gob"
+	"fmt"
 	"github.com/pkg/errors"
 	"io"
 	reallog "log"
@@ -13,7 +14,7 @@ import (
 )
 
 type Client struct {
-	socket  net.Conn
+	Socket  net.Conn
 	data    chan []byte
 	handler map[string]ClientHandleFunc
 	Index   *BlockIndex
@@ -25,7 +26,7 @@ type Client struct {
 // It has a connection and a channel to receive data from the server
 func NewClientConnection(connection net.Conn) *Client {
 	client := &Client{
-		socket: connection,
+		Socket: connection,
 		data:   make(chan []byte),
 	}
 	return client
@@ -38,7 +39,7 @@ func NewClient(connection net.Conn, index *BlockIndex, db *SqlBlockDB) *Client {
 		Index:   index,
 		SqlDB:   db,
 		handler: map[string]ClientHandleFunc{},
-		socket:  connection,
+		Socket:  connection,
 		data:    make(chan []byte),
 	}
 	return client
@@ -69,8 +70,9 @@ func handleStatusRequest(conn net.Conn) {
 }
 
 func (client *Client) receive() {
+	fmt.Printf("Client started recieving")
 	client.AddHandleFunc("STATUS", handleStatusRequest)
-	client.handleMessages(client.socket)
+	client.handleMessages(client.Socket)
 	//defer os.Exit(0)
 	//for {
 	//	message := make([]byte, 4096)
@@ -102,7 +104,7 @@ func (client *Client) sendGob() error {
 	reallog.Println("Send a struct as GOB:")
 	reallog.Printf("Outer complexData struct: \n%#v\n", testStruct)
 	reallog.Printf("Inner complexData struct: \n%#v\n", testStruct.C)
-	enc := gob.NewEncoder(client.socket)
+	enc := gob.NewEncoder(client.Socket)
 	err := enc.Encode(testStruct)
 	if err != nil {
 		return errors.Wrapf(err, "Encode failed for struct: %#v", testStruct)
@@ -117,7 +119,7 @@ func (client *Client) sendStringGob() error {
 
 	reallog.Println("Send a struct as GOB:")
 	reallog.Printf("Outer stringData struct: \n%#v\n", testStruct)
-	enc := gob.NewEncoder(client.socket)
+	enc := gob.NewEncoder(client.Socket)
 	err := enc.Encode(testStruct)
 	if err != nil {
 		return errors.Wrapf(err, "Encode failed for struct: %#v", testStruct)
@@ -155,14 +157,16 @@ func (client *Client) handleMessages(conn net.Conn) {
 func (c *Client) StartClient() {
 	go c.receive()
 	for {
+		fmt.Println("Wait for user input")
 		reader := bufio.NewReader(os.Stdin)
 		message, _ := reader.ReadString('\n')
 		message = strings.TrimRight(message, "\n")
+		fmt.Println("Message")
 		if message == "STRING" {
-			c.socket.Write([]byte(message))
+			c.Socket.Write([]byte(message))
 			c.sendStringGob()
 		} else if message == "GOB" {
-			c.socket.Write([]byte(message))
+			c.Socket.Write([]byte(message))
 			c.sendGob()
 		}
 	}
