@@ -98,12 +98,12 @@ var regressionNetParams = &chaincfg.Params{
 	DefaultPort: "18444",
 
 	// Chain parameters
-	GenesisBlock: &regTestGenesisBlock,
-	GenesisHash:  newHashFromStr("5bec7567af40504e0994db3b573c186fffcc4edefe096ff2e58d00523bd7e8a6"),
-	PowLimit:     regressionPowLimit,
-	PowLimitBits: 0x207fffff,
-	//CoinbaseMaturity:         100,
-	CoinbaseMaturity:         28,
+	GenesisBlock:     &regTestGenesisBlock,
+	GenesisHash:      newHashFromStr("5bec7567af40504e0994db3b573c186fffcc4edefe096ff2e58d00523bd7e8a6"),
+	PowLimit:         regressionPowLimit,
+	PowLimitBits:     0x207fffff,
+	CoinbaseMaturity: 100,
+	//CoinbaseMaturity:         28,
 	BIP0034Height:            100000000, // Not active - Permit ver 1 blocks
 	BIP0065Height:            1351,      // Used by regression tests
 	BIP0066Height:            1251,      // Used by regression tests
