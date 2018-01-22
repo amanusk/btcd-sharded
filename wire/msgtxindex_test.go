@@ -7,7 +7,7 @@ package wire
 import (
 	"bytes"
 	"fmt"
-	_ "io"
+	"io"
 	"reflect"
 	"testing"
 
@@ -330,7 +330,386 @@ func TestTxIndexWire(t *testing.T) {
 	}
 }
 
-// multiTx is a MsgTx with an input and output and used in various tests.
+// TestTxWireErrors performs negative tests against wire encode and decode
+// of MsgTx to confirm error paths work correctly.
+func TestTxIndexWireErrors(t *testing.T) {
+	// Use protocol version 60002 specifically here instead of the latest
+	// because the test data is using bytes encoded with that protocol
+	// version.
+	pver := uint32(60002)
+
+	tests := []struct {
+		in       *MsgTxIndex     // Value to encode
+		buf      []byte          // Wire encoding
+		pver     uint32          // Protocol version for wire encoding
+		enc      MessageEncoding // Message encoding format
+		max      int             // Max size of fixed buffer to induce errors
+		writeErr error           // Expected write error
+		readErr  error           // Expected read error
+	}{
+		// Force error in version.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 0, io.ErrShortWrite, io.EOF},
+		// Force error in number of transaction inputs.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 4, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input previous block hash.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 5, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input previous block output index.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 37, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input signature script length.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 41, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input signature script.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 42, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input sequence.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 49, io.ErrShortWrite, io.EOF},
+		// Force error in number of transaction outputs.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 53, io.ErrShortWrite, io.EOF},
+		// Force error in transaction output value.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 54, io.ErrShortWrite, io.EOF},
+		// Force error in transaction output pk script length.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 62, io.ErrShortWrite, io.EOF},
+		// Force error in transaction output pk script.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 63, io.ErrShortWrite, io.EOF},
+		// Force error in transaction output lock time.
+		{multiTxIndex, multiTxIndexEncoded, pver, BaseEncoding, 206, io.ErrShortWrite, io.EOF},
+	}
+
+	t.Logf("Running %d tests", len(tests))
+	for i, test := range tests {
+		// Encode to wire format.
+		w := newFixedWriter(test.max)
+		err := test.in.BtcEncode(w, test.pver, test.enc)
+		if err != test.writeErr {
+			t.Errorf("BtcEncode #%d wrong error got: %v, want: %v",
+				i, err, test.writeErr)
+			continue
+		}
+
+		// Decode from wire format.
+		var msg MsgTxIndex
+		r := newFixedReader(test.max, test.buf)
+		err = msg.BtcDecode(r, test.pver, test.enc)
+		if err != test.readErr {
+			t.Errorf("BtcDecode #%d wrong error got: %v, want: %v",
+				i, err, test.readErr)
+			continue
+		}
+	}
+}
+
+// TestTxSerialize tests MsgTxIndex serialize and deserialize.
+func TestTxIndexSerialize(t *testing.T) {
+	noTx := NewMsgTxIndex(1, 1)
+	noTx.Version = 1
+	noTxEncoded := []byte{
+		0x01, 0x00, 0x00, 0x00, // Version
+		0x00,                   // Varint for number of input transactions
+		0x00,                   // Varint for number of output transactions
+		0x00, 0x00, 0x00, 0x00, // Lock time
+		0x01, 0x00, 0x00, 0x00, // TxIndex
+	}
+
+	tests := []struct {
+		in           *MsgTxIndex // Message to encode
+		out          *MsgTxIndex // Expected decoded message
+		buf          []byte      // Serialized data
+		pkScriptLocs []int       // Expected output script locations
+		witness      bool        // Serialize using the witness encoding
+	}{
+		// No transactions.
+		{
+			noTx,
+			noTx,
+			noTxEncoded,
+			nil,
+			false,
+		},
+
+		// Multiple transactions.
+		{
+			multiTxIndex,
+			multiTxIndex,
+			multiTxIndexEncoded,
+			multiTxPkScriptLocs,
+			false,
+		},
+		// Multiple outputs witness transaction.
+		{
+			multiWitnessTxIndex,
+			multiWitnessTxIndex,
+			multiWitnessTxIndexEncoded,
+			multiWitnessTxPkScriptLocs,
+			true,
+		},
+	}
+
+	t.Logf("Running %d tests", len(tests))
+	for i, test := range tests {
+		// Serialize the transaction.
+		var buf bytes.Buffer
+		err := test.in.Serialize(&buf)
+		if err != nil {
+			t.Errorf("Serialize #%d error %v", i, err)
+			continue
+		}
+		if !bytes.Equal(buf.Bytes(), test.buf) {
+			t.Errorf("Serialize #%d\n got: %s want: %s", i,
+				spew.Sdump(buf.Bytes()), spew.Sdump(test.buf))
+			continue
+		}
+
+		// Deserialize the transaction.
+		var tx MsgTxIndex
+		rbuf := bytes.NewReader(test.buf)
+		if test.witness {
+			err = tx.Deserialize(rbuf)
+		} else {
+			err = tx.DeserializeNoWitness(rbuf)
+		}
+		if err != nil {
+			t.Errorf("Deserialize #%d error %v", i, err)
+			continue
+		}
+		if !reflect.DeepEqual(&tx, test.out) {
+			t.Errorf("Deserialize #%d\n got: %s want: %s", i,
+				spew.Sdump(&tx), spew.Sdump(test.out))
+			continue
+		}
+
+		// Ensure the public key script locations are accurate.
+		pkScriptLocs := test.in.PkScriptLocs()
+		if !reflect.DeepEqual(pkScriptLocs, test.pkScriptLocs) {
+			t.Errorf("PkScriptLocs #%d\n got: %s want: %s", i,
+				spew.Sdump(pkScriptLocs),
+				spew.Sdump(test.pkScriptLocs))
+			continue
+		}
+		for j, loc := range pkScriptLocs {
+			wantPkScript := test.in.TxOut[j].PkScript
+			gotPkScript := test.buf[loc : loc+len(wantPkScript)]
+			if !bytes.Equal(gotPkScript, wantPkScript) {
+				t.Errorf("PkScriptLocs #%d:%d\n unexpected "+
+					"script got: %s want: %s", i, j,
+					spew.Sdump(gotPkScript),
+					spew.Sdump(wantPkScript))
+			}
+		}
+	}
+}
+
+// TestTxSerializeErrors performs negative tests against wire encode and decode
+// of MsgTxIndex to confirm error paths work correctly.
+func TestTxIndexSerializeErrors(t *testing.T) {
+	tests := []struct {
+		in       *MsgTxIndex // Value to encode
+		buf      []byte      // Serialized data
+		max      int         // Max size of fixed buffer to induce errors
+		writeErr error       // Expected write error
+		readErr  error       // Expected read error
+	}{
+		// Force error in version.
+		{multiTxIndex, multiTxIndexEncoded, 0, io.ErrShortWrite, io.EOF},
+		// Force error in number of transaction inputs.
+		{multiTxIndex, multiTxIndexEncoded, 4, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input previous block hash.
+		{multiTxIndex, multiTxIndexEncoded, 5, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input previous block output index.
+		{multiTxIndex, multiTxIndexEncoded, 37, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input signature script length.
+		{multiTxIndex, multiTxIndexEncoded, 41, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input signature script.
+		{multiTxIndex, multiTxIndexEncoded, 42, io.ErrShortWrite, io.EOF},
+		// Force error in transaction input sequence.
+		{multiTxIndex, multiTxIndexEncoded, 49, io.ErrShortWrite, io.EOF},
+		// Force error in number of transaction outputs.
+		{multiTxIndex, multiTxIndexEncoded, 53, io.ErrShortWrite, io.EOF},
+		// Force error in transaction output value.
+		{multiTxIndex, multiTxIndexEncoded, 54, io.ErrShortWrite, io.EOF},
+		// Force error in transaction output pk script length.
+		{multiTxIndex, multiTxIndexEncoded, 62, io.ErrShortWrite, io.EOF},
+		// Force error in transaction output pk script.
+		{multiTxIndex, multiTxIndexEncoded, 63, io.ErrShortWrite, io.EOF},
+		// Force error in transaction output lock time.
+		{multiTxIndex, multiTxIndexEncoded, 206, io.ErrShortWrite, io.EOF},
+	}
+
+	t.Logf("Running %d tests", len(tests))
+	for i, test := range tests {
+		// Serialize the transaction.
+		w := newFixedWriter(test.max)
+		err := test.in.Serialize(w)
+		if err != test.writeErr {
+			t.Errorf("Serialize #%d wrong error got: %v, want: %v",
+				i, err, test.writeErr)
+			continue
+		}
+
+		// Deserialize the transaction.
+		var tx MsgTxIndex
+		r := newFixedReader(test.max, test.buf)
+		err = tx.Deserialize(r)
+		if err != test.readErr {
+			t.Errorf("Deserialize #%d wrong error got: %v, want: %v",
+				i, err, test.readErr)
+			continue
+		}
+	}
+}
+
+// TestTxOverflowErrors performs tests to ensure deserializing transactions
+// which are intentionally crafted to use large values for the variable number
+// of inputs and outputs are handled properly.  This could otherwise potentially
+// be used as an attack vector.
+func TestTxIndexOverflowErrors(t *testing.T) {
+	// Use protocol version 70001 and transaction version 1 specifically
+	// here instead of the latest values because the test data is using
+	// bytes encoded with those versions.
+	pver := uint32(70001)
+	txVer := uint32(1)
+
+	tests := []struct {
+		buf     []byte          // Wire encoding
+		pver    uint32          // Protocol version for wire encoding
+		enc     MessageEncoding // Message encoding format
+		version uint32          // Transaction version
+		err     error           // Expected error
+	}{
+		// Transaction that claims to have ~uint64(0) inputs.
+		{
+			[]byte{
+				0x00, 0x00, 0x00, 0x01, // Version
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, // Varint for number of input transactions
+			}, pver, BaseEncoding, txVer, &MessageError{},
+		},
+
+		// Transaction that claims to have ~uint64(0) outputs.
+		{
+			[]byte{
+				0x00, 0x00, 0x00, 0x01, // Version
+				0x00, // Varint for number of input transactions
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, // Varint for number of output transactions
+			}, pver, BaseEncoding, txVer, &MessageError{},
+		},
+
+		// Transaction that has an input with a signature script that
+		// claims to have ~uint64(0) length.
+		{
+			[]byte{
+				0x00, 0x00, 0x00, 0x01, // Version
+				0x01, // Varint for number of input transactions
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Previous output hash
+				0xff, 0xff, 0xff, 0xff, // Prevous output index
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, // Varint for length of signature script
+			}, pver, BaseEncoding, txVer, &MessageError{},
+		},
+
+		// Transaction that has an output with a public key script
+		// that claims to have ~uint64(0) length.
+		{
+			[]byte{
+				0x00, 0x00, 0x00, 0x01, // Version
+				0x01, // Varint for number of input transactions
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Previous output hash
+				0xff, 0xff, 0xff, 0xff, // Prevous output index
+				0x00,                   // Varint for length of signature script
+				0xff, 0xff, 0xff, 0xff, // Sequence
+				0x01,                                           // Varint for number of output transactions
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Transaction amount
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, // Varint for length of public key script
+			}, pver, BaseEncoding, txVer, &MessageError{},
+		},
+	}
+
+	t.Logf("Running %d tests", len(tests))
+	for i, test := range tests {
+		// Decode from wire format.
+		var msg MsgTxIndex
+		r := bytes.NewReader(test.buf)
+		err := msg.BtcDecode(r, test.pver, test.enc)
+		if reflect.TypeOf(err) != reflect.TypeOf(test.err) {
+			t.Errorf("BtcDecode #%d wrong error got: %v, want: %v",
+				i, err, reflect.TypeOf(test.err))
+			continue
+		}
+
+		// Decode from wire format.
+		r = bytes.NewReader(test.buf)
+		err = msg.Deserialize(r)
+		if reflect.TypeOf(err) != reflect.TypeOf(test.err) {
+			t.Errorf("Deserialize #%d wrong error got: %v, want: %v",
+				i, err, reflect.TypeOf(test.err))
+			continue
+		}
+	}
+}
+
+// TestTxSerializeSizeStripped performs tests to ensure the serialize size for
+// various transactions is accurate.
+func TestTxIndexSerializeSizeStripped(t *testing.T) {
+	// Empty tx message.
+	noTx := NewMsgTxIndex(1, 1)
+	noTx.Version = 1
+
+	tests := []struct {
+		in   *MsgTxIndex // Tx to encode
+		size int         // Expected serialized size
+	}{
+		// No inputs or outpus.
+		{noTx, 10},
+
+		// Transcaction with an input and an output.
+		{multiTxIndex, 210},
+
+		// Transaction with an input which includes witness data, and
+		// one output. Note that this uses SerializeSizeStripped which
+		// excludes the additional bytes due to witness data encoding.
+		{multiWitnessTxIndex, 82},
+	}
+
+	t.Logf("Running %d tests", len(tests))
+	for i, test := range tests {
+		serializedSize := test.in.SerializeSizeStripped()
+		if serializedSize != test.size {
+			t.Errorf("MsgTxIndex.SerializeSizeStripped: #%d got: %d, want: %d", i,
+				serializedSize, test.size)
+			continue
+		}
+	}
+}
+
+// TestTxWitnessSize performs tests to ensure that the serialized size for
+// various types of transactions that include witness data is accurate.
+func TestTxIndexWitnessSize(t *testing.T) {
+	tests := []struct {
+		in   *MsgTxIndex // Tx to encode
+		size int         // Expected serialized size w/ witnesses
+	}{
+		// Transaction with an input which includes witness data, and
+		// one output.
+		{multiWitnessTxIndex, 194},
+	}
+
+	t.Logf("Running %d tests", len(tests))
+	for i, test := range tests {
+		serializedSize := test.in.SerializeSize()
+		if serializedSize != test.size {
+			t.Errorf("MsgTxIndex.SerializeSize: #%d got: %d, want: %d", i,
+				serializedSize, test.size)
+			continue
+		}
+	}
+}
+
+// multiTxIndex is a MsgTxIndex with an input and output and used in various tests.
 var multiTxIndex = &MsgTxIndex{
 	MsgTx: MsgTx{
 		Version: 1,
@@ -385,7 +764,63 @@ var multiTxIndex = &MsgTxIndex{
 	TxIndex: 1,
 }
 
-// multiTxEncoded is the wire encoded bytes for multiTx using protocol version
+// multiWitnessTxIndex is a MsgTx with an input with witness data, and an
+// output used in various tests.
+var multiWitnessTxIndex = &MsgTxIndex{
+	MsgTx: MsgTx{
+		Version: 1,
+		TxIn: []*TxIn{
+			{
+				PreviousOutPoint: OutPoint{
+					Hash: chainhash.Hash{
+						0xa5, 0x33, 0x52, 0xd5, 0x13, 0x57, 0x66, 0xf0,
+						0x30, 0x76, 0x59, 0x74, 0x18, 0x26, 0x3d, 0xa2,
+						0xd9, 0xc9, 0x58, 0x31, 0x59, 0x68, 0xfe, 0xa8,
+						0x23, 0x52, 0x94, 0x67, 0x48, 0x1f, 0xf9, 0xcd,
+					},
+					Index: 19,
+				},
+				SignatureScript: []byte{},
+				Witness: [][]byte{
+					{ // 70-byte signature
+						0x30, 0x43, 0x02, 0x1f, 0x4d, 0x23, 0x81, 0xdc,
+						0x97, 0xf1, 0x82, 0xab, 0xd8, 0x18, 0x5f, 0x51,
+						0x75, 0x30, 0x18, 0x52, 0x32, 0x12, 0xf5, 0xdd,
+						0xc0, 0x7c, 0xc4, 0xe6, 0x3a, 0x8d, 0xc0, 0x36,
+						0x58, 0xda, 0x19, 0x02, 0x20, 0x60, 0x8b, 0x5c,
+						0x4d, 0x92, 0xb8, 0x6b, 0x6d, 0xe7, 0xd7, 0x8e,
+						0xf2, 0x3a, 0x2f, 0xa7, 0x35, 0xbc, 0xb5, 0x9b,
+						0x91, 0x4a, 0x48, 0xb0, 0xe1, 0x87, 0xc5, 0xe7,
+						0x56, 0x9a, 0x18, 0x19, 0x70, 0x01,
+					},
+					{ // 33-byte serialize pub key
+						0x03, 0x07, 0xea, 0xd0, 0x84, 0x80, 0x7e, 0xb7,
+						0x63, 0x46, 0xdf, 0x69, 0x77, 0x00, 0x0c, 0x89,
+						0x39, 0x2f, 0x45, 0xc7, 0x64, 0x25, 0xb2, 0x61,
+						0x81, 0xf5, 0x21, 0xd7, 0xf3, 0x70, 0x06, 0x6a,
+						0x8f,
+					},
+				},
+				Sequence: 0xffffffff,
+			},
+		},
+		TxOut: []*TxOut{
+			{
+				Value: 395019,
+				PkScript: []byte{ // p2wkh output
+					0x00, // Version 0 witness program
+					0x14, // OP_DATA_20
+					0x9d, 0xda, 0xc6, 0xf3, 0x9d, 0x51, 0xe0, 0x39,
+					0x8e, 0x53, 0x2a, 0x22, 0xc4, 0x1b, 0xa1, 0x89,
+					0x40, 0x6a, 0x85, 0x23, // 20-byte pub key hash
+				},
+			},
+		},
+	},
+	TxIndex: 1,
+}
+
+// multiTxIndexEncoded is the wire encoded bytes for multiTx using protocol version
 // 60002 and is used in the various tests.
 var multiTxIndexEncoded = []byte{
 	0x01, 0x00, 0x00, 0x00, // Version
@@ -427,4 +862,48 @@ var multiTxIndexEncoded = []byte{
 	0xac,                   // OP_CHECKSIG
 	0x00, 0x00, 0x00, 0x00, // Lock time
 	0x01, 0x00, 0x00, 0x00, // Index
+}
+
+// multiWitnessTxIndexEncoded is the wire encoded bytes for multiWitnessTx including inputs
+// with witness data using protocol version 70012 and is used in the various
+// tests.
+var multiWitnessTxIndexEncoded = []byte{
+	0x1, 0x0, 0x0, 0x0, // Version
+	0x0, // Marker byte indicating 0 inputs, or a segwit encoded tx
+	0x1, // Flag byte
+	0x1, // Varint for number of inputs
+	0xa5, 0x33, 0x52, 0xd5, 0x13, 0x57, 0x66, 0xf0,
+	0x30, 0x76, 0x59, 0x74, 0x18, 0x26, 0x3d, 0xa2,
+	0xd9, 0xc9, 0x58, 0x31, 0x59, 0x68, 0xfe, 0xa8,
+	0x23, 0x52, 0x94, 0x67, 0x48, 0x1f, 0xf9, 0xcd, // Previous output hash
+	0x13, 0x0, 0x0, 0x0, // Little endian previous output index
+	0x0,                    // No sig script (this is a witness input)
+	0xff, 0xff, 0xff, 0xff, // Sequence
+	0x1,                                    // Varint for number of outputs
+	0xb, 0x7, 0x6, 0x0, 0x0, 0x0, 0x0, 0x0, // Output amount
+	0x16, // Varint for length of pk script
+	0x0,  // Version 0 witness program
+	0x14, // OP_DATA_20
+	0x9d, 0xda, 0xc6, 0xf3, 0x9d, 0x51, 0xe0, 0x39,
+	0x8e, 0x53, 0x2a, 0x22, 0xc4, 0x1b, 0xa1, 0x89,
+	0x40, 0x6a, 0x85, 0x23, // 20-byte pub key hash
+	0x2,  // Two items on the witness stack
+	0x46, // 70 byte stack item
+	0x30, 0x43, 0x2, 0x1f, 0x4d, 0x23, 0x81, 0xdc,
+	0x97, 0xf1, 0x82, 0xab, 0xd8, 0x18, 0x5f, 0x51,
+	0x75, 0x30, 0x18, 0x52, 0x32, 0x12, 0xf5, 0xdd,
+	0xc0, 0x7c, 0xc4, 0xe6, 0x3a, 0x8d, 0xc0, 0x36,
+	0x58, 0xda, 0x19, 0x2, 0x20, 0x60, 0x8b, 0x5c,
+	0x4d, 0x92, 0xb8, 0x6b, 0x6d, 0xe7, 0xd7, 0x8e,
+	0xf2, 0x3a, 0x2f, 0xa7, 0x35, 0xbc, 0xb5, 0x9b,
+	0x91, 0x4a, 0x48, 0xb0, 0xe1, 0x87, 0xc5, 0xe7,
+	0x56, 0x9a, 0x18, 0x19, 0x70, 0x1,
+	0x21, // 33 byte stack item
+	0x3, 0x7, 0xea, 0xd0, 0x84, 0x80, 0x7e, 0xb7,
+	0x63, 0x46, 0xdf, 0x69, 0x77, 0x0, 0xc, 0x89,
+	0x39, 0x2f, 0x45, 0xc7, 0x64, 0x25, 0xb2, 0x61,
+	0x81, 0xf5, 0x21, 0xd7, 0xf3, 0x70, 0x6, 0x6a,
+	0x8f,
+	0x0, 0x0, 0x0, 0x0, // Lock time
+	0x1, 0x0, 0x0, 0x0, // TxIndex
 }
