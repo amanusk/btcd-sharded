@@ -28,7 +28,7 @@ func TestTxIndex(t *testing.T) {
 
 	// Ensure the command is expected value.
 	wantCmd := "tx"
-	msg := NewMsgTx(1)
+	msg := NewMsgTxIndex(1, 1)
 	if cmd := msg.Command(); cmd != wantCmd {
 		t.Errorf("NewMsgAddr: wrong command - got %v want %v",
 			cmd, wantCmd)
@@ -145,7 +145,7 @@ func TestTxIndexHash(t *testing.T) {
 	}
 
 	// First transaction from block 113875.
-	msgTx := NewMsgTxIndex(1)
+	msgTx := NewMsgTxIndex(1, 1)
 	txIn := TxIn{
 		PreviousOutPoint: OutPoint{
 			Hash:  chainhash.Hash{},
@@ -199,7 +199,7 @@ func TestWTxIndexSha(t *testing.T) {
 	}
 
 	// From block 23157 in a past version of segnet.
-	msgTx := NewMsgTx(1)
+	msgTx := NewMsgTxIndex(1, 1)
 	txIn := TxIn{
 		PreviousOutPoint: OutPoint{
 			Hash: chainhash.Hash{
@@ -263,9 +263,8 @@ func TestWTxIndexSha(t *testing.T) {
 // of transaction inputs and outputs and protocol versions.
 func TestTxIndexWire(t *testing.T) {
 	// Empty tx message.
-	noTx := NewMsgTxIndex(1)
+	noTx := NewMsgTxIndex(1, 1)
 	noTx.Version = 1
-	noTx.TxIndex = 1
 	noTxEncoded := []byte{
 		0x01, 0x00, 0x00, 0x00, // Version
 		0x00,                   // Varint for number of input transactions

@@ -19,14 +19,14 @@ type MsgTxIndex struct {
 // are no transaction inputs or outputs.  Also, the lock time is set to zero
 // to indicate the transaction is valid immediately as opposed to some time in
 // future.
-func NewMsgTxIndex(version int32) *MsgTxIndex {
+func NewMsgTxIndex(version int32, index int32) *MsgTxIndex {
 	var msg MsgTx
 	msg.Version = version
 	msg.TxIn = make([]*TxIn, 0, defaultTxInOutAlloc)
 	msg.TxOut = make([]*TxOut, 0, defaultTxInOutAlloc)
 	return &MsgTxIndex{
 		MsgTx:   msg,
-		TxIndex: 0,
+		TxIndex: index,
 	}
 }
 
@@ -289,4 +289,15 @@ func (msg *MsgTxIndex) BtcDecode(r io.Reader, pver uint32, enc MessageEncoding) 
 func (msg *MsgTxIndex) BtcEncode(w io.Writer, pver uint32, enc MessageEncoding) error {
 	msg.MsgTx.BtcEncode(w, 0, WitnessEncoding)
 	return binarySerializer.PutUint32(w, littleEndian, uint32(msg.TxIndex))
+}
+
+// Copy creates a deep copy of a transaction so that the original does not get
+// modified when the copy is manipulated.
+func (msg *MsgTxIndex) Copy() *MsgTxIndex {
+	newTx := msg.MsgTx.Copy()
+	return &MsgTxIndex{
+		MsgTx:   *newTx, // Copy returns a points, we want the value
+		TxIndex: msg.TxIndex,
+	}
+
 }
