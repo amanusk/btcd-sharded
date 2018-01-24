@@ -13,7 +13,10 @@ import (
 	"strings"
 	"sync"
 
+	_ "github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	_ "github.com/davecgh/go-spew/spew"
 )
 
 type Client struct {
@@ -79,26 +82,33 @@ func (client *Client) receive() {
 	// NOTE: This should be replaced with various message handling
 	for {
 		reallog.Print("Receive GOB data:")
-		var data TxGob
+
+		var recievedBlock BlockGob
 
 		dec := gob.NewDecoder(client.Socket)
-		err := dec.Decode(&data)
+		err := dec.Decode(&recievedBlock)
 		if err != nil {
 			reallog.Println("Error decoding GOB data:", err)
 			return
 		}
 
-		// Process the transactions
-		for idx, txBytes := range data.TXs {
-			var msgTx wire.MsgTx
-			err = msgTx.Deserialize(bytes.NewReader(txBytes))
-			if err != nil {
-				reallog.Println("Error decoding TX data:", err)
-			}
-			fmt.Println(msgTx)
-			// TODO the idx should be uniqe and passed as part of the GOB
-			client.SqlDB.AddTX(data.BlockHash[:], idx, &msgTx)
+		var msgBlockShard wire.MsgBlockShard
+		rbuf := bytes.NewReader(recievedBlock.Block)
+		err = msgBlockShard.Deserialize(rbuf)
+		if err != nil {
+			reallog.Println("Error decoding GOB data:", err)
+			return
+		} else {
+			//fmt.Printf("%s ", spew.Sdump(&block))
 		}
+		// TODO this should all be in seperate functions!
+
+		// Process the transactions
+		// Create a new block node for the block and add it to the in-memory
+
+		block := btcutil.NewBlock(wire.NewMsgBlockFromShard(&msgBlockShard))
+
+		ShardConnectBestChain(client.SqlDB, block)
 
 		// Sending a shardDone message to the coordinator
 		message := "SHARDDONE"

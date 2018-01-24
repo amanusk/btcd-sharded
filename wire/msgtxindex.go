@@ -302,6 +302,16 @@ func (msg *MsgTxIndex) Copy() *MsgTxIndex {
 
 }
 
+// Creates a new TxIndex out of the recieved TX and adds the indenx
+func NewTxIndexFromTx(msg *MsgTx, index int32) *MsgTxIndex {
+	newTx := msg.Copy()
+	return &MsgTxIndex{
+		MsgTx:   *newTx, // Copy returns a points, we want the value
+		TxIndex: index,
+	}
+
+}
+
 // SerializeSize returns the number of bytes it would take to serialize the
 // the transaction.
 func (msg *MsgTxIndex) SerializeSize() int {

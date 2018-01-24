@@ -11,14 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	_ "github.com/lib/pq"
 )
 
 const (
@@ -705,7 +703,7 @@ func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view *U
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func sqlConnectBlock(db *SqlBlockDB, node *BlockNode, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
+func sqlConnectBlock(db *SqlBlockDB, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
 	// Make sure it's extending the end of the best chain.
 	//prevHash := &block.MsgBlock().Header.PrevBlock
 	//if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
@@ -1300,7 +1298,7 @@ func (b *BlockChain) SqlConnectBestChain(node *BlockNode, block *btcutil.Block, 
 
 		// Connect the block to the main chain.
 		// NOTE: This writes all the updated databases to the DB
-		err := sqlConnectBlock(b.SqlDB, node, block, view, stxos)
+		err := sqlConnectBlock(b.SqlDB, block, view, stxos)
 		if err != nil {
 			reallog.Printf("Failed to connect block")
 			return false, err
@@ -1352,45 +1350,45 @@ func (b *BlockChain) SqlConnectBestChain(node *BlockNode, block *btcutil.Block, 
 
 // A function to use by  a shard connecting TXs to the blockchain
 // This is similar to ConnectBestChain but much simplified
-func ShardConnectBestChain(db *sql.DB, block *btcutil.Block) (bool, error) {
-	//fastAdd := true
+func ShardConnectBestChain(db *SqlBlockDB, block *btcutil.Block) (bool, error) {
+	fastAdd := true
 
-	//// We are extending the main (best) chain with a new block.  This is the
-	//// most common case.
-	//// parentHash := &block.MsgBlock().Header.PrevBlock
-	//if true {
-	//	// Perform several checks to verify the block can be connected
-	//	// to the main chain without violating any rules and without
-	//	// actually connecting the block.
-	//	view := NewUtxoViewpoint()
-	//	//view.SetBestHash(parentHash)
-	//	stxos := make([]spentTxOut, 0, countSpentOutputs(block))
+	// We are extending the main (best) chain with a new block.  This is the
+	// most common case.
+	// parentHash := &block.MsgBlock().Header.PrevBlock
+	if true {
+		// Perform several checks to verify the block can be connected
+		// to the main chain without violating any rules and without
+		// actually connecting the block.
+		view := NewUtxoViewpoint()
+		//view.SetBestHash(parentHash)
+		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
 
-	//	if fastAdd {
-	//		err := view.sqlFetchInputUtxos(b.SqlDB, block)
-	//		if err != nil {
-	//			reallog.Fatal("Unable to fetch Input Utxos")
-	//			return false, err
-	//		} else {
-	//			reallog.Println("Fetched Input utxos")
-	//			view.PrintToLog()
-	//		}
-	//		err = view.connectTransactions(block, &stxos)
-	//		if err != nil {
-	//			return false, err
-	//		}
-	//	}
+		if fastAdd {
+			err := view.sqlFetchInputUtxos(db, block)
+			if err != nil {
+				reallog.Fatal("Unable to fetch Input Utxos")
+				return false, err
+			} else {
+				reallog.Println("Fetched Input utxos")
+				view.PrintToLog()
+			}
+			err = view.connectTransactions(block, &stxos)
+			if err != nil {
+				return false, err
+			}
+		}
 
-	//	// Connect the block to the main chain.
-	//	// NOTE: This writes all the updated databases to the DB
-	//	err := sqlConnectBlock(b.SqlDB, node, block, view, stxos)
-	//	if err != nil {
-	//		reallog.Printf("Failed to connect block")
-	//		return false, err
-	//	}
+		// Connect the block to the main chain.
+		// NOTE: This writes all the updated databases to the DB
+		err := sqlConnectBlock(db, block, view, stxos)
+		if err != nil {
+			reallog.Printf("Failed to connect block")
+			return false, err
+		}
 
-	//	return true, nil
-	//}
+		return true, nil
+	}
 	return true, nil
 }
 

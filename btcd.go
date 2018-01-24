@@ -27,6 +27,7 @@ import (
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/limits"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 )
 
@@ -448,24 +449,26 @@ func main() {
 			//		block.Hash(), blockHeight, err)
 			//}
 
-			// Create a gob of transactions to send to shards
-			txToSend := blockchain.TxGob{
-				BlockHash: block.MsgBlock().Header.BlockHash(),
-				TXs:       make([][]byte, 0),
-			}
+			// Create a block shard to send to clients
+			bShard := wire.NewMsgBlockShard(&block.MsgBlock().Header)
 
 			// Try with one shard at first
-			for _, tx := range block.MsgBlock().Transactions {
-				var bb bytes.Buffer
-				tx.Serialize(&bb)
-				buf := bb.Bytes()
-				txToSend.TXs = append(txToSend.TXs, buf)
+			for idx, tx := range block.MsgBlock().Transactions {
+				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
+				bShard.AddTransaction(newTx)
+			}
+
+			var bb bytes.Buffer
+			bShard.Serialize(&bb)
+
+			blockToSend := blockchain.BlockGob{
+				Block: bb.Bytes(),
 			}
 
 			enc := gob.NewEncoder(clients[0].Socket)
-			err = enc.Encode(txToSend)
+			err = enc.Encode(blockToSend)
 			if err != nil {
-				reallog.Println(err, "Encode failed for struct: %#v", txToSend)
+				reallog.Println(err, "Encode failed for struct: %#v", blockToSend)
 			}
 
 			manager.ProcessBlock(&block.MsgBlock().Header, blockchain.BFNone)

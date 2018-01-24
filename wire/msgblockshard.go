@@ -263,3 +263,12 @@ func NewMsgBlockShard(blockHeader *BlockHeader) *MsgBlockShard {
 		Transactions: make([]*MsgTxIndex, 0, defaultTransactionAlloc),
 	}
 }
+
+// Return the same block but with all TXs as regular MsgTx
+func NewMsgBlockFromShard(msgBlockShard *MsgBlockShard) *MsgBlock {
+	newMsgBlock := NewMsgBlock(&msgBlockShard.Header)
+	for _, tx := range msgBlockShard.Transactions {
+		newMsgBlock.AddTransaction(&tx.MsgTx)
+	}
+	return newMsgBlock
+}

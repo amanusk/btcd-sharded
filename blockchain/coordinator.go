@@ -9,7 +9,6 @@ import (
 	_ "strconv"
 	"sync"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 )
 
@@ -55,9 +54,8 @@ type complexData struct {
 	C *complexData
 }
 
-type TxGob struct {
-	BlockHash chainhash.Hash
-	TXs       [][]byte
+type BlockGob struct {
+	Block []byte
 }
 
 type stringData struct {
