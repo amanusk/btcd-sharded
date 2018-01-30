@@ -1,7 +1,7 @@
 package blockchain
 
 import (
-	"bufio"
+	_ "bufio"
 	"bytes"
 	"encoding/gob"
 	"fmt"
@@ -9,8 +9,8 @@ import (
 	"io"
 	reallog "log"
 	"net"
-	"os"
-	"strings"
+	_ "os"
+	_ "strings"
 	"sync"
 
 	_ "github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -20,12 +20,13 @@ import (
 )
 
 type Client struct {
-	Socket  net.Conn
-	data    chan []byte
-	handler map[string]ClientHandleFunc
-	Index   *BlockIndex
-	SqlDB   *SqlBlockDB
-	m       sync.RWMutex
+	Socket    net.Conn
+	data      chan []byte
+	handler   map[string]ClientHandleFunc
+	terminate chan bool
+	Index     *BlockIndex
+	SqlDB     *SqlBlockDB
+	m         sync.RWMutex
 }
 
 // Creates a new client connection for a coordintor to use.
@@ -57,7 +58,7 @@ func (client *Client) AddHandleFunc(name string, f ClientHandleFunc) {
 	client.m.Unlock()
 }
 
-type ClientHandleFunc func(conn net.Conn)
+type ClientHandleFunc func(conn net.Conn, client *Client)
 
 func handleStatusRequest(conn net.Conn) {
 	reallog.Print("Receive request for status:")
@@ -75,46 +76,47 @@ func handleStatusRequest(conn net.Conn) {
 	//manager.broadcast <- []byte(data.S)
 }
 
+func handleBlockGob(conn net.Conn, client *Client) {
+	reallog.Print("Receive GOB data:")
+
+	var recievedBlock BlockGob
+
+	dec := gob.NewDecoder(client.Socket)
+	err := dec.Decode(&recievedBlock)
+	if err != nil {
+		reallog.Println("Error decoding GOB data:", err)
+		return
+	}
+
+	var msgBlockShard wire.MsgBlockShard
+	rbuf := bytes.NewReader(recievedBlock.Block)
+	err = msgBlockShard.Deserialize(rbuf)
+	if err != nil {
+		reallog.Println("Error decoding GOB data:", err)
+		return
+	} else {
+		//fmt.Printf("%s ", spew.Sdump(&block))
+	}
+	// TODO this should all be in seperate functions!
+
+	// Process the transactions
+	// Create a new block node for the block and add it to the in-memory
+	// TODO this creates a new block with mostly the same informtion,
+	// This needs to be optimized
+	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(&msgBlockShard))
+
+	ShardConnectBestChain(client.SqlDB, block)
+
+	// Sending a shardDone message to the coordinator
+	message := "SHARDDONE"
+	client.Socket.Write([]byte(message))
+
+}
+
 func (client *Client) receive() {
 	fmt.Printf("Client started recieving")
-	//client.AddHandleFunc("STATUS", handleStatusRequest)
-	//client.handleMessages(client.Socket)
-	// NOTE: This should be replaced with various message handling
-	for {
-		reallog.Print("Receive GOB data:")
-
-		var recievedBlock BlockGob
-
-		dec := gob.NewDecoder(client.Socket)
-		err := dec.Decode(&recievedBlock)
-		if err != nil {
-			reallog.Println("Error decoding GOB data:", err)
-			return
-		}
-
-		var msgBlockShard wire.MsgBlockShard
-		rbuf := bytes.NewReader(recievedBlock.Block)
-		err = msgBlockShard.Deserialize(rbuf)
-		if err != nil {
-			reallog.Println("Error decoding GOB data:", err)
-			return
-		} else {
-			//fmt.Printf("%s ", spew.Sdump(&block))
-		}
-		// TODO this should all be in seperate functions!
-
-		// Process the transactions
-		// Create a new block node for the block and add it to the in-memory
-
-		block := btcutil.NewBlock(wire.NewMsgBlockFromShard(&msgBlockShard))
-
-		ShardConnectBestChain(client.SqlDB, block)
-
-		// Sending a shardDone message to the coordinator
-		message := "SHARDDONE"
-		client.Socket.Write([]byte(message))
-
-	}
+	client.AddHandleFunc("BLOCKGOB", handleBlockGob)
+	client.handleMessages(client.Socket)
 
 }
 
@@ -159,7 +161,7 @@ func (client *Client) sendStringGob() error {
 
 func (client *Client) handleMessages(conn net.Conn) {
 	for {
-		message := make([]byte, 4096)
+		message := make([]byte, 8)
 		n, err := conn.Read(message)
 		switch {
 		case err == io.EOF:
@@ -179,25 +181,12 @@ func (client *Client) handleMessages(conn net.Conn) {
 		if !ok {
 			reallog.Println("Command '", cmd, "' is not registered.")
 		} else {
-			handleCommand(conn)
+			handleCommand(conn, client)
 		}
 	}
 }
 
-func (c *Client) StartClient() {
-	go c.receive()
-	for {
-		fmt.Println("Wait for user input")
-		reader := bufio.NewReader(os.Stdin)
-		message, _ := reader.ReadString('\n')
-		message = strings.TrimRight(message, "\n")
-		fmt.Println("Message")
-		if message == "STRING" {
-			c.Socket.Write([]byte(message))
-			c.sendStringGob()
-		} else if message == "GOB" {
-			c.Socket.Write([]byte(message))
-			c.sendGob()
-		}
-	}
+func (client *Client) StartClient() {
+	go client.receive()
+	<-client.terminate
 }

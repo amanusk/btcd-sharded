@@ -254,7 +254,7 @@ func (b *BlockChain) SqlProcessBlock(block *btcutil.Block, flags BehaviorFlags) 
 	if err != nil {
 		reallog.Fatal(err)
 	}
-
+	// This is where the node will be created and block will be written to DB
 	b.SqlMaybeAcceptBlock(block, BFNone)
 
 }

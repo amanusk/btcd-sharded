@@ -417,7 +417,7 @@ func main() {
 		manager := blockchain.NewCoordinator(listener, chain)
 		go manager.Start()
 
-		numClients := 1
+		numClients := 2
 
 		// Wait for all the clients to get connected
 		for manager.GetNumClientes() < numClients {
@@ -441,37 +441,42 @@ func main() {
 				item.Name, block.Hash(), blockHeight)
 
 			clients := manager.GetClients()
-
-			//manager.Chain.SqlProcessBlock(block, blockchain.BFNone)
-			//if err != nil {
-			//	reallog.Printf("block %q (hash %s, height %d) should "+
-			//		"have been accepted: %v", item.Name,
-			//		block.Hash(), blockHeight, err)
-			//}
+			bShards := make([]*wire.MsgBlockShard, numClients)
 
 			// Create a block shard to send to clients
-			bShard := wire.NewMsgBlockShard(&block.MsgBlock().Header)
+			for idx, _ := range bShards {
+				bShards[idx] = wire.NewMsgBlockShard(&block.MsgBlock().Header)
+			}
 
-			// Try with one shard at first
 			for idx, tx := range block.MsgBlock().Transactions {
 				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
-				bShard.AddTransaction(newTx)
+				bShards[idx%numClients].AddTransaction(newTx)
 			}
 
-			var bb bytes.Buffer
-			bShard.Serialize(&bb)
+			activeClients := numClients
+			for i := 0; i < numClients; i++ {
+				if len(bShards[i].Transactions) > 0 {
+					var bb bytes.Buffer
+					bShards[i].Serialize(&bb)
 
-			blockToSend := blockchain.BlockGob{
-				Block: bb.Bytes(),
+					// All data is sent in gobs
+					blockToSend := blockchain.BlockGob{
+						Block: bb.Bytes(),
+					}
+					clients[i].Socket.Write([]byte("BLOCKGOB"))
+
+					//Actually write the GOB on the socket
+					enc := gob.NewEncoder(clients[i].Socket)
+					err = enc.Encode(blockToSend)
+					if err != nil {
+						reallog.Println(err, "Encode failed for struct: %#v", blockToSend)
+					}
+				} else {
+					activeClients--
+				}
 			}
 
-			enc := gob.NewEncoder(clients[0].Socket)
-			err = enc.Encode(blockToSend)
-			if err != nil {
-				reallog.Println(err, "Encode failed for struct: %#v", blockToSend)
-			}
-
-			manager.ProcessBlock(&block.MsgBlock().Header, blockchain.BFNone)
+			manager.ProcessBlock(&block.MsgBlock().Header, blockchain.BFNone, activeClients)
 
 			// Ensure the main chain and orphan flags match the values
 			// specified in the test.

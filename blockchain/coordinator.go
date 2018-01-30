@@ -204,14 +204,15 @@ func (coord *Coordinator) GetClients() []*Client {
 
 // Process block will make a sanity check on the block header and will wait for confirmations from all the shards
 // that the block has been processed
-func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags) error {
+func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags, activeClients int) error {
 	err := CheckBlockHeaderSanity(header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
 	if err != nil {
 		return err
 	}
 	// Wait for all the shards to send finish report
-	for i := 0; i < len(coord.clients); i++ {
+	for i := 0; i < activeClients; i++ {
 		<-coord.allShardsDone
 	}
+	coord.Chain.CoordMaybeAcceptBlock(header, flags)
 	return nil
 }
