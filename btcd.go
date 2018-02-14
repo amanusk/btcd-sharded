@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	reallog "log"
 	"net"
 	"net/http"
@@ -45,6 +46,8 @@ var (
 // winServiceMain is only invoked on Windows.  It detects when btcd is running
 // as a service and reacts accordingly.
 var winServiceMain func() (bool, error)
+
+var numShards int = 1
 
 // btcdMain is the real main function for btcd.  It is necessary to work around
 // the fact that deferred functions do not run when os.Exit() is called.  The
@@ -146,7 +149,6 @@ func btcdMain(serverChan chan<- *server) error {
 
 		return nil
 	}
-
 	// Create server and start it.
 	server, err := newServer(cfg.Listeners, db, activeNetParams.Params,
 		interrupt)
@@ -373,7 +375,7 @@ func chainSetup(dbName string, params *chaincfg.Params) (*blockchain.BlockChain,
 var flagMode *string
 
 func init() {
-	flagMode = flag.String("mode", "server", "start in client or server mode")
+	flagMode = flag.String("mode", "server", "start in shard or server mode")
 	flag.Parse()
 }
 
@@ -393,11 +395,6 @@ func main() {
 		reallog.SetFlags(reallog.Lshortfile)
 		reallog.Println("This is a test log entry")
 
-		tests, err := fullblocktests.SimpleGenerate(false)
-		if err != nil {
-			fmt.Printf("failed to generate tests: %v", err)
-		}
-
 		// Create a new database and chain instance to run tests against.
 		chain, teardownFunc, err := chainSetup("fullblocktest",
 			&chaincfg.RegressionNetParams)
@@ -409,25 +406,77 @@ func main() {
 
 		// Start listener on port 12345 for coordinator
 		fmt.Println("Starting server...")
-		listener, error := net.Listen("tcp", ":12345")
+		shardListener, error := net.Listen("tcp", ":12345")
+		if error != nil {
+			fmt.Println(error)
+		}
+		// Listner for other coordinators (peers)
+		coordListener, error := net.Listen("tcp", ":12346")
 		if error != nil {
 			fmt.Println(error)
 		}
 
-		manager := blockchain.NewCoordinator(listener, chain)
+		manager := blockchain.NewCoordinator(shardListener, coordListener, chain)
 		go manager.Start()
 
-		numClients := 2
-
-		// Wait for all the clients to get connected
-		for manager.GetNumClientes() < numClients {
-			connection, _ := manager.Listener.Accept()
-			client := blockchain.NewClientConnection(connection)
-			manager.Register(client)
-			go manager.Receive(client)
-			go manager.Send(client)
-			// Will continue loop once a client has connected
+		// Wait for all the shards to get connected
+		for manager.GetNumShardes() < numShards {
+			connection, _ := manager.ShardListener.Accept()
+			shard := blockchain.NewShardConnection(connection)
+			manager.RegisterShard(shard)
+			go manager.ReceiveShard(shard)
+			// Will continue loop once a shard has connected
 			<-manager.Connected
+		}
+
+		// Wait for connections from other coordinators
+		fmt.Println("Waiting for coordinators to connect")
+		for {
+			connection, _ := manager.CoordListener.Accept()
+			coord := blockchain.NewCoordConnection(connection)
+			manager.RegisterCoord(coord)
+			go manager.ReceiveCoord(coord)
+		}
+		// Start in oracle mode
+	} else if strings.ToLower(*flagMode) == "oracle" {
+
+		// Setting up my logging system
+		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		defer f.Close()
+		reallog.SetOutput(f)
+		reallog.SetFlags(reallog.Lshortfile)
+
+		// Connect to coordinator
+		coordConn, err := net.Dial("tcp", "localhost:12346")
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		fmt.Println("Connection started", coordConn)
+
+		tests, err := fullblocktests.SimpleGenerate(false)
+		if err != nil {
+			fmt.Printf("failed to generate tests: %v", err)
+		}
+
+		// GET shards from coordinator
+		//TODO restore for full protocol
+		coordConn.Write([]byte("GETSHARDS"))
+
+		var receivedShards blockchain.AddressesGob
+
+		dec := gob.NewDecoder(coordConn)
+		err = dec.Decode(&receivedShards)
+		if err != nil {
+			reallog.Println("Error decoding GOB data:", err)
+			return
+		}
+		//TODO Logic to connect to shards will be moved to coordinator
+		shardDial := receivedShards.Addresses[0].IP.String() + ":12347"
+		// NOTE: There should be an array of shards to communicate with
+		shardConn, err := net.Dial("tcp", shardDial)
+		if err != nil {
+			fmt.Println(err)
 		}
 
 		// testAcceptedBlock attempts to process the block in the provided test
@@ -440,21 +489,37 @@ func main() {
 			reallog.Printf("Testing block %s (hash %s, height %d)",
 				item.Name, block.Hash(), blockHeight)
 
-			clients := manager.GetClients()
-			bShards := make([]*wire.MsgBlockShard, numClients)
+			// Send block to coordinator
+			coordConn.Write([]byte("PROCBLOCK"))
+			coordEnc := gob.NewEncoder(coordConn)
+			// Generate a header gob to send to coordinator
+			headerToSend := blockchain.HeaderGob{
+				Header:       &block.MsgBlock().Header,
+				Flags:        blockchain.BFNone,
+				ActiveShards: numShards,
+			}
+			err = coordEnc.Encode(headerToSend)
+			if err != nil {
+				reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+			}
 
-			// Create a block shard to send to clients
+			bShards := make([]*wire.MsgBlockShard, numShards)
+
+			// Create a block shard to send to shards
 			for idx, _ := range bShards {
 				bShards[idx] = wire.NewMsgBlockShard(&block.MsgBlock().Header)
 			}
 
+			// Split transactions between blocks
 			for idx, tx := range block.MsgBlock().Transactions {
 				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
-				bShards[idx%numClients].AddTransaction(newTx)
+				// NOTE: This should be a DHT
+				bShards[idx%numShards].AddTransaction(newTx)
 			}
-
-			activeClients := numClients
-			for i := 0; i < numClients; i++ {
+			reallog.Println("Sending shards")
+			reallog.Println(bShards[0])
+			activeShards := numShards
+			for i := 0; i < numShards; i++ {
 				if len(bShards[i].Transactions) > 0 {
 					var bb bytes.Buffer
 					bShards[i].Serialize(&bb)
@@ -463,20 +528,39 @@ func main() {
 					blockToSend := blockchain.BlockGob{
 						Block: bb.Bytes(),
 					}
-					clients[i].Socket.Write([]byte("BLOCKGOB"))
+					shardConn.Write([]byte("BLOCKGOB"))
 
 					//Actually write the GOB on the socket
-					enc := gob.NewEncoder(clients[i].Socket)
+					enc := gob.NewEncoder(shardConn)
 					err = enc.Encode(blockToSend)
 					if err != nil {
 						reallog.Println(err, "Encode failed for struct: %#v", blockToSend)
 					}
 				} else {
-					activeClients--
+					activeShards--
 				}
 			}
+			//shardConn.Write([]byte("BLOCKDAD"))
 
-			manager.ProcessBlock(&block.MsgBlock().Header, blockchain.BFNone, activeClients)
+			reallog.Println("Waiting for conformation on block")
+			for {
+				message := make([]byte, 9)
+				n, err := coordConn.Read(message)
+				switch {
+				case err == io.EOF:
+					reallog.Println("Reached EOF - close this connection.\n   ---")
+					return
+				}
+				cmd := (string(message[:n]))
+				reallog.Println("Recived command", cmd)
+				switch cmd {
+				case "BLOCKDONE":
+					break // Quit the switch case
+				default:
+					reallog.Println("Command '", cmd, "' is not registered.")
+				}
+				break // Quit the for loop
+			}
 
 			// Ensure the main chain and orphan flags match the values
 			// specified in the test.
@@ -514,11 +598,12 @@ func main() {
 				}
 			}
 		}
-		// Start a shard client
+
+		// Start a shard
 	} else {
-		f, err := os.OpenFile("ctestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		f, err := os.OpenFile("stestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		if err != nil {
-			fmt.Printf("Failed to create Client log file: %v", err)
+			fmt.Printf("Failed to create Shard log file: %v", err)
 		}
 		defer f.Close()
 
@@ -526,21 +611,35 @@ func main() {
 		reallog.SetFlags(reallog.Lshortfile)
 		reallog.Println("This is a test log entry")
 
-		fmt.Print("Client mode\n")
+		fmt.Print("Shard mode\n")
 		index := blockchain.MyNewBlockIndex(&chaincfg.RegressionNetParams)
 		sqlDB := blockchain.OpenDB()
 
 		reallog.Printf("Index is", index)
 		reallog.Printf("DB is", sqlDB)
 
-		fmt.Println("Starting client...")
+		fmt.Println("Starting shard...")
 		connection, err := net.Dial("tcp", "localhost:12345")
 		if err != nil {
 			fmt.Println(err)
 		}
 
+		// Listner for other shards to connect
+		shardListener, error := net.Listen("tcp", ":12347")
+		if error != nil {
+			fmt.Println(error)
+		}
+
 		fmt.Println("Connection started", connection)
-		c := blockchain.NewClient(connection, index, sqlDB)
-		c.StartClient()
+		s := blockchain.NewShard(shardListener, connection, index, sqlDB)
+		go s.StartShard()
+
+		fmt.Println("Waiting for shards to connect")
+		for {
+			connection, _ := s.ShardListener.Accept()
+			shardConn := blockchain.NewShardConnection(connection)
+			s.RegisterShard(shardConn)
+			go s.ReceiveShard(shardConn)
+		}
 	}
 }

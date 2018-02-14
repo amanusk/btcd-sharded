@@ -33,7 +33,7 @@ const (
 	maxBlockSigOps       = 20000
 	maxBlockSize         = 1000000
 	minCoinbaseScriptLen = 2
-	maxCoinbaseScriptLen = 100
+	maxCoinbaseScriptLen = 27
 	medianTimeBlocks     = 11
 	maxScriptElementSize = 520
 

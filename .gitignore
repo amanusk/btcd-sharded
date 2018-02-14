@@ -38,3 +38,5 @@ blockchain/testdb/*
 blockchain/fullblocktests/cockroach-data/*
 
 btcd
+
+*.*.bkp

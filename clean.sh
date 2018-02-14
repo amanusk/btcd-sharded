@@ -1,6 +1,8 @@
 #!/bin/bash
 /bin/rm testlog.log
 /bin/rm ctestlog.log
+/bin/rm stestlog.log
+/bin/rm otestlog.log
 
 
 

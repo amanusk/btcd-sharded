@@ -7,39 +7,53 @@ import (
 	reallog "log"
 	"net"
 	_ "strconv"
-	"sync"
+	_ "sync"
 
 	"github.com/btcsuite/btcd/wire"
 )
 
 type Coordinator struct {
-	clients       map[*Client]bool
-	broadcast     chan []byte
-	register      chan *Client
-	unregister    chan *Client
-	handler       map[string]HandleFunc
-	allShardsDone chan bool
-	Connected     chan bool // Sends a sigal that a client connection completed
-	Listener      net.Listener
-	Chain         *BlockChain
+	Socket          net.Conn              // Receive information from other coordinators
+	shards          map[*Shard]bool       // A map of shards connected to this coordinator
+	coords          map[*Coordinator]bool // A map of shards connected to this coordinator
+	broadcast       chan []byte           // A channel to broadcast to shards
+	registerShard   chan *Shard
+	unregisterShard chan *Shard
+	registerCoord   chan *Coordinator
+	unregisterCoord chan *Coordinator
+	handler         map[string]HandleFunc
+	allShardsDone   chan bool
+	Connected       chan bool // Sends a sigal that a shard connection completed
+	ShardListener   net.Listener
+	CoordListener   net.Listener
+	Chain           *BlockChain
+}
 
-	m sync.RWMutex
-
-	ClientsMutex sync.RWMutex
+// Creates a new shard connection for a coordintor to use.
+// It has a connection and a channel to receive data from the server
+func NewCoordConnection(connection net.Conn) *Coordinator {
+	coord := &Coordinator{
+		Socket: connection,
+	}
+	return coord
 }
 
 // Cerates and returns a new coordinator
-func NewCoordinator(listener net.Listener, blockchain *BlockChain) *Coordinator {
+func NewCoordinator(shardListener net.Listener, coordListener net.Listener, blockchain *BlockChain) *Coordinator {
 	coord := Coordinator{
-		clients:       make(map[*Client]bool),
-		broadcast:     make(chan []byte),
-		register:      make(chan *Client),
-		unregister:    make(chan *Client),
-		allShardsDone: make(chan bool),
-		handler:       map[string]HandleFunc{},
-		Connected:     make(chan bool),
-		Chain:         blockchain,
-		Listener:      listener,
+		shards:          make(map[*Shard]bool),
+		coords:          make(map[*Coordinator]bool),
+		broadcast:       make(chan []byte),
+		registerShard:   make(chan *Shard),
+		unregisterShard: make(chan *Shard),
+		registerCoord:   make(chan *Coordinator),
+		unregisterCoord: make(chan *Coordinator),
+		allShardsDone:   make(chan bool),
+		handler:         map[string]HandleFunc{},
+		Connected:       make(chan bool),
+		Chain:           blockchain,
+		ShardListener:   shardListener,
+		CoordListener:   coordListener,
 	}
 	return &coord
 }
@@ -58,42 +72,59 @@ type BlockGob struct {
 	Block []byte
 }
 
+type AddressesGob struct {
+	Addresses []*net.TCPAddr
+}
+
+type HeaderGob struct {
+	Header       *wire.BlockHeader
+	Flags        BehaviorFlags
+	ActiveShards int
+}
+
 type stringData struct {
 	S string
 }
 
-func (c *Coordinator) GetNumClientes() int {
-	return len(c.clients)
+func (c *Coordinator) GetNumShardes() int {
+	return len(c.shards)
 }
 
-func (c *Coordinator) Register(client *Client) {
-	c.register <- client
+func (c *Coordinator) RegisterShard(shard *Shard) {
+	c.registerShard <- shard
+}
+
+func (c *Coordinator) RegisterCoord(coord *Coordinator) {
+	c.registerCoord <- coord
 }
 
 func (coord *Coordinator) Start() {
-	coord.AddHandleFunc("STRING", handleStrings)
-	coord.AddHandleFunc("GOB", handleGob)
-	coord.AddHandleFunc("SHARDDONE", handleBlockCheck)
 	for {
 		select {
-		case connection := <-coord.register:
-			coord.clients[connection] = true
-			fmt.Println("Added new connection!")
+		// Handle shard connect/disconnect
+		case connection := <-coord.registerShard:
+			coord.shards[connection] = true
+			fmt.Println("Added new shard!")
 			coord.Connected <- true
-		case connection := <-coord.unregister:
-			if _, ok := coord.clients[connection]; ok {
+		case connection := <-coord.unregisterShard:
+			if _, ok := coord.shards[connection]; ok {
 				close(connection.data)
-				delete(coord.clients, connection)
+				delete(coord.shards, connection)
 				fmt.Println("A connection has terminated!")
 			}
-		// TODO Replace with fucntion
+
+		// Register a new connected coordinator
+		case connection := <-coord.registerCoord:
+			coord.coords[connection] = true
+			fmt.Println("Added new peer!")
+		// TODO Replace with fucntion this is how we broadcast messages
 		case message := <-coord.broadcast:
-			for connection := range coord.clients {
+			for connection := range coord.shards {
 				select {
 				case connection.data <- message:
 				default:
 					close(connection.data)
-					delete(coord.clients, connection)
+					delete(coord.shards, connection)
 				}
 			}
 		}
@@ -106,7 +137,7 @@ func (coord *Coordinator) Start() {
 func (coord *Coordinator) HandleMessages(conn net.Conn) {
 
 	for {
-		message := make([]byte, 4096)
+		message := make([]byte, 9)
 		n, err := conn.Read(message)
 		switch {
 		case err == io.EOF:
@@ -117,27 +148,30 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 		cmd := (string(message[:n]))
 		reallog.Print("Recived command", cmd)
 
-		coord.m.RLock()
-		handleCommand, ok := coord.handler[cmd]
-		coord.m.RUnlock()
-		reallog.Println(handleCommand)
+		// handle according to received command
+		switch cmd {
+		case "SHARDDONE":
+			handleBlockCheck(conn, coord)
+		case "GETSHARDS":
+			handleGetShards(conn, coord)
+		case "PROCBLOCK":
+			handleProcessBlock(conn, coord)
 
-		if !ok {
+		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
-		} else {
-			handleCommand(conn, coord)
 		}
 	}
 }
 
-func (coord *Coordinator) AddHandleFunc(name string, f HandleFunc) {
-	coord.m.Lock()
-	coord.handler[name] = f
-	coord.m.Unlock()
+// Receive a shard and handle messages from shard
+func (coord *Coordinator) ReceiveShard(shard *Shard) {
+	coord.HandleMessages(shard.Socket)
 }
 
-func (coord *Coordinator) Receive(client *Client) {
-	coord.HandleMessages(client.Socket)
+// Receive messates from a coordinator
+// TODO: possiblly make shard/coordinator fit an interface
+func (coord *Coordinator) ReceiveCoord(coordinator *Coordinator) {
+	coord.HandleMessages(coordinator.Socket)
 }
 
 func handleStrings(conn net.Conn, coord *Coordinator) {
@@ -177,41 +211,82 @@ func handleBlockCheck(conn net.Conn, coord *Coordinator) {
 
 }
 
-func (coord *Coordinator) Send(client *Client) {
-	defer client.Socket.Close()
+// Return send a list of all the shards
+func handleGetShards(conn net.Conn, coord *Coordinator) {
+	reallog.Print("Receive shards request")
+	shardConnections := coord.GetShardsConnections()
+
+	reallog.Printf("Shards to send", shardConnections)
+
+	// All data is sent in gobs
+	shardsToSend := AddressesGob{
+		Addresses: shardConnections,
+	}
+	reallog.Printf("Shards gob", shardsToSend.Addresses[0])
+
+	//Actually write the GOB on the socket
+	enc := gob.NewEncoder(conn)
+	err := enc.Encode(shardsToSend)
+	if err != nil {
+		reallog.Println("Error encoding addresses GOB data:", err)
+		return
+	}
+}
+
+// Return send a list of all the shards
+func handleProcessBlock(conn net.Conn, coord *Coordinator) {
+	reallog.Print("Receivd process block request")
+
+	var header HeaderGob
+
+	dec := gob.NewDecoder(conn)
+	err := dec.Decode(&header)
+	if err != nil {
+		reallog.Println("Error decoding GOB data:", err)
+		return
+	}
+	coord.ProcessBlock(header.Header, header.Flags, header.ActiveShards)
+	conn.Write([]byte("BLOCKDONE"))
+}
+
+// Send the information in shard.data to the shard via socket
+// This is used for broadcast
+func (coord *Coordinator) Send(shard *Shard) {
+	defer shard.Socket.Close()
 	for {
 		select {
-		case message, ok := <-client.data:
+		case message, ok := <-shard.data:
 			if !ok {
 				return
 			}
-			client.Socket.Write(message)
+			shard.Socket.Write(message)
 		}
 	}
-
 }
 
-// Returns all the clients in the coordinator clients maps
-func (coord *Coordinator) GetClients() []*Client {
-	clients := make([]*Client, 0, len(coord.clients))
+// Returns all the shards in the coordinator shards maps
+func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
+	connections := make([]*net.TCPAddr, 0, len(coord.shards))
 
-	for key, _ := range coord.clients {
-		clients = append(clients, key)
+	for key, _ := range coord.shards {
+		conn := key.Socket.RemoteAddr().(*net.TCPAddr)
+		connections = append(connections, conn)
 	}
-	return clients
+	return connections
 
 }
 
 // Process block will make a sanity check on the block header and will wait for confirmations from all the shards
 // that the block has been processed
-func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags, activeClients int) error {
+func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags, activeShards int) error {
 	err := CheckBlockHeaderSanity(header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
 	if err != nil {
 		return err
 	}
 	// Wait for all the shards to send finish report
-	for i := 0; i < activeClients; i++ {
+	for i := 0; i < activeShards; i++ {
 		<-coord.allShardsDone
+		reallog.Println("Done processing block")
 	}
 	coord.Chain.CoordMaybeAcceptBlock(header, flags)
 	return nil
