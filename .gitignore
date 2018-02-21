@@ -35,7 +35,11 @@ _testmain.go
 
 .*.swp
 blockchain/testdb/*
+blockchain/cockroach1/*
+blockchain/cockroach2/*
 blockchain/fullblocktests/cockroach-data/*
+
+
 
 btcd
 

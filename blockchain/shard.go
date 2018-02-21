@@ -27,6 +27,7 @@ type Shard struct {
 	terminate       chan bool
 	registerShard   chan *Shard
 	unregisterShard chan *Shard
+	Port            int // Saves the port the shard is listening to other shards
 	Index           *BlockIndex
 	SqlDB           *SqlBlockDB
 	ShardListener   net.Listener
@@ -34,15 +35,16 @@ type Shard struct {
 
 // Creates a new shard connection for a coordintor to use.
 // It has a connection and a channel to receive data from the server
-func NewShardConnection(connection net.Conn) *Shard {
+func NewShardConnection(connection net.Conn, shardPort int) *Shard {
 	shard := &Shard{
-		Socket: connection,
+		Socket: connection, // The connection to the coordinator
+		Port:   shardPort,  // Will store the prot the shard is listening to for other shards
 		data:   make(chan []byte),
 	}
 	return shard
 }
 
-// Creates a new shard for a coordintor to use.
+// Creates a new shard for a coordinator to use.
 // It has a connection and a channel to receive data from the server
 func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex, db *SqlBlockDB) *Shard {
 	shard := &Shard{
@@ -75,6 +77,33 @@ func handleStatusRequest(conn net.Conn) {
 	//reallog.Printf("Outer stringData struct: \n%#v\n", data)
 
 	//manager.broadcast <- []byte(data.S)
+}
+
+// Receive a list of ip:port from coordinator, to which this shard will connect
+func handleShardConnect(conn net.Conn, shard *Shard) {
+	reallog.Println("Received request to connect to shards")
+
+	var receivedShardAddresses AddressesGob
+
+	dec := gob.NewDecoder(conn)
+	err := dec.Decode(&receivedShardAddresses)
+	if err != nil {
+		reallog.Println("Error decoding GOB data:", err)
+		return
+	}
+
+	for _, address := range receivedShardAddresses.Addresses {
+		reallog.Println("Shard connecting to shard on " + address.String())
+		connection, err := net.Dial("tcp", address.String())
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		shardConn := NewShardConnection(connection, address.Port)
+		shard.RegisterShard(shardConn)
+		go shard.ReceiveShard(shardConn)
+	}
+
 }
 
 func handleBlockGob(conn net.Conn, shard *Shard) {
@@ -123,7 +152,7 @@ func handleBlockDad(conn net.Conn, shard *Shard) {
 }
 
 func (shard *Shard) receive() {
-	fmt.Printf("Shard started recieving")
+	fmt.Println("Shard started recieving")
 
 	shard.handleMessages(shard.Socket)
 
@@ -188,6 +217,8 @@ func (shard *Shard) handleMessages(conn net.Conn) {
 			handleBlockGob(conn, shard)
 		case "BLOCKDAD":
 			handleBlockDad(conn, shard)
+		case "SHARDCON":
+			handleShardConnect(conn, shard)
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
 		}

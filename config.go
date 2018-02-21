@@ -35,7 +35,7 @@ import (
 const (
 	defaultConfigFilename        = "btcd.conf"
 	defaultDataDirname           = "data"
-	defaultLogLevel              = "info"
+	defaultLogLevel              = "critical"
 	defaultLogDirname            = "logs"
 	defaultLogFilename           = "btcd.log"
 	defaultMaxPeers              = 125

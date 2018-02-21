@@ -1,0 +1,15 @@
+{
+    "server": {
+        "serverlog": "testlog2.log",
+        "server_shards_port": ":22345",
+        "server_coords_port": ":22346",
+        "server_target_server": "localhost:12346",
+        "server_target_shard_port": ":12347",
+        "server_db": "postgresql://amanusk@localhost:26258/blockchain?sslmode=disable"
+    },
+    "shard": {
+        "shardlog": "s1testlog2.log",
+        "shard_shards_port": ":22347",
+        "shard_db": "postgresql://amanusk@localhost:26258/blockchain?sslmode=disable"
+    }
+}

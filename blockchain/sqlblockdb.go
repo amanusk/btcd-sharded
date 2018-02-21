@@ -119,9 +119,11 @@ func (db *SqlBlockDB) InitTables() error {
 // Function to open the sqlDB to use with our blockchain
 // DB needs to be created and running
 // Start with cockroach start --insecure --host=localhost
-func OpenDB() *SqlBlockDB {
+func OpenDB(postgres string) *SqlBlockDB {
 	// Open the sql DB and join it
-	db, err := sql.Open("postgres", "postgresql://amanusk@localhost:26257/blockchain?sslmode=disable")
+	reallog.Println("Connecting to ", postgres)
+	db, err := sql.Open("postgres", postgres)
+	//db, err := sql.Open("postgres", "postgresql://amanusk@localhost:26258/blockchain?sslmode=disable")
 	if err != nil {
 		panic(err)
 	}

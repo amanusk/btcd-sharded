@@ -1978,7 +1978,7 @@ func SqlNew(config *Config) (*BlockChain, error) {
 	}
 
 	bestNode := b.bestChain.Tip()
-	log.Infof("Chain state (height %d, hash %v, totaltx %d, work %v)",
+	reallog.Printf("Chain state (height %d, hash %v, totaltx %d, work %v)",
 		bestNode.height, bestNode.hash, b.stateSnapshot.TotalTxns,
 		bestNode.WorkSum)
 
