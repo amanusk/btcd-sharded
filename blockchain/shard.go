@@ -134,6 +134,8 @@ func handleBlockGob(conn net.Conn, shard *Shard) {
 	// This needs to be optimized
 	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(&msgBlockShard))
 
+	ShardStoreBlockShard(shard.SqlDB, &msgBlockShard)
+
 	ShardConnectBestChain(shard.SqlDB, block)
 
 	// Sending a shardDone message to the coordinator

@@ -490,17 +490,11 @@ func main() {
 				reallog.Println("Error decoding GOB data:", err)
 				return
 			}
-
 			manager.NotifyShards(receivedShards.Addresses)
 
+			manager.SendBlocksRequest()
+
 		}
-		// TODO
-		// if not in bootstrap mode:
-		// Connect to shard A
-		// Do GETSHARDS
-		// Send message to shards to connect to shards of A
-		// Send Ask for block message
-		// Receive process block
 
 		// Sleep on this until process is killed
 		<-manager.KeepAlive
@@ -713,6 +707,13 @@ func main() {
 			go s.ReceiveShard(shardConn)
 		}
 	} else if strings.ToLower(*flagMode) == "test" {
-		// If you need to run a test mode
+		// Connect to coordinator
+		coordConn, err := net.Dial("tcp", "localhost:12346")
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		fmt.Println("Connection started", coordConn)
+		coordConn.Write([]byte("REQBLOCKS"))
 	}
 }

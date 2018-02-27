@@ -15,7 +15,7 @@ import (
 type Coordinator struct {
 	Socket          net.Conn              // Receive information from other coordinators
 	shards          map[*Shard]bool       // A map of shards connected to this coordinator
-	coords          map[*Coordinator]bool // A map of shards connected to this coordinator
+	coords          map[*Coordinator]bool // A map of coords connected to this coordinator
 	broadcast       chan []byte           // A channel to broadcast to shards
 	registerShard   chan *Shard
 	unregisterShard chan *Shard
@@ -34,7 +34,7 @@ type Coordinator struct {
 // It has a connection and a channel to receive data from the server
 func NewCoordConnection(connection net.Conn) *Coordinator {
 	coord := &Coordinator{
-		Socket: connection,
+		Socket: connection, // A connection to the connected peer
 	}
 	return coord
 }
@@ -158,6 +158,8 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 			handleGetShards(conn, coord)
 		case "PROCBLOCK":
 			handleProcessBlock(conn, coord)
+		case "REQBLOCKS":
+			handleRequestBlocks(conn, coord)
 
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
@@ -277,6 +279,24 @@ func handleProcessBlock(conn net.Conn, coord *Coordinator) {
 	conn.Write([]byte("BLOCKDONE"))
 }
 
+// This function handle receiving a request for blocks from another coordinator
+func handleRequestBlocks(conn net.Conn, coord *Coordinator) {
+	reallog.Print("Receivd request for blocks request")
+
+	reallog.Println("The fist block in chain")
+	reallog.Println(coord.Chain.BlockHashByHeight(0))
+
+	for i := 0; i < coord.Chain.BestChainLength(); i++ {
+		blockHash, err := coord.Chain.BlockHashByHeight(int32(i))
+		if err != nil {
+			reallog.Println("Unable to fetch hash of block ", i)
+		}
+		reallog.Println("Block hash ", i, " ", blockHash)
+		coord.Chain.BlockShardByHash(blockHash)
+	}
+
+}
+
 // Send the information in shard.data to the shard via socket
 // This is used for broadcast
 func (coord *Coordinator) Send(shard *Shard) {
@@ -321,6 +341,7 @@ func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorF
 	return nil
 }
 
+// A go routine to listen for other coordinator (peers) to connect
 func (coord *Coordinator) ListenToCoordinators() error {
 	// Wait for connections from other coordinators
 	fmt.Println("Waiting for coordinators to connect")
@@ -330,5 +351,13 @@ func (coord *Coordinator) ListenToCoordinators() error {
 		c := NewCoordConnection(connection)
 		coord.RegisterCoord(c)
 		go coord.ReceiveCoord(c)
+	}
+}
+
+// Send a request to a peer to get all the blocks in its database
+// This only needs to request the blocks, and ProcessBlock should handle receiving them
+func (coord *Coordinator) SendBlocksRequest() {
+	for c, _ := range coord.coords {
+		c.Socket.Write([]byte("REQBLOCKS"))
 	}
 }

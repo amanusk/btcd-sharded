@@ -1422,6 +1422,19 @@ func (b *BlockChain) BlockByHeight(blockHeight int32) (*btcutil.Block, error) {
 	return block, err
 }
 
+// BlockNodeByHeight returns only the hash of the given height in the main chain.
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) BlockNodeByHeight(blockHeight int32) (*BlockNode, error) {
+	// Lookup the block height in the best chain.
+	node := b.bestChain.NodeByHeight(blockHeight)
+	if node == nil {
+		str := fmt.Sprintf("no block at height %d exists", blockHeight)
+		return nil, errNotInMainChain(str)
+	}
+	return node, nil
+}
+
 // BlockByHash returns the block from the main chain with the given hash with
 // the appropriate chain height set.
 //
@@ -1443,4 +1456,23 @@ func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (*btcutil.Block, error) {
 		return err
 	})
 	return block, err
+}
+
+// BlockByHash returns the block shard from the main chain with the given hash with
+// the appropriate chain height. i.e, all transactions that refer to the block hash and
+// relevant indexes
+//
+// This function is safe for concurrent access.
+func (b *BlockChain) BlockShardByHash(hash *chainhash.Hash) { //(*wire.MsgBlockShard, error) {
+	// Lookup the block hash in block index and ensure it is in the best
+	// chain.
+	node := b.index.LookupNode(hash)
+	if node == nil || !b.bestChain.Contains(node) {
+		str := fmt.Sprintf("block %s is not in the main chain", hash)
+		reallog.Println(str)
+		//return nil, errNotInMainChain(str)
+	}
+
+	b.SqlDB.FetchTXs(*hash)
+
 }

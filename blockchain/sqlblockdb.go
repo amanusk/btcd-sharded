@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	_ "github.com/lib/pq"
 )
 
@@ -23,7 +24,7 @@ func (db *SqlBlockDB) AddBlock(block *wire.MsgBlock) {
 	db.AddBlockHeader(block.Header)
 	blockHash := block.BlockHash()
 	for idx, val := range block.Transactions {
-		db.AddTX(blockHash[:], idx, val)
+		db.AddTX(blockHash[:], int32(idx), val)
 	}
 }
 
@@ -40,7 +41,7 @@ func (db *SqlBlockDB) AddBlockHeader(h wire.BlockHeader) {
 }
 
 // Stores a tx in the database
-func (db *SqlBlockDB) AddTX(blockHash []byte, idx int, tx *wire.MsgTx) {
+func (db *SqlBlockDB) AddTX(blockHash []byte, idx int32, tx *wire.MsgTx) {
 	txHash := tx.TxHash()
 	// Serialize tx to save
 	var bb bytes.Buffer
@@ -76,6 +77,43 @@ func (db *SqlBlockDB) StoreUTXO(txHash chainhash.Hash, serialized []byte) {
 		reallog.Print("SQL Insert Err:", err)
 	} else {
 		reallog.Print("Save tx ", txHash)
+	}
+}
+
+// Fetch all transactions associated with the received block hash
+func (db *SqlBlockDB) FetchTXs(hash chainhash.Hash) {
+	reallog.Println("Fetching txs for block", hash)
+	// Query all txs from databse
+	rows, err := db.db.Query("SELECT * FROM txs WHERE blockHash=$1", hash[:])
+	// Read the txs from the database after query
+
+	var blockShard wire.MsgBlockShard
+
+	for rows.Next() {
+		var txHash []byte
+		var blockHash []byte
+		var txIdx int32
+		var txData []byte
+		err = rows.Scan(&txHash, &blockHash, &txIdx, &txData)
+		if err != nil {
+			reallog.Println("Unable to scan transacions from query")
+		}
+		// Deserialize the transaction
+		var tx wire.MsgTx
+		rbuf := bytes.NewReader(txData)
+		err := tx.Deserialize(rbuf)
+		if err != nil {
+			reallog.Printf("Deserialize error %v", err)
+			continue
+		}
+
+		indexedTx := wire.NewTxIndexFromTx(&tx, txIdx)
+
+		blockShard.AddTransaction(indexedTx)
+	}
+	reallog.Println("Transactions in fetched block")
+	for _, val := range blockShard.Transactions {
+		reallog.Printf("%s ", spew.Sdump(&val))
 	}
 }
 

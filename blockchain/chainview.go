@@ -421,3 +421,10 @@ func (c *chainView) BlockLocator(node *BlockNode) BlockLocator {
 	c.mtx.Unlock()
 	return locator
 }
+
+// This return the number if blocks in the current block view
+// It's purpose is to be be used when all blocks are requested
+// NOTE: This needs to be replaced with a clever way to fetch the relevant blocks
+func (c *chainView) NumBlocks() int {
+	return len(c.nodes)
+}
