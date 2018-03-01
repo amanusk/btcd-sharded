@@ -16,7 +16,6 @@ type Coordinator struct {
 	Socket          net.Conn              // Receive information from other coordinators
 	shards          map[*Shard]bool       // A map of shards connected to this coordinator
 	coords          map[*Coordinator]bool // A map of coords connected to this coordinator
-	broadcast       chan []byte           // A channel to broadcast to shards
 	registerShard   chan *Shard
 	unregisterShard chan *Shard
 	registerCoord   chan *Coordinator
@@ -44,7 +43,6 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 	coord := Coordinator{
 		shards:          make(map[*Shard]bool),
 		coords:          make(map[*Coordinator]bool),
-		broadcast:       make(chan []byte),
 		registerShard:   make(chan *Shard),
 		unregisterShard: make(chan *Shard),
 		registerCoord:   make(chan *Coordinator),
@@ -61,14 +59,6 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 
 type HandleFunc func(conn net.Conn, coord *Coordinator)
 
-type complexData struct {
-	N int
-	S string
-	M map[string]int
-	P []byte
-	C *complexData
-}
-
 type BlockGob struct {
 	Block []byte
 }
@@ -79,9 +69,8 @@ type AddressesGob struct {
 }
 
 type HeaderGob struct {
-	Header       *wire.BlockHeader
-	Flags        BehaviorFlags
-	ActiveShards int
+	Header *wire.BlockHeader
+	Flags  BehaviorFlags
 }
 
 type stringData struct {
@@ -110,7 +99,6 @@ func (coord *Coordinator) Start() {
 			coord.Connected <- true
 		case connection := <-coord.unregisterShard:
 			if _, ok := coord.shards[connection]; ok {
-				close(connection.data)
 				delete(coord.shards, connection)
 				fmt.Println("A connection has terminated!")
 			}
@@ -119,16 +107,7 @@ func (coord *Coordinator) Start() {
 		case connection := <-coord.registerCoord:
 			coord.coords[connection] = true
 			fmt.Println("Added new peer!")
-		// TODO Replace with fucntion this is how we broadcast messages
-		case message := <-coord.broadcast:
-			for connection := range coord.shards {
-				select {
-				case connection.data <- message:
-				default:
-					close(connection.data)
-					delete(coord.shards, connection)
-				}
-			}
+			// Saves the message in the channel in "message"
 		}
 	}
 }
@@ -201,37 +180,6 @@ func (coord *Coordinator) ReceiveCoord(coordinator *Coordinator) {
 	coord.HandleMessages(coordinator.Socket)
 }
 
-func handleStrings(conn net.Conn, coord *Coordinator) {
-	reallog.Print("Receive STATUS REQUEST data:")
-	var data stringData
-
-	dec := gob.NewDecoder(conn)
-	err := dec.Decode(&data)
-	if err != nil {
-		reallog.Println("Error decoding GOB data:", err)
-		return
-	}
-
-	//reallog.Printf("Outer stringData struct: \n%#v\n", data)
-
-	coord.broadcast <- []byte("STATUS")
-}
-
-func handleGob(conn net.Conn, coord *Coordinator) {
-	reallog.Print("Receive GOB data:")
-	var data complexData
-
-	dec := gob.NewDecoder(conn)
-	err := dec.Decode(&data)
-	if err != nil {
-		reallog.Println("Error decoding GOB data:", err)
-		return
-	}
-
-	reallog.Printf("Outer complexData struct: \n%#v\n", data)
-	reallog.Printf("Inner complexData struct: \n%#v\n", data.C)
-}
-
 func handleBlockCheck(conn net.Conn, coord *Coordinator) {
 	reallog.Print("Receive Block Confirmation")
 	coord.allShardsDone <- true
@@ -275,7 +223,7 @@ func handleProcessBlock(conn net.Conn, coord *Coordinator) {
 		reallog.Println("Error decoding GOB data:", err)
 		return
 	}
-	coord.ProcessBlock(header.Header, header.Flags, header.ActiveShards)
+	coord.ProcessBlock(header.Header, header.Flags)
 	conn.Write([]byte("BLOCKDONE"))
 }
 
@@ -292,24 +240,45 @@ func handleRequestBlocks(conn net.Conn, coord *Coordinator) {
 			reallog.Println("Unable to fetch hash of block ", i)
 		}
 		reallog.Println("Block hash ", i, " ", blockHash)
-		coord.Chain.BlockShardByHash(blockHash)
-	}
 
-}
+		header, err := coord.Chain.SqlFetchHeader(blockHash)
 
-// Send the information in shard.data to the shard via socket
-// This is used for broadcast
-func (coord *Coordinator) Send(shard *Shard) {
-	defer shard.Socket.Close()
-	for {
-		select {
-		case message, ok := <-shard.data:
-			if !ok {
+		reallog.Println("Header hash ", header.BlockHash())
+
+		// Send block to coordinator
+		conn.Write([]byte("PROCBLOCK"))
+		coordEnc := gob.NewEncoder(conn)
+		// Generate a header gob to send to coordinator
+		headerToSend := HeaderGob{
+			Header: &header,
+			Flags:  BFNone,
+		}
+		err = coordEnc.Encode(headerToSend)
+		if err != nil {
+			reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+		}
+		// Wait for BLOCKDONE to send next block
+		reallog.Println("Waiting for conformation on block")
+		for {
+			message := make([]byte, 9)
+			n, err := conn.Read(message)
+			switch {
+			case err == io.EOF:
+				reallog.Println("Reached EOF - close this connection.\n   ---")
 				return
 			}
-			shard.Socket.Write(message)
+			cmd := (string(message[:n]))
+			reallog.Println("Recived command", cmd)
+			switch cmd {
+			case "BLOCKDONE":
+				break // Quit the switch case
+			default:
+				reallog.Println("Command '", cmd, "' is not registered.")
+			}
+			break // Quit the for loop
 		}
 	}
+
 }
 
 // Returns all the shards in the coordinator shards maps
@@ -327,13 +296,30 @@ func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
 
 // Process block will make a sanity check on the block header and will wait for confirmations from all the shards
 // that the block has been processed
-func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags, activeShards int) error {
+func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags) error {
 	err := CheckBlockHeaderSanity(header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
 	if err != nil {
 		return err
 	}
+
+	// Send block header to request to all shards
+	for shard, _ := range coord.shards {
+		shard.Socket.Write([]byte("REQBLOCK"))
+
+		coordEnc := gob.NewEncoder(shard.Socket)
+		// Generate a header gob to send to coordinator
+		headerToSend := HeaderGob{
+			Header: header,
+			Flags:  BFNone,
+		}
+		err = coordEnc.Encode(headerToSend)
+		if err != nil {
+			reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+		}
+	}
+
 	// Wait for all the shards to send finish report
-	for i := 0; i < activeShards; i++ {
+	for i := 0; i < len(coord.shards); i++ {
 		<-coord.allShardsDone
 		reallog.Println("Done processing block")
 	}
@@ -357,7 +343,9 @@ func (coord *Coordinator) ListenToCoordinators() error {
 // Send a request to a peer to get all the blocks in its database
 // This only needs to request the blocks, and ProcessBlock should handle receiving them
 func (coord *Coordinator) SendBlocksRequest() {
+	reallog.Println("Sending blocks request")
 	for c, _ := range coord.coords {
+		reallog.Println("Sending request to ", c.Socket)
 		c.Socket.Write([]byte("REQBLOCKS"))
 	}
 }

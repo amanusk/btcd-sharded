@@ -1270,6 +1270,7 @@ func ShardConnectBestChain(db *SqlBlockDB, block *btcutil.Block) (bool, error) {
 
 		// Connect the block to the main chain.
 		// NOTE: This writes all the updated databases to the DB
+		reallog.Println("Connecting block", block.Hash())
 		err := sqlConnectBlock(db, block, view, stxos)
 		if err != nil {
 			reallog.Printf("Failed to connect block")
@@ -1357,6 +1358,22 @@ func (b *BlockChain) FetchHeader(hash *chainhash.Hash) (wire.BlockHeader, error)
 	})
 	if err != nil {
 		return wire.BlockHeader{}, err
+	}
+	return *header, nil
+}
+
+// FetchHeader returns the block header identified by the given hash or an error
+// if it doesn't exist.
+func (b *BlockChain) SqlFetchHeader(hash *chainhash.Hash) (wire.BlockHeader, error) {
+	// Reconstruct the header from the block index if possible.
+	if node := b.index.LookupNode(hash); node != nil {
+		return node.Header(), nil
+	}
+
+	// Fall back to loading it from the database.
+	header, err := sqlDbFetchHeaderByHash(b.SqlDB, hash)
+	if err != nil {
+		reallog.Fatalln("Unable to fetch block")
 	}
 	return *header, nil
 }

@@ -81,7 +81,7 @@ func (db *SqlBlockDB) StoreUTXO(txHash chainhash.Hash, serialized []byte) {
 }
 
 // Fetch all transactions associated with the received block hash
-func (db *SqlBlockDB) FetchTXs(hash chainhash.Hash) {
+func (db *SqlBlockDB) FetchTXs(hash chainhash.Hash) *wire.MsgBlockShard {
 	reallog.Println("Fetching txs for block", hash)
 	// Query all txs from databse
 	rows, err := db.db.Query("SELECT * FROM txs WHERE blockHash=$1", hash[:])
@@ -111,10 +111,29 @@ func (db *SqlBlockDB) FetchTXs(hash chainhash.Hash) {
 
 		blockShard.AddTransaction(indexedTx)
 	}
-	reallog.Println("Transactions in fetched block")
-	for _, val := range blockShard.Transactions {
-		reallog.Printf("%s ", spew.Sdump(&val))
+	//reallog.Println("Transactions in fetched block")
+	//for _, val := range blockShard.Transactions {
+	//	reallog.Printf("%s ", spew.Sdump(&val))
+	//}
+	return &blockShard
+}
+
+// Fetch header of given hash
+func (db *SqlBlockDB) FetchHeader(hash chainhash.Hash) *wire.BlockHeader {
+	reallog.Println("Fetching header of block", hash)
+	row := db.db.QueryRow("SELECT * FROM headers WHERE blockHash=$1", hash[:])
+
+	var blockHash []byte
+	var h wire.BlockHeader
+
+	err := row.Scan(&blockHash, &h.Version, &h.PrevBlock, &h.MerkleRoot, &h.Timestamp, &h.Bits, &h.Nonce)
+	if err != nil {
+		reallog.Println("Unable to scan transacions from query")
 	}
+	reallog.Println("Block Header")
+	reallog.Printf("%s ", spew.Sdump(&h))
+	return &h
+
 }
 
 // Create the tables in the SQL database

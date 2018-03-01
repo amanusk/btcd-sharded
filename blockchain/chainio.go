@@ -912,6 +912,7 @@ func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
 // particular, only the entries that have been marked as modified are written
 // to the database.
 func sqlDbPutUtxoView(db *SqlBlockDB, view *UtxoViewpoint) error {
+	reallog.Println("Storing view", view)
 	for txHashIter, entry := range view.entries {
 		// No need to update the database if the entry was not modified.
 		if entry == nil || !entry.modified {
@@ -936,6 +937,7 @@ func sqlDbPutUtxoView(db *SqlBlockDB, view *UtxoViewpoint) error {
 		}
 
 		// At this point the utxo entry is not fully spent, so store its
+		reallog.Println("Storing Utxo ", txHash)
 		db.StoreUTXO(txHash, serialized)
 	}
 
@@ -1370,6 +1372,14 @@ func dbFetchHeaderByHash(dbTx database.Tx, hash *chainhash.Hash) (*wire.BlockHea
 	return &header, nil
 }
 
+// dbFetchHeaderByHash uses an existing database transaction to retrieve the
+// block header for the provided hash.
+func sqlDbFetchHeaderByHash(db *SqlBlockDB, hash *chainhash.Hash) (*wire.BlockHeader, error) {
+	header := db.FetchHeader(*hash)
+
+	return header, nil
+}
+
 // dbFetchHeaderByHeight uses an existing database transaction to retrieve the
 // block header for the provided height.
 func dbFetchHeaderByHeight(dbTx database.Tx, height int32) (*wire.BlockHeader, error) {
@@ -1463,16 +1473,17 @@ func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (*btcutil.Block, error) {
 // relevant indexes
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) BlockShardByHash(hash *chainhash.Hash) { //(*wire.MsgBlockShard, error) {
+func (b *BlockChain) BlockShardByHash(hash *chainhash.Hash) (*wire.MsgBlockShard, error) {
 	// Lookup the block hash in block index and ensure it is in the best
 	// chain.
 	node := b.index.LookupNode(hash)
 	if node == nil || !b.bestChain.Contains(node) {
 		str := fmt.Sprintf("block %s is not in the main chain", hash)
 		reallog.Println(str)
-		//return nil, errNotInMainChain(str)
+		return nil, errNotInMainChain(str)
 	}
 
-	b.SqlDB.FetchTXs(*hash)
+	blockShard := b.SqlDB.FetchTXs(*hash)
+	return blockShard, nil
 
 }

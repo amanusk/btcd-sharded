@@ -466,6 +466,7 @@ func main() {
 			port, _ := strconv.Atoi(config.Shard.Shard_shards_port[1:])
 			shard := blockchain.NewShardConnection(connection, int(port))
 			manager.RegisterShard(shard)
+			// Start receiving from shard
 			go manager.ReceiveShard(shard)
 			// Will continue loop once a shard has connected
 			<-manager.Connected
@@ -480,6 +481,11 @@ func main() {
 			if err != nil {
 				fmt.Println(err)
 			}
+			// Register the connection with yourself
+			c := blockchain.NewCoordConnection(coordConn)
+			manager.RegisterCoord(c)
+
+			// Request for shards
 			coordConn.Write([]byte("GETSHARDS"))
 
 			var receivedShards blockchain.AddressesGob
@@ -557,13 +563,42 @@ func main() {
 			coordEnc := gob.NewEncoder(coordConn)
 			// Generate a header gob to send to coordinator
 			headerToSend := blockchain.HeaderGob{
-				Header:       &block.MsgBlock().Header,
-				Flags:        blockchain.BFNone,
-				ActiveShards: numShards,
+				Header: &block.MsgBlock().Header,
+				Flags:  blockchain.BFNone,
 			}
 			err = coordEnc.Encode(headerToSend)
 			if err != nil {
 				reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+			}
+			// Wait for shard to request the block
+			for {
+				message := make([]byte, 8)
+				n, err := shardConn.Read(message)
+				switch {
+				case err == io.EOF:
+					reallog.Println("Reached EOF - close this connection.\n   ---")
+					return
+				}
+				cmd := (string(message[:n]))
+				reallog.Println("Recived command", cmd)
+				switch cmd {
+				case "SNDBLOCK":
+					reallog.Println("'Shard' received requist SNDBLOCK")
+					// Decode the header sent
+					var header blockchain.HeaderGob
+
+					dec := gob.NewDecoder(shardConn)
+					err := dec.Decode(&header)
+					if err != nil {
+						reallog.Println("Error decoding GOB data:", err)
+						return
+					}
+					reallog.Println("'Shard' received request for header")
+					break // Quit the switch case
+				default:
+					reallog.Println("Command '", cmd, "' is not registered.")
+				}
+				break // Quit the for loop
 			}
 
 			bShards := make([]*wire.MsgBlockShard, numShards)
