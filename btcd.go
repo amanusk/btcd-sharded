@@ -20,6 +20,7 @@ import (
 	"runtime/pprof"
 	"strconv"
 	"strings"
+	_ "time"
 
 	"encoding/gob"
 	"encoding/json"
@@ -498,8 +499,7 @@ func main() {
 			}
 			manager.NotifyShards(receivedShards.Addresses)
 
-			manager.SendBlocksRequest()
-
+			coordConn.Write([]byte("REQBLOCKS"))
 		}
 
 		// Sleep on this until process is killed
@@ -743,7 +743,7 @@ func main() {
 		}
 	} else if strings.ToLower(*flagMode) == "test" {
 		// Connect to coordinator
-		coordConn, err := net.Dial("tcp", "localhost:12346")
+		coordConn, err := net.Dial("tcp", "localhost:22346")
 		if err != nil {
 			fmt.Println(err)
 		}

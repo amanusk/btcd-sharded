@@ -8,6 +8,7 @@ import (
 	"net"
 	_ "strconv"
 	_ "sync"
+	_ "time"
 
 	"github.com/btcsuite/btcd/wire"
 )
@@ -139,6 +140,8 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 			handleProcessBlock(conn, coord)
 		case "REQBLOCKS":
 			handleRequestBlocks(conn, coord)
+		case "DEADBEAFS":
+			handleDeadBeaf(conn, coord)
 
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
@@ -227,57 +230,70 @@ func handleProcessBlock(conn net.Conn, coord *Coordinator) {
 	conn.Write([]byte("BLOCKDONE"))
 }
 
+// This function handle receiving a block over a connection
+// and processing it
+// The coordinator validates the header and waits for conformation
+// from all the shards
+func handleDeadBeaf(conn net.Conn, coord *Coordinator) {
+	reallog.Print("Received dead beef command")
+}
+
 // This function handle receiving a request for blocks from another coordinator
 func handleRequestBlocks(conn net.Conn, coord *Coordinator) {
 	reallog.Print("Receivd request for blocks request")
 
-	reallog.Println("The fist block in chain")
-	reallog.Println(coord.Chain.BlockHashByHeight(0))
+	reallog.Println("Sending request to ", conn)
+	conn.Write([]byte("DEADBEAFS"))
 
-	for i := 0; i < coord.Chain.BestChainLength(); i++ {
-		blockHash, err := coord.Chain.BlockHashByHeight(int32(i))
-		if err != nil {
-			reallog.Println("Unable to fetch hash of block ", i)
-		}
-		reallog.Println("Block hash ", i, " ", blockHash)
+	//reallog.Println("The fist block in chain")
+	//reallog.Println(coord.Chain.BlockHashByHeight(0))
 
-		header, err := coord.Chain.SqlFetchHeader(blockHash)
+	//for i := 0; i < coord.Chain.BestChainLength(); i++ {
+	//	blockHash, err := coord.Chain.BlockHashByHeight(int32(i))
+	//	if err != nil {
+	//		reallog.Println("Unable to fetch hash of block ", i)
+	//	}
+	//	reallog.Println("Block hash ", i, " ", blockHash)
 
-		reallog.Println("Header hash ", header.BlockHash())
+	//	header, err := coord.Chain.SqlFetchHeader(blockHash)
 
-		// Send block to coordinator
-		conn.Write([]byte("PROCBLOCK"))
-		coordEnc := gob.NewEncoder(conn)
-		// Generate a header gob to send to coordinator
-		headerToSend := HeaderGob{
-			Header: &header,
-			Flags:  BFNone,
-		}
-		err = coordEnc.Encode(headerToSend)
-		if err != nil {
-			reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
-		}
-		// Wait for BLOCKDONE to send next block
-		reallog.Println("Waiting for conformation on block")
-		for {
-			message := make([]byte, 9)
-			n, err := conn.Read(message)
-			switch {
-			case err == io.EOF:
-				reallog.Println("Reached EOF - close this connection.\n   ---")
-				return
-			}
-			cmd := (string(message[:n]))
-			reallog.Println("Recived command", cmd)
-			switch cmd {
-			case "BLOCKDONE":
-				break // Quit the switch case
-			default:
-				reallog.Println("Command '", cmd, "' is not registered.")
-			}
-			break // Quit the for loop
-		}
-	}
+	//	reallog.Println("Header hash ", header.BlockHash())
+
+	//	reallog.Println("Sending block on", conn)
+
+	//	// Send block to coordinator
+	//	conn.Write([]byte("PROCBLOCK"))
+	//	coordEnc := gob.NewEncoder(conn)
+	//	// Generate a header gob to send to coordinator
+	//	headerToSend := HeaderGob{
+	//		Header: &header,
+	//		Flags:  BFNone,
+	//	}
+	//	err = coordEnc.Encode(headerToSend)
+	//	if err != nil {
+	//		reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+	//	}
+	//	// Wait for BLOCKDONE to send next block
+	//	reallog.Println("Waiting for conformation on block")
+	//	for {
+	//		message := make([]byte, 9)
+	//		n, err := conn.Read(message)
+	//		switch {
+	//		case err == io.EOF:
+	//			reallog.Println("Reached EOF - close this connection.\n   ---")
+	//			return
+	//		}
+	//		cmd := (string(message[:n]))
+	//		reallog.Println("Recived command", cmd)
+	//		switch cmd {
+	//		case "BLOCKDONE":
+	//			break // Quit the switch case
+	//		default:
+	//			reallog.Println("Command '", cmd, "' is not registered.")
+	//		}
+	//		break // Quit the for loop
+	//	}
+	//}
 
 }
 
