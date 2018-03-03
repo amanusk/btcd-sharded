@@ -133,15 +133,15 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 		// handle according to received command
 		switch cmd {
 		case "SHARDDONE":
-			handleShardDone(conn, coord)
+			coord.handleShardDone(conn)
 		case "GETSHARDS":
-			handleGetShards(conn, coord)
+			coord.handleGetShards(conn)
 		case "PROCBLOCK":
-			handleProcessBlock(conn, coord)
+			coord.handleProcessBlock(conn)
 		case "REQBLOCKS":
-			handleRequestBlocks(conn, coord)
+			coord.handleRequestBlocks(conn)
 		case "DEADBEAFS":
-			handleDeadBeaf(conn, coord)
+			coord.handleDeadBeaf(conn)
 
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
@@ -183,14 +183,14 @@ func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
 	coord.HandleMessages(c.Socket)
 }
 
-func handleShardDone(conn net.Conn, coord *Coordinator) {
+func (coord *Coordinator) handleShardDone(conn net.Conn) {
 	reallog.Print("Receive Block Confirmation from shard")
 	coord.allShardsDone <- true
 
 }
 
 // Return send a list of all the shards
-func handleGetShards(conn net.Conn, coord *Coordinator) {
+func (coord *Coordinator) handleGetShards(conn net.Conn) {
 	reallog.Print("Receive shards request")
 	shardConnections := coord.GetShardsConnections()
 
@@ -215,7 +215,7 @@ func handleGetShards(conn net.Conn, coord *Coordinator) {
 // and processing it
 // The coordinator validates the header and waits for conformation
 // from all the shards
-func handleProcessBlock(conn net.Conn, coord *Coordinator) {
+func (coord* Coordinator) handleProcessBlock(conn net.Conn) {
 	reallog.Print("Receivd process block request")
 
 	var header HeaderGob
@@ -235,17 +235,15 @@ func handleProcessBlock(conn net.Conn, coord *Coordinator) {
 // and processing it
 // The coordinator validates the header and waits for conformation
 // from all the shards
-func handleDeadBeaf(conn net.Conn, coord *Coordinator) {
+func (coord* Coordinator) handleDeadBeaf(conn net.Conn) {
 	reallog.Print("Received dead beef command")
 }
 
 // This function handle receiving a request for blocks from another coordinator
-func handleRequestBlocks(conn net.Conn, coord *Coordinator) {
+func (coord* Coordinator) handleRequestBlocks(conn net.Conn) {
 	reallog.Print("Receivd request for blocks request")
 
 	reallog.Println("Sending request to ", conn)
-	//conn.Write([]byte("DEADBEAFS"))
-
 	reallog.Println("The fist block in chain")
 	reallog.Println(coord.Chain.BlockHashByHeight(0))
 

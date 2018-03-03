@@ -60,7 +60,7 @@ func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex
 type ShardHandleFunc func(conn net.Conn, shard *Shard)
 
 // Handle instruction from coordinator to request the block
-func handleRequestBlock(conn net.Conn, shard *Shard) {
+func (shard *Shard) handleRequestBlock(conn net.Conn){
 	reallog.Println("Received request to request block")
 
 	var header HeaderGob
@@ -93,7 +93,7 @@ func handleRequestBlock(conn net.Conn, shard *Shard) {
 }
 
 // Handle request for a block shard by another shard
-func handleSendBlock(conn net.Conn, shard *Shard) {
+func (shard *Shard) handleSendBlock(conn net.Conn){
 	reallog.Println("Received request to send a block shard")
 
 	var header HeaderGob
@@ -115,7 +115,7 @@ func handleSendBlock(conn net.Conn, shard *Shard) {
 		Block: bb.Bytes(),
 	}
 
-	conn.Write([]byte("BLOCKGOB"))
+	conn.Write([]byte("PRCBLOCK"))
 
 	//Actually write the GOB on the socket
 	enc := gob.NewEncoder(conn)
@@ -127,7 +127,7 @@ func handleSendBlock(conn net.Conn, shard *Shard) {
 }
 
 // Receive a list of ip:port from coordinator, to which this shard will connect
-func handleShardConnect(conn net.Conn, shard *Shard) {
+func (shard *Shard) handleShardConnect(conn net.Conn){
 	reallog.Println("Received request to connect to shards")
 
 	var receivedShardAddresses AddressesGob
@@ -151,9 +151,10 @@ func handleShardConnect(conn net.Conn, shard *Shard) {
 		go shard.ReceiveShard(shardConn)
 	}
 
+
 }
 
-func handleBlockGob(conn net.Conn, shard *Shard) {
+func (shard *Shard) handleProcessBlock(conn net.Conn) {
 	reallog.Print("Received GOB data")
 
 	var receivedBlock BlockGob
@@ -194,7 +195,7 @@ func handleBlockGob(conn net.Conn, shard *Shard) {
 
 }
 
-func handleBlockDad(conn net.Conn, shard *Shard) {
+func (shard *Shard) handleBlockDad(conn net.Conn){
 	reallog.Print("Received DAD data")
 	// Sending a shardDone message to the coordinator
 	message := "SHARDDONE"
@@ -225,18 +226,18 @@ func (shard *Shard) handleMessages(conn net.Conn) {
 
 		// handle according to received command
 		switch cmd {
-		case "BLOCKGOB":
-			handleBlockGob(conn, shard)
+		case "PRCBLOCK":
+			shard.handleProcessBlock(conn)
 		case "BLOCKDAD":
-			handleBlockDad(conn, shard)
+			shard.handleBlockDad(conn)
 		case "SHARDCON":
-			handleShardConnect(conn, shard)
+			shard.handleShardConnect(conn)
 		// handle an instruction from coordinator to request a block
 		case "REQBLOCK":
-			handleRequestBlock(conn, shard)
+			shard.handleRequestBlock(conn)
 		// handle a request for block shard coming from another shard
 		case "SNDBLOCK":
-			handleSendBlock(conn, shard)
+			shard.handleSendBlock(conn)
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
 		}

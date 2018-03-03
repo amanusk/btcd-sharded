@@ -630,7 +630,7 @@ func main() {
 					blockToSend := blockchain.BlockGob{
 						Block: bb.Bytes(),
 					}
-					shardConn.Write([]byte("BLOCKGOB"))
+					shardConn.Write([]byte("PRCBLOCK"))
 
 					//Actually write the GOB on the socket
 					enc := gob.NewEncoder(shardConn)
