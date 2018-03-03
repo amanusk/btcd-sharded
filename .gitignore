@@ -39,7 +39,7 @@ blockchain/cockroach1/*
 blockchain/cockroach2/*
 blockchain/fullblocktests/cockroach-data/*
 
-
+.idea/*
 
 btcd
 

@@ -6,7 +6,7 @@
         "server_db": "postgresql://amanusk@localhost:26257/blockchain?sslmode=disable"
     },
     "shard": {
-        "shardlog": "s1testlog.log",
+        "shardlog": "stestlog1.log",
         "shard_shards_port": ":12347",
         "shard_db": "postgresql://amanusk@localhost:26257/blockchain?sslmode=disable"
     }

@@ -185,6 +185,8 @@ func handleBlockGob(conn net.Conn, shard *Shard) {
 
 	ShardConnectBestChain(shard.SqlDB, block)
 
+	reallog.Println("Done processing block, sending SHARDONE")
+
 	// Sending a shardDone message to the coordinator
 	message := "SHARDDONE"
 	// Send conformation to coordinator!
@@ -262,11 +264,11 @@ func (shard *Shard) StartShard() {
 }
 
 // Recored a connection to another shard
-func (s *Shard) RegisterShard(shard *Shard) {
-	s.registerShard <- shard
+func (shard *Shard) RegisterShard(s *Shard) {
+	shard.registerShard <- s
 }
 
 // Receive messages from other shards
-func (s *Shard) ReceiveShard(shard *Shard) {
-	s.handleMessages(shard.Socket)
+func (shard *Shard) ReceiveShard(s *Shard) {
+	shard.handleMessages(s.Socket)
 }

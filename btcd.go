@@ -485,6 +485,8 @@ func main() {
 			// Register the connection with yourself
 			c := blockchain.NewCoordConnection(coordConn)
 			manager.RegisterCoord(c)
+			// Listen for messages from connected coord
+			go manager.ReceiveCoord(c)
 
 			// Request for shards
 			coordConn.Write([]byte("GETSHARDS"))
@@ -499,7 +501,9 @@ func main() {
 			}
 			manager.NotifyShards(receivedShards.Addresses)
 
-			coordConn.Write([]byte("REQBLOCKS"))
+			// Need to wait for shards to be ready
+			manager.SendBlocksRequest()
+
 		}
 
 		// Sleep on this until process is killed

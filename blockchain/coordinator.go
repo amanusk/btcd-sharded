@@ -78,16 +78,16 @@ type stringData struct {
 	S string
 }
 
-func (c *Coordinator) GetNumShardes() int {
-	return len(c.shards)
+func (coord *Coordinator) GetNumShardes() int {
+	return len(coord.shards)
 }
 
-func (c *Coordinator) RegisterShard(shard *Shard) {
-	c.registerShard <- shard
+func (coord *Coordinator) RegisterShard(shard *Shard) {
+	coord.registerShard <- shard
 }
 
-func (c *Coordinator) RegisterCoord(coord *Coordinator) {
-	c.registerCoord <- coord
+func (coord *Coordinator) RegisterCoord(c *Coordinator) {
+	coord.registerCoord <- c
 }
 
 func (coord *Coordinator) Start() {
@@ -107,7 +107,7 @@ func (coord *Coordinator) Start() {
 		// Register a new connected coordinator
 		case connection := <-coord.registerCoord:
 			coord.coords[connection] = true
-			fmt.Println("Added new peer!")
+			fmt.Println("Added new peer!", connection.Socket.RemoteAddr())
 			// Saves the message in the channel in "message"
 		}
 	}
@@ -133,7 +133,7 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 		// handle according to received command
 		switch cmd {
 		case "SHARDDONE":
-			handleBlockCheck(conn, coord)
+			handleShardDone(conn, coord)
 		case "GETSHARDS":
 			handleGetShards(conn, coord)
 		case "PROCBLOCK":
@@ -179,12 +179,12 @@ func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
 
 // Receive messates from a coordinator
 // TODO: possiblly make shard/coordinator fit an interface
-func (coord *Coordinator) ReceiveCoord(coordinator *Coordinator) {
-	coord.HandleMessages(coordinator.Socket)
+func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
+	coord.HandleMessages(c.Socket)
 }
 
-func handleBlockCheck(conn net.Conn, coord *Coordinator) {
-	reallog.Print("Receive Block Confirmation")
+func handleShardDone(conn net.Conn, coord *Coordinator) {
+	reallog.Print("Receive Block Confirmation from shard")
 	coord.allShardsDone <- true
 
 }
@@ -227,6 +227,7 @@ func handleProcessBlock(conn net.Conn, coord *Coordinator) {
 		return
 	}
 	coord.ProcessBlock(header.Header, header.Flags)
+	reallog.Println("Sending BLOCKDONE")
 	conn.Write([]byte("BLOCKDONE"))
 }
 
@@ -243,57 +244,57 @@ func handleRequestBlocks(conn net.Conn, coord *Coordinator) {
 	reallog.Print("Receivd request for blocks request")
 
 	reallog.Println("Sending request to ", conn)
-	conn.Write([]byte("DEADBEAFS"))
+	//conn.Write([]byte("DEADBEAFS"))
 
-	//reallog.Println("The fist block in chain")
-	//reallog.Println(coord.Chain.BlockHashByHeight(0))
+	reallog.Println("The fist block in chain")
+	reallog.Println(coord.Chain.BlockHashByHeight(0))
 
-	//for i := 0; i < coord.Chain.BestChainLength(); i++ {
-	//	blockHash, err := coord.Chain.BlockHashByHeight(int32(i))
-	//	if err != nil {
-	//		reallog.Println("Unable to fetch hash of block ", i)
-	//	}
-	//	reallog.Println("Block hash ", i, " ", blockHash)
+	for i := 1; i < coord.Chain.BestChainLength(); i++ {
+		blockHash, err := coord.Chain.BlockHashByHeight(int32(i))
+		if err != nil {
+			reallog.Println("Unable to fetch hash of block ", i)
+		}
+		reallog.Println("Block hash ", i, " ", blockHash)
 
-	//	header, err := coord.Chain.SqlFetchHeader(blockHash)
+		header, err := coord.Chain.SqlFetchHeader(blockHash)
 
-	//	reallog.Println("Header hash ", header.BlockHash())
+		reallog.Println("Header hash ", header.BlockHash())
 
-	//	reallog.Println("Sending block on", conn)
+		reallog.Println("Sending block on", conn)
 
-	//	// Send block to coordinator
-	//	conn.Write([]byte("PROCBLOCK"))
-	//	coordEnc := gob.NewEncoder(conn)
-	//	// Generate a header gob to send to coordinator
-	//	headerToSend := HeaderGob{
-	//		Header: &header,
-	//		Flags:  BFNone,
-	//	}
-	//	err = coordEnc.Encode(headerToSend)
-	//	if err != nil {
-	//		reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
-	//	}
-	//	// Wait for BLOCKDONE to send next block
-	//	reallog.Println("Waiting for conformation on block")
-	//	for {
-	//		message := make([]byte, 9)
-	//		n, err := conn.Read(message)
-	//		switch {
-	//		case err == io.EOF:
-	//			reallog.Println("Reached EOF - close this connection.\n   ---")
-	//			return
-	//		}
-	//		cmd := (string(message[:n]))
-	//		reallog.Println("Recived command", cmd)
-	//		switch cmd {
-	//		case "BLOCKDONE":
-	//			break // Quit the switch case
-	//		default:
-	//			reallog.Println("Command '", cmd, "' is not registered.")
-	//		}
-	//		break // Quit the for loop
-	//	}
-	//}
+		// Send block to coordinator
+		conn.Write([]byte("PROCBLOCK"))
+		coordEnc := gob.NewEncoder(conn)
+		// Generate a header gob to send to coordinator
+		headerToSend := HeaderGob{
+			Header: &header,
+			Flags:  BFNone,
+		}
+		err = coordEnc.Encode(headerToSend)
+		if err != nil {
+			reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+		}
+		// Wait for BLOCKDONE to send next block
+		reallog.Println("Waiting for conformation on block")
+		for {
+			message := make([]byte, 9)
+			n, err := conn.Read(message)
+			switch {
+			case err == io.EOF:
+				reallog.Println("Reached EOF - close this connection.\n   ---")
+				return
+			}
+			cmd := (string(message[:n]))
+			reallog.Println("Recived command", cmd)
+			switch cmd {
+			case "BLOCKDONE":
+				break // Quit the switch case
+			default:
+				reallog.Println("Command '", cmd, "' is not registered.")
+			}
+			break // Quit the for loop
+		}
+	}
 
 }
 
@@ -337,8 +338,9 @@ func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorF
 	// Wait for all the shards to send finish report
 	for i := 0; i < len(coord.shards); i++ {
 		<-coord.allShardsDone
-		reallog.Println("Done processing block")
 	}
+	reallog.Println("Done processing block")
+
 	coord.Chain.CoordMaybeAcceptBlock(header, flags)
 	return nil
 }
@@ -349,7 +351,7 @@ func (coord *Coordinator) ListenToCoordinators() error {
 	fmt.Println("Waiting for coordinators to connect")
 	for {
 		connection, _ := coord.CoordListener.Accept()
-		fmt.Println("Receive connection", connection)
+		fmt.Println("Received connection from", connection.RemoteAddr())
 		c := NewCoordConnection(connection)
 		coord.RegisterCoord(c)
 		go coord.ReceiveCoord(c)
