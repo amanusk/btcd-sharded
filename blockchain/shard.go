@@ -151,6 +151,7 @@ func (shard *Shard) handleShardConnect(conn net.Conn){
 		go shard.ReceiveShard(shardConn)
 	}
 
+	conn.Write([]byte("CONCTDONE"))
 
 }
 
@@ -195,6 +196,8 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 
 }
 
+
+// Example handle method
 func (shard *Shard) handleBlockDad(conn net.Conn){
 	reallog.Print("Received DAD data")
 	// Sending a shardDone message to the coordinator

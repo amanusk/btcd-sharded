@@ -43,4 +43,6 @@ blockchain/fullblocktests/cockroach-data/*
 
 btcd
 
+watch
+
 *.*.bkp

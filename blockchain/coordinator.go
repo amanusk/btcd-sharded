@@ -24,6 +24,7 @@ type Coordinator struct {
 	handler         map[string]HandleFunc
 	allShardsDone   chan bool
 	Connected       chan bool // Sends a sigal that a shard connection completed
+	ConnectedOut       chan bool // Sends shards finished connecting to shards
 	KeepAlive       chan interface{}
 	ShardListener   net.Listener
 	CoordListener   net.Listener
@@ -51,6 +52,7 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 		allShardsDone:   make(chan bool),
 		handler:         map[string]HandleFunc{},
 		Connected:       make(chan bool),
+		ConnectedOut:       make(chan bool),
 		Chain:           blockchain,
 		ShardListener:   shardListener,
 		CoordListener:   coordListener,
@@ -142,6 +144,8 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 			coord.handleRequestBlocks(conn)
 		case "DEADBEAFS":
 			coord.handleDeadBeaf(conn)
+		case "CONCTDONE":
+			coord.handleConnectDone(conn)
 
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
@@ -172,7 +176,6 @@ func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
 			reallog.Println("Error encoding addresses GOB data:", err)
 			return
 		}
-
 	}
 
 }
@@ -183,10 +186,18 @@ func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
 	coord.HandleMessages(c.Socket)
 }
 
+// Once a shards finishes processing a block this message is received
 func (coord *Coordinator) handleShardDone(conn net.Conn) {
 	reallog.Print("Receive Block Confirmation from shard")
 	coord.allShardsDone <- true
 
+}
+
+
+// Receive a conformation a shard is sucessfuly connected
+func (coord *Coordinator) handleConnectDone(conn net.Conn) {
+	reallog.Print("Receive Conformation shard is connected sucessfuly")
+	coord.ConnectedOut <- true
 }
 
 // Return send a list of all the shards
