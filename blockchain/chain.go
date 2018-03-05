@@ -713,6 +713,7 @@ func sqlConnectBlock(db *SqlBlockDB, block *btcutil.Block, view *UtxoViewpoint, 
 
 	// Sanity check the correct number of stxos are provided.
 	if len(stxos) != countSpentOutputs(block) {
+		reallog.Println("Number of stxos ", len(stxos), " spent outputs: ", countSpentOutputs(block))
 		return AssertError("connectBlock called with inconsistent " +
 			"spent transaction out information")
 	}
@@ -1238,9 +1239,10 @@ func (b *BlockChain) connectBestChain(node *BlockNode, block *btcutil.Block, fla
 }
 
 // A function to use by  a shard connecting TXs to the blockchain
-// This is similar to ConnectBestChain but much simplified
-func ShardConnectBestChain(db *SqlBlockDB, block *btcutil.Block) (bool, error) {
-	fastAdd := true
+// This is similar to ConnectBestChain but performed by each shard
+// TODO: Add node as parameter
+func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block) (bool, error) {
+	//fastAdd := true
 
 	// We are extending the main (best) chain with a new block.  This is the
 	// most common case.
@@ -1253,27 +1255,41 @@ func ShardConnectBestChain(db *SqlBlockDB, block *btcutil.Block) (bool, error) {
 		//view.SetBestHash(parentHash)
 		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
 
-		if fastAdd {
-			err := view.sqlFetchInputUtxos(db, block)
-			if err != nil {
-				reallog.Fatal("Unable to fetch Input Utxos")
-				return false, err
-			} else {
-				reallog.Println("Fetched Input utxos")
-				view.PrintToLog()
+		// Validating signatre and other characteristics block shard
+		// This might require communication with the coordinator
+		reallog.Println("Connecting block ", block.Hash(), " height ", node.height)
+		err := shard.ShardCheckConnectBlock(node, block, view, &stxos) // This is what we need to replace
+		if err != nil {
+			if _, ok := err.(RuleError); ok {
+				reallog.Fatal("Block validation failed ", err)
+				// b.index.SetStatusFlags(node, statusValidateFailed)
 			}
-			err = view.connectTransactions(block, &stxos)
-			if err != nil {
-				return false, err
-			}
+			return false, err
 		}
+		// b.index.SetStatusFlags(node, statusValid)
+
+		// TODO see what is the fastAdd difference
+		//if fastAdd {
+		//	err := view.sqlFetchInputUtxos(shard.SqlDB, block)
+		//	if err != nil {
+		//		reallog.Fatal("Unable to fetch Input Utxos")
+		//		return false, err
+		//	} else {
+		//		reallog.Println("Fetched Input utxos")
+		//		view.PrintToLog()
+		//	}
+		//	err = view.connectTransactions(block, &stxos)
+		//	if err != nil {
+		//		return false, err
+		//	}
+		//}
 
 		// Connect the block to the main chain.
 		// NOTE: This writes all the updated databases to the DB
 		reallog.Println("Connecting block", block.Hash())
-		err := sqlConnectBlock(db, block, view, stxos)
+		err = sqlConnectBlock(shard.SqlDB, block, view, stxos)
 		if err != nil {
-			reallog.Printf("Failed to connect block")
+			reallog.Printf("Failed to connect block: ", err)
 			return false, err
 		}
 

@@ -74,7 +74,7 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	}
 	b.index.AddNode(newNode)
 
-	// Connect the passed block to the chain while respecting proper chain
+
 	// selection according to the chain with the most proof of work.  This
 	// also handles validation of the transaction scripts.
 	isMainChain, err := b.connectBestChain(newNode, block, flags)

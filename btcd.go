@@ -575,6 +575,7 @@ func main() {
 			headerToSend := blockchain.HeaderGob{
 				Header: &block.MsgBlock().Header,
 				Flags:  blockchain.BFNone,
+				Height: blockHeight,
 			}
 			err = coordEnc.Encode(headerToSend)
 			if err != nil {
@@ -635,6 +636,7 @@ func main() {
 					// All data is sent in gobs
 					blockToSend := blockchain.BlockGob{
 						Block: bb.Bytes(),
+						Height: blockHeight,
 					}
 					shardConn.Write([]byte("PRCBLOCK"))
 

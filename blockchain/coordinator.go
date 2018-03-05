@@ -25,6 +25,7 @@ type Coordinator struct {
 	allShardsDone   chan bool
 	Connected       chan bool // Sends a sigal that a shard connection completed
 	ConnectedOut       chan bool // Sends shards finished connecting to shards
+	BlockDone		chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
 	KeepAlive       chan interface{}
 	ShardListener   net.Listener
 	CoordListener   net.Listener
@@ -53,6 +54,7 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 		handler:         map[string]HandleFunc{},
 		Connected:       make(chan bool),
 		ConnectedOut:       make(chan bool),
+		BlockDone:       make(chan bool),
 		Chain:           blockchain,
 		ShardListener:   shardListener,
 		CoordListener:   coordListener,
@@ -64,6 +66,7 @@ type HandleFunc func(conn net.Conn, coord *Coordinator)
 
 type BlockGob struct {
 	Block []byte
+	Height int32
 }
 
 // A struct to send a list of tcp connections
@@ -74,6 +77,7 @@ type AddressesGob struct {
 type HeaderGob struct {
 	Header *wire.BlockHeader
 	Flags  BehaviorFlags
+	Height int32
 }
 
 type stringData struct {
@@ -141,11 +145,13 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 		case "PROCBLOCK":
 			coord.handleProcessBlock(conn)
 		case "REQBLOCKS":
-			coord.handleRequestBlocks(conn)
+			go coord.handleRequestBlocks(conn)
 		case "DEADBEAFS":
 			coord.handleDeadBeaf(conn)
 		case "CONCTDONE":
 			coord.handleConnectDone(conn)
+		case "BLOCKDONE":
+			coord.handleBlockDone(conn)
 
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
@@ -200,6 +206,12 @@ func (coord *Coordinator) handleConnectDone(conn net.Conn) {
 	coord.ConnectedOut <- true
 }
 
+// Receive a conformation a shard is sucessfuly connected
+func (coord *Coordinator) handleBlockDone(conn net.Conn) {
+	reallog.Print("Receive conformation block finised processing")
+	coord.BlockDone <- true
+}
+
 // Return send a list of all the shards
 func (coord *Coordinator) handleGetShards(conn net.Conn) {
 	reallog.Print("Receive shards request")
@@ -237,7 +249,7 @@ func (coord* Coordinator) handleProcessBlock(conn net.Conn) {
 		reallog.Println("Error decoding GOB data:", err)
 		return
 	}
-	coord.ProcessBlock(header.Header, header.Flags)
+	coord.ProcessBlock(header.Header, header.Flags, header.Height)
 	reallog.Println("Sending BLOCKDONE")
 	conn.Write([]byte("BLOCKDONE"))
 }
@@ -263,11 +275,9 @@ func (coord* Coordinator) handleRequestBlocks(conn net.Conn) {
 		if err != nil {
 			reallog.Println("Unable to fetch hash of block ", i)
 		}
-		reallog.Println("Block hash ", i, " ", blockHash)
-
 		header, err := coord.Chain.SqlFetchHeader(blockHash)
 
-		reallog.Println("Header hash ", header.BlockHash())
+		reallog.Println("sending block hash ", header.BlockHash())
 
 		reallog.Println("Sending block on", conn)
 
@@ -278,6 +288,7 @@ func (coord* Coordinator) handleRequestBlocks(conn net.Conn) {
 		headerToSend := HeaderGob{
 			Header: &header,
 			Flags:  BFNone,
+			Height: int32(i),
 		}
 		err = coordEnc.Encode(headerToSend)
 		if err != nil {
@@ -285,25 +296,11 @@ func (coord* Coordinator) handleRequestBlocks(conn net.Conn) {
 		}
 		// Wait for BLOCKDONE to send next block
 		reallog.Println("Waiting for conformation on block")
-		for {
-			message := make([]byte, 9)
-			n, err := conn.Read(message)
-			switch {
-			case err == io.EOF:
-				reallog.Println("Reached EOF - close this connection.\n   ---")
-				return
-			}
-			cmd := (string(message[:n]))
-			reallog.Println("Recived command", cmd)
-			switch cmd {
-			case "BLOCKDONE":
-				break // Quit the switch case
-			default:
-				reallog.Println("Command '", cmd, "' is not registered.")
-			}
-			break // Quit the for loop
-		}
+
+		<- coord.BlockDone
+
 	}
+	return
 
 }
 
@@ -322,7 +319,9 @@ func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
 
 // Process block will make a sanity check on the block header and will wait for confirmations from all the shards
 // that the block has been processed
-func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags) error {
+func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags, height int32) error {
+	reallog.Println("Processing block ", header.BlockHash(), " height ", height)
+	// TODO add more checks as per btcd
 	err := CheckBlockHeaderSanity(header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
 	if err != nil {
 		return err
@@ -337,6 +336,7 @@ func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorF
 		headerToSend := HeaderGob{
 			Header: header,
 			Flags:  BFNone,
+			Height: height, // optionally this will be done after the coord accept block is performed
 		}
 		err = coordEnc.Encode(headerToSend)
 		if err != nil {

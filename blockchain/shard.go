@@ -106,6 +106,7 @@ func (shard *Shard) handleSendBlock(conn net.Conn){
 	}
 
 	msgBlock := shard.SqlDB.FetchTXs(header.Header.BlockHash())
+	msgBlock.Header = *header.Header
 
 	var bb bytes.Buffer
 	msgBlock.Serialize(&bb)
@@ -113,6 +114,7 @@ func (shard *Shard) handleSendBlock(conn net.Conn){
 	// Create a gob of serialized msgBlock
 	blockToSend := BlockGob{
 		Block: bb.Bytes(),
+		Height: header.Height,
 	}
 
 	conn.Write([]byte("PRCBLOCK"))
@@ -183,9 +185,12 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 	// This needs to be optimized
 	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(&msgBlockShard))
 
+	// Store the txs in database, this could be postponed until after validation
 	ShardStoreBlockShard(shard.SqlDB, &msgBlockShard)
 
-	ShardConnectBestChain(shard.SqlDB, block)
+	blockNode := NewBlockNode(&msgBlockShard.Header, receivedBlock.Height)
+
+	shard.ShardConnectBestChain(blockNode, block)
 
 	reallog.Println("Done processing block, sending SHARDONE")
 

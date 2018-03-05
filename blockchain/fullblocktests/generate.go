@@ -575,11 +575,11 @@ func (g *testGenerator) nextBlockMultiTX(blockName string, spend []*spendableOut
 	coinbaseTx := g.createCoinbaseTx(nextHeight)
 	txns := []*wire.MsgTx{coinbaseTx}
 	if spend != nil {
+		// Create the transaction with a fee of 1 atom for the
+		// miner and increase the coinbase subsidy accordingly.
+		fee := btcutil.Amount(1)
+		coinbaseTx.TxOut[0].Value += int64(fee)
 		for _, tx := range spend {
-			// Create the transaction with a fee of 1 atom for the
-			// miner and increase the coinbase subsidy accordingly.
-			fee := btcutil.Amount(1)
-			coinbaseTx.TxOut[0].Value += int64(fee)
 
 			// Create a transaction that spends from the provided spendable
 			// output and includes an additional unique OP_RETURN output to
@@ -2414,6 +2414,46 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	g.assertTipBlockSigOpsCount(maxBlockSigOps)
 	accepted()
 
+	//TESTED
+	// Create block with transaction that pays more than its inputs.
+	//
+	//   ... -> b57(16)
+	//                 \-> b59(17)
+	//txToSpend4:= []*spendableOut{outs[7]}
+	//g.nextBlockMultiTX("b5", txToSpend4, func(b *wire.MsgBlock) {
+	//	b.Transactions[1].TxOut[0].Value = int64(outs[7].amount) + 1
+	//})
+	// TODO: Create a reject block function so all can be tested
+	// rejected(blockchain.ErrSpendTooHigh)
+	// This should not actually be accepted
+	//accepted()
+
+	// TESTED
+	// Create a block that spends a transaction that does not exist.
+	//
+	//   ... -> b43(13)
+	//                 \-> b52(14)
+	//txToSpend4 := []*spendableOut{outs[7]}
+	//g.nextBlockMultiTX("b6", txToSpend4, func(b *wire.MsgBlock) {
+	//	hash := newHashFromStr("00000000000000000000000000000000" +
+	//		"00000000000000000123456789abcdef")
+	//	b.Transactions[1].TxIn[0].PreviousOutPoint.Hash = *hash
+	//	b.Transactions[1].TxIn[0].PreviousOutPoint.Index = 0
+	//})
+	//rejected(blockchain.ErrMissingTxOut)
+	//accepted()
+
+	// Create block with duplicate transactions.
+	//
+	// This test relies on the shape of the shape of the merkle tree to test
+	// the intended condition and thus is asserted below.
+	//
+	//   ... -> b43(13)
+	//                 \-> b51(14)
+	txToSpend4 := []*spendableOut{outs[7], outs[7]}
+	g.nextBlockMultiTX("b51", txToSpend4)
+	g.assertTipBlockNumTxns(3)
+	accepted()
 
 	return tests, nil
 }
