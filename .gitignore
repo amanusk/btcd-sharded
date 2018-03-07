@@ -45,4 +45,5 @@ btcd
 
 watch
 
+*.ref
 *.*.bkp

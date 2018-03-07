@@ -821,10 +821,11 @@ func dbFetchUtxoEntry(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry, error
 }
 
 func sqlDbFetchUtxoEntry(db *SqlBlockDB, hash *chainhash.Hash) (*UtxoEntry, error) {
+	//TODO TODO TODO: Move this to sqlblockdb
 	// Fetch the unspent transaction output information for the passed
 	// transaction hash.  Return nil when there is no entry.
 	var serializedUtxo []byte
-	reallog.Print("Trying to fetch", hash[:])
+	reallog.Println("Trying to fetch", hash[:])
 	err := db.db.QueryRow(
 		"SELECT utxodata FROM utxos WHERE txhash = $1", hash[:]).Scan(&serializedUtxo)
 	if err != nil {

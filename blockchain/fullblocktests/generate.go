@@ -549,98 +549,6 @@ func (g *testGenerator) nextBlock(blockName string, spend *spendableOut, mungers
 	return &block
 }
 
-// nextBlock builds a new block that extends the current tip associated with the
-// generator and updates the generator's tip to the newly generated block.
-//
-// The block will include the following:
-// - A coinbase that pays the required subsidy to an OP_TRUE script
-// - When a spendable output is provided:
-//   - A transaction that spends from the provided output the following outputs:
-//     - One that pays the inputs amount minus 1 atom to an OP_TRUE script
-//     - One that contains an OP_RETURN output with a random uint64 in order to
-//       ensure the transaction has a unique hash
-//
-// Additionally, if one or more munge functions are specified, they will be
-// invoked with the block prior to solving it.  This provides callers with the
-// opportunity to modify the block which is especially useful for testing.
-//
-// In order to simply the logic in the munge functions, the following rules are
-// applied after all munge functions have been invoked:
-// - The merkle root will be recalculated unless it was manually changed
-// - The block will be solved unless the nonce was changed
-func (g *testGenerator) nextBlockMultiTX(blockName string, spend []*spendableOut, mungers ...func(*wire.MsgBlock)) *wire.MsgBlock {
-	// Create coinbase transaction for the block using any additional
-	// subsidy if specified.
-	nextHeight := g.tipHeight + 1
-	coinbaseTx := g.createCoinbaseTx(nextHeight)
-	txns := []*wire.MsgTx{coinbaseTx}
-	if spend != nil {
-		// Create the transaction with a fee of 1 atom for the
-		// miner and increase the coinbase subsidy accordingly.
-		fee := btcutil.Amount(1)
-		coinbaseTx.TxOut[0].Value += int64(fee)
-		for _, tx := range spend {
-
-			// Create a transaction that spends from the provided spendable
-			// output and includes an additional unique OP_RETURN output to
-			// ensure the transaction ends up with a unique hash, then add
-			// add it to the list of transactions to include in the block.
-			// The script is a simple OP_TRUE script in order to avoid the
-			// need to track addresses and signature scripts in the tests.
-			txns = append(txns, createSpendTx(tx, fee))
-		}
-	}
-
-	// Use a timestamp that is one second after the previous block unless
-	// this is the first block in which case the current time is used.
-	var ts time.Time
-	if nextHeight == 1 {
-		ts = time.Unix(time.Now().Unix(), 0)
-	} else {
-		ts = g.tip.Header.Timestamp.Add(time.Second)
-	}
-
-	block := wire.MsgBlock{
-		Header: wire.BlockHeader{
-			Version:    1,
-			PrevBlock:  g.tip.BlockHash(),
-			MerkleRoot: calcMerkleRoot(txns),
-			Bits:       g.params.PowLimitBits,
-			Timestamp:  ts,
-			Nonce:      0, // To be solved.
-		},
-		Transactions: txns,
-	}
-
-	// Perform any block munging just before solving.  Only recalculate the
-	// merkle root if it wasn't manually changed by a munge function.
-	curMerkleRoot := block.Header.MerkleRoot
-	curNonce := block.Header.Nonce
-	for _, f := range mungers {
-		f(&block)
-	}
-	if block.Header.MerkleRoot == curMerkleRoot {
-		block.Header.MerkleRoot = calcMerkleRoot(block.Transactions)
-	}
-
-	// Only solve the block if the nonce wasn't manually changed by a munge
-	// function.
-	if block.Header.Nonce == curNonce && !solveBlock(&block.Header) {
-		panic(fmt.Sprintf("Unable to solve block at height %d",
-			nextHeight))
-	}
-
-	// Update generator state and return the block.
-	blockHash := block.BlockHash()
-	g.blocks[blockHash] = &block
-	g.blocksByName[blockName] = &block
-	g.blockHeights[blockName] = nextHeight
-	g.tip = &block
-	g.tipName = blockName
-	g.tipHeight = nextHeight
-	return &block
-}
-
 // updateBlockState manually updates the generator state to remove all internal
 // map references to a block via its old hash and insert new ones for the new
 // block hash.  This is useful if the test code has to manually change a block
@@ -2396,25 +2304,25 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// is which output is spent):
 	//
 	//   ... -> b1(0) -> b2(1)
-	txToSpend0 := []*spendableOut{outs[0]}
-	g.nextBlockMultiTX("b1", txToSpend0)
+	g.nextBlock("b1", outs[0])
 	accepted()
 
-	txToSpend1 := []*spendableOut{outs[1]}
-	g.nextBlockMultiTX("b2", txToSpend1)
+	g.nextBlock("b2", outs[1])
 	accepted()
 
-	txToSpend2 := []*spendableOut{outs[2], outs[3], outs[4], outs[5]}
-	g.nextBlockMultiTX("b3", txToSpend2)
+	// Test with more than 2 transactions
+	g.nextBlock("b3", outs[2], func(b *wire.MsgBlock) {
+		fee := btcutil.Amount(1)
+		b.AddTransaction(createSpendTx(outs[3], fee))
+	})
 	accepted()
 
-	txToSpend3 := []*spendableOut{outs[6]}
 	manySigOps := repeatOpcode(txscript.OP_CHECKSIG, maxBlockSigOps)
-	g.nextBlockMultiTX("b4", txToSpend3, replaceSpendScript(manySigOps))
+	g.nextBlock("b4", outs[5], replaceSpendScript(manySigOps))
 	g.assertTipBlockSigOpsCount(maxBlockSigOps)
 	accepted()
 
-	//TESTED
+	//TESTED!
 	// Create block with transaction that pays more than its inputs.
 	//
 	//   ... -> b57(16)
@@ -2428,7 +2336,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// This should not actually be accepted
 	//accepted()
 
-	// TESTED
+	// TESTED!
 	// Create a block that spends a transaction that does not exist.
 	//
 	//   ... -> b43(13)
@@ -2443,6 +2351,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//rejected(blockchain.ErrMissingTxOut)
 	//accepted()
 
+	// TESTED!
 	// Create block with duplicate transactions.
 	//
 	// This test relies on the shape of the shape of the merkle tree to test
@@ -2450,10 +2359,45 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	//   ... -> b43(13)
 	//                 \-> b51(14)
-	txToSpend4 := []*spendableOut{outs[7], outs[7]}
-	g.nextBlockMultiTX("b51", txToSpend4)
-	g.assertTipBlockNumTxns(3)
+	//g.nextBlock("b51", outs[14], func(b *wire.MsgBlock) {
+	//	b.AddTransaction(b.Transactions[1])
+	//})
+	//g.assertTipBlockNumTxns(3)
+	//accepted()
+	//rejected(blockchain.ErrDuplicateTx)
+
+	// A test to check if transactions will be accepted if they are submitted in
+	// the order they are sent to the shards
+	// Should be passing on 2 shards
+	// s1 gets: TX0, TX2(out7)
+	// s2 gets: TX1(out6), TX3(spendTx(6))
+	g.nextBlock("b6p2", outs[6], func(b *wire.MsgBlock) {
+		// Create 4 transactions that each spend from the previous tx
+		// in the block.
+		fee := btcutil.Amount(1)
+		b.AddTransaction(createSpendTx(outs[7], fee))
+		spendTx := b.Transactions[1]
+		for i := 0; i < 1; i++ {
+			spendTx = createSpendTxForTx(spendTx, lowFee)
+			b.AddTransaction(spendTx)
+		}
+	})
+	g.assertTipBlockNumTxns(4)
 	accepted()
+
+	// Create a block with transactions that spend transactions in the block
+	// This should pass with one shard, and might be a problem with 2
+	//g.nextBlock("b7p2", outs[7], func(b *wire.MsgBlock) {
+	//	// Create 4 transactions that each spend from the previous tx
+	//	// in the block.
+	//	spendTx := b.Transactions[1]
+	//	for i := 0; i < 1; i++ {
+	//		spendTx = createSpendTxForTx(spendTx, lowFee)
+	//		b.AddTransaction(spendTx)
+	//	}
+	//})
+	//g.assertTipBlockNumTxns(3)
+	//accepted()
 
 	return tests, nil
 }

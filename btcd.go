@@ -33,6 +33,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/davecgh/go-spew/spew"
 )
 
 type Config struct {
@@ -79,8 +80,6 @@ var (
 // winServiceMain is only invoked on Windows.  It detects when btcd is running
 // as a service and reacts accordingly.
 var winServiceMain func() (bool, error)
-
-var numShards int = 1
 
 // btcdMain is the real main function for btcd.  It is necessary to work around
 // the fact that deferred functions do not run when os.Exit() is called.  The
@@ -410,12 +409,15 @@ func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockch
 var flagMode *string
 var flagConfig *string
 var flagBoot *bool
+var flagNumShards *int
 
 func init() {
 	loadConfig()
+
 	flagMode = flag.String("mode", "server", "start in shard or server mode")
 	flagConfig = flag.String("conf", "config.json", "Select config file to use")
 	flagBoot = flag.Bool("bootstrap", false, "Toggle if this is the first node on the network")
+	flagNumShards = flag.Int("n", 1, "Select number of shards")
 	flag.Parse()
 }
 
@@ -423,7 +425,7 @@ func init() {
 // have the expected result when processed via ProcessBlock.
 func main() {
 	// load btcd config
-
+	numShards := *flagNumShards
 	// load my config
 
 	if strings.ToLower(*flagMode) == "server" {
@@ -475,8 +477,7 @@ func main() {
 		// Wait for connections from other coordinators
 		go manager.ListenToCoordinators()
 
-		if *flagBoot {
-		} else {
+		if !(*flagBoot) {
 			// connect to the already running server
 			coordConn, err := net.Dial("tcp", config.Server.Server_target_server)
 			if err != nil {
@@ -499,8 +500,8 @@ func main() {
 			}
 			manager.NotifyShards(receivedShards.Addresses)
 
-			for i:=0; i < numShards; i++ {
-				<- manager.ConnectedOut
+			for i := 0; i < numShards; i++ {
+				<-manager.ConnectedOut
 			}
 			reallog.Println("All shards finished connecting")
 
@@ -550,10 +551,17 @@ func main() {
 			reallog.Println("Error decoding GOB data:", err)
 			return
 		}
-		//TODO Logic to connect to shards will be moved to coordinator
+		shardConn := make([]net.Conn, numShards)
+
 		shardDial := receivedShards.Addresses[0].IP.String() + ":12347"
-		// NOTE: There should be an array of shards to communicate with
-		shardConn, err := net.Dial("tcp", shardDial)
+		shardConn[0], err = net.Dial("tcp", shardDial)
+
+		// NOTE: change if running on multiple machines
+		if numShards > 1 {
+			shardDial = "localhost:12357"
+			shardConn[1], err = net.Dial("tcp", shardDial)
+		}
+
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -582,9 +590,9 @@ func main() {
 				reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
 			}
 			// Wait for shard to request the block
-			for {
+			for i := 0; i < numShards; i++ {
 				message := make([]byte, 8)
-				n, err := shardConn.Read(message)
+				n, err := shardConn[i].Read(message)
 				switch {
 				case err == io.EOF:
 					reallog.Println("Reached EOF - close this connection.\n   ---")
@@ -598,7 +606,7 @@ func main() {
 					// Decode the header sent
 					var header blockchain.HeaderGob
 
-					dec := gob.NewDecoder(shardConn)
+					dec := gob.NewDecoder(shardConn[i])
 					err := dec.Decode(&header)
 					if err != nil {
 						reallog.Println("Error decoding GOB data:", err)
@@ -609,7 +617,7 @@ func main() {
 				default:
 					reallog.Println("Command '", cmd, "' is not registered.")
 				}
-				break // Quit the for loop
+				//break // Quit the for loop
 			}
 
 			bShards := make([]*wire.MsgBlockShard, numShards)
@@ -626,28 +634,25 @@ func main() {
 				bShards[idx%numShards].AddTransaction(newTx)
 			}
 			reallog.Println("Sending shards")
-			reallog.Println(bShards[0])
-			activeShards := numShards
+
 			for i := 0; i < numShards; i++ {
-				if len(bShards[i].Transactions) > 0 {
-					var bb bytes.Buffer
-					bShards[i].Serialize(&bb)
+				var bb bytes.Buffer
+				reallog.Println("Shard ", i)
+				reallog.Printf("%s ", spew.Sdump(&bShards[i]))
+				bShards[i].Serialize(&bb)
 
-					// All data is sent in gobs
-					blockToSend := blockchain.BlockGob{
-						Block: bb.Bytes(),
-						Height: blockHeight,
-					}
-					shardConn.Write([]byte("PRCBLOCK"))
+				// All data is sent in gobs
+				blockToSend := blockchain.BlockGob{
+					Block:  bb.Bytes(),
+					Height: blockHeight,
+				}
+				shardConn[i].Write([]byte("PRCBLOCK"))
 
-					//Actually write the GOB on the socket
-					enc := gob.NewEncoder(shardConn)
-					err = enc.Encode(blockToSend)
-					if err != nil {
-						reallog.Println(err, "Encode failed for struct: %#v", blockToSend)
-					}
-				} else {
-					activeShards--
+				//Actually write the GOB on the socket
+				enc := gob.NewEncoder(shardConn[i])
+				err = enc.Encode(blockToSend)
+				if err != nil {
+					reallog.Println(err, "Encode failed for struct: %#v", blockToSend)
 				}
 			}
 

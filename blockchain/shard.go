@@ -60,7 +60,7 @@ func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex
 type ShardHandleFunc func(conn net.Conn, shard *Shard)
 
 // Handle instruction from coordinator to request the block
-func (shard *Shard) handleRequestBlock(conn net.Conn){
+func (shard *Shard) handleRequestBlock(conn net.Conn) {
 	reallog.Println("Received request to request block")
 
 	var header HeaderGob
@@ -93,7 +93,7 @@ func (shard *Shard) handleRequestBlock(conn net.Conn){
 }
 
 // Handle request for a block shard by another shard
-func (shard *Shard) handleSendBlock(conn net.Conn){
+func (shard *Shard) handleSendBlock(conn net.Conn) {
 	reallog.Println("Received request to send a block shard")
 
 	var header HeaderGob
@@ -113,7 +113,7 @@ func (shard *Shard) handleSendBlock(conn net.Conn){
 
 	// Create a gob of serialized msgBlock
 	blockToSend := BlockGob{
-		Block: bb.Bytes(),
+		Block:  bb.Bytes(),
 		Height: header.Height,
 	}
 
@@ -129,7 +129,7 @@ func (shard *Shard) handleSendBlock(conn net.Conn){
 }
 
 // Receive a list of ip:port from coordinator, to which this shard will connect
-func (shard *Shard) handleShardConnect(conn net.Conn){
+func (shard *Shard) handleShardConnect(conn net.Conn) {
 	reallog.Println("Received request to connect to shards")
 
 	var receivedShardAddresses AddressesGob
@@ -179,6 +179,12 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 		//fmt.Printf("%s ", spew.Sdump(&msgBlockShard))
 	}
 
+	// If blockShard is empty (could happen), just send SHARDDONE
+	if len(msgBlockShard.Transactions) == 0 {
+		shard.Socket.Write([]byte("SHARDDONE"))
+		return
+	}
+
 	// Process the transactions
 	// Create a new block node for the block and add it to the in-memory
 	// TODO this creates a new block with mostly the same informtion,
@@ -192,18 +198,15 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 
 	shard.ShardConnectBestChain(blockNode, block)
 
-	reallog.Println("Done processing block, sending SHARDONE")
+	reallog.Println("Done processing block, sending SHARDDONE")
 
-	// Sending a shardDone message to the coordinator
-	message := "SHARDDONE"
 	// Send conformation to coordinator!
-	shard.Socket.Write([]byte(message))
+	shard.Socket.Write([]byte("SHARDDONE"))
 
 }
 
-
 // Example handle method
-func (shard *Shard) handleBlockDad(conn net.Conn){
+func (shard *Shard) handleBlockDad(conn net.Conn) {
 	reallog.Print("Received DAD data")
 	// Sending a shardDone message to the coordinator
 	message := "SHARDDONE"

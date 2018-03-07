@@ -517,6 +517,7 @@ func (view *UtxoViewpoint) sqlFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash
 		return nil
 	}
 
+	reallog.Println("Fetching transaction Inputs")
 	// Load the unspent transaction output information for the requested set
 	// of transactions from the point of view of the end of the main chain.
 	//
@@ -527,6 +528,7 @@ func (view *UtxoViewpoint) sqlFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash
 	// utxos that the caller needs access to.
 	for hash := range txSet {
 		hashCopy := hash
+		reallog.Println("Going to db for ", hash)
 		entry, err := sqlDbFetchUtxoEntry(db, &hashCopy)
 		if err != nil {
 			return err
@@ -629,6 +631,7 @@ func (view *UtxoViewpoint) sqlFetchInputUtxos(db *SqlBlockDB, block *btcutil.Blo
 		txInFlight[*tx.Hash()] = i
 	}
 
+	// NOTE: This is where we might need to create a transaction
 	// Loop through all of the transaction inputs (except for the coinbase
 	// which has no inputs) collecting them into sets of what is needed and
 	// what is already known (in-flight).
