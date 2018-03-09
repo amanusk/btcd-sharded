@@ -5,7 +5,7 @@
 package main
 
 import (
-	"bytes"
+	_"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -32,8 +32,7 @@ import (
 	"github.com/btcsuite/btcd/limits"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/davecgh/go-spew/spew"
+	_"github.com/davecgh/go-spew/spew"
 )
 
 type Config struct {
@@ -571,20 +570,27 @@ func main() {
 		// specified in the test.
 		testAcceptedBlock := func(item fullblocktests.AcceptedBlock) {
 			blockHeight := item.Height
-			block := btcutil.NewBlock(item.Block)
-			block.SetHeight(blockHeight)
+			block := item.Block
 			reallog.Printf("Testing block %s (hash %s, height %d)",
-				item.Name, block.Hash(), blockHeight)
+				item.Name, block.BlockHash(), blockHeight)
 
 			// Send block to coordinator
 			coordConn.Write([]byte("PROCBLOCK"))
 			coordEnc := gob.NewEncoder(coordConn)
+
+			headerBlock := wire.NewMsgBlockShard(&block.Header)
+
+			// Add only the coinbase transaction to the block
+			newTx := wire.NewTxIndexFromTx(block.Transactions[0], int32(0))
+			headerBlock.AddTransaction(newTx)
+
 			// Generate a header gob to send to coordinator
-			headerToSend := blockchain.HeaderGob{
-				Header: &block.MsgBlock().Header,
-				Flags:  blockchain.BFNone,
+			headerToSend := blockchain.RawBlockGob{
+				Block: headerBlock,
+				Flags: blockchain.BFNone,
 				Height: blockHeight,
 			}
+
 			err = coordEnc.Encode(headerToSend)
 			if err != nil {
 				reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
@@ -624,11 +630,12 @@ func main() {
 
 			// Create a block shard to send to shards
 			for idx, _ := range bShards {
-				bShards[idx] = wire.NewMsgBlockShard(&block.MsgBlock().Header)
+				bShards[idx] = wire.NewMsgBlockShard(&block.Header)
 			}
 
 			// Split transactions between blocks
-			for idx, tx := range block.MsgBlock().Transactions {
+			// Do not include coinbase, the coordinator will handle it
+			for idx, tx := range block.Transactions[1:] {
 				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
 				// NOTE: This should be a DHT
 				bShards[idx%numShards].AddTransaction(newTx)
@@ -636,14 +643,11 @@ func main() {
 			reallog.Println("Sending shards")
 
 			for i := 0; i < numShards; i++ {
-				var bb bytes.Buffer
-				reallog.Println("Shard ", i)
-				reallog.Printf("%s ", spew.Sdump(&bShards[i]))
-				bShards[i].Serialize(&bb)
 
 				// All data is sent in gobs
-				blockToSend := blockchain.BlockGob{
-					Block:  bb.Bytes(),
+				blockToSend := blockchain.RawBlockGob{
+					Block:  bShards[i],
+					Flags: blockchain.BFNone,
 					Height: blockHeight,
 				}
 				shardConn[i].Write([]byte("PRCBLOCK"))

@@ -2,7 +2,6 @@ package blockchain
 
 import (
 	_ "bufio"
-	"bytes"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -108,12 +107,11 @@ func (shard *Shard) handleSendBlock(conn net.Conn) {
 	msgBlock := shard.SqlDB.FetchTXs(header.Header.BlockHash())
 	msgBlock.Header = *header.Header
 
-	var bb bytes.Buffer
-	msgBlock.Serialize(&bb)
 
 	// Create a gob of serialized msgBlock
-	blockToSend := BlockGob{
-		Block:  bb.Bytes(),
+	blockToSend := RawBlockGob{
+		Block:  msgBlock,
+		Flags:  BFNone,
 		Height: header.Height,
 	}
 
@@ -160,7 +158,7 @@ func (shard *Shard) handleShardConnect(conn net.Conn) {
 func (shard *Shard) handleProcessBlock(conn net.Conn) {
 	reallog.Print("Received GOB data")
 
-	var receivedBlock BlockGob
+	var receivedBlock RawBlockGob
 	// Gen information from shard!
 	dec := gob.NewDecoder(conn)
 	err := dec.Decode(&receivedBlock)
@@ -169,15 +167,7 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 		return
 	}
 
-	var msgBlockShard wire.MsgBlockShard
-	rbuf := bytes.NewReader(receivedBlock.Block)
-	err = msgBlockShard.Deserialize(rbuf)
-	if err != nil {
-		reallog.Println("Error decoding GOB data:", err)
-		return
-	} else {
-		//fmt.Printf("%s ", spew.Sdump(&msgBlockShard))
-	}
+	msgBlockShard := receivedBlock.Block
 
 	// If blockShard is empty (could happen), just send SHARDDONE
 	if len(msgBlockShard.Transactions) == 0 {
@@ -188,11 +178,11 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 	// Process the transactions
 	// Create a new block node for the block and add it to the in-memory
 	// TODO this creates a new block with mostly the same informtion,
-	// This needs to be optimized
-	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(&msgBlockShard))
+	// TODO: Go over the transactions and save them accroding to the Index in msgBlockShard
+	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(msgBlockShard))
 
 	// Store the txs in database, this could be postponed until after validation
-	ShardStoreBlockShard(shard.SqlDB, &msgBlockShard)
+	ShardStoreBlockShard(shard.SqlDB, msgBlockShard)
 
 	blockNode := NewBlockNode(&msgBlockShard.Header, receivedBlock.Height)
 

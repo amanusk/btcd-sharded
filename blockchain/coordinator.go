@@ -66,6 +66,7 @@ type HandleFunc func(conn net.Conn, coord *Coordinator)
 
 type BlockGob struct {
 	Block []byte
+	Flags  BehaviorFlags
 	Height int32
 }
 
@@ -79,6 +80,14 @@ type HeaderGob struct {
 	Flags  BehaviorFlags
 	Height int32
 }
+
+type RawBlockGob struct {
+	Block *wire.MsgBlockShard
+	Flags  BehaviorFlags
+	Height int32
+}
+
+
 
 type stringData struct {
 	S string
@@ -241,15 +250,15 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 func (coord* Coordinator) handleProcessBlock(conn net.Conn) {
 	reallog.Print("Receivd process block request")
 
-	var header HeaderGob
+	var headerBlock RawBlockGob
 
 	dec := gob.NewDecoder(conn)
-	err := dec.Decode(&header)
+	err := dec.Decode(&headerBlock)
 	if err != nil {
 		reallog.Println("Error decoding GOB data:", err)
 		return
 	}
-	coord.ProcessBlock(header.Header, header.Flags, header.Height)
+	coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
 	reallog.Println("Sending BLOCKDONE")
 	conn.Write([]byte("BLOCKDONE"))
 }
@@ -275,6 +284,7 @@ func (coord* Coordinator) handleRequestBlocks(conn net.Conn) {
 		if err != nil {
 			reallog.Println("Unable to fetch hash of block ", i)
 		}
+		// TODO change to fetch header + coinbase
 		header, err := coord.Chain.SqlFetchHeader(blockHash)
 
 		reallog.Println("sending block hash ", header.BlockHash())
@@ -319,10 +329,14 @@ func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
 
 // Process block will make a sanity check on the block header and will wait for confirmations from all the shards
 // that the block has been processed
-func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags, height int32) error {
+func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags BehaviorFlags, height int32) error {
+
+	header := headerBlock.Header
+
 	reallog.Println("Processing block ", header.BlockHash(), " height ", height)
-	// TODO add more checks as per btcd
-	err := CheckBlockHeaderSanity(header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
+
+	// TODO add more checks as per btcd + coinbase checks
+	err := CheckBlockHeaderSanity(&header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
 	if err != nil {
 		return err
 	}
@@ -334,7 +348,7 @@ func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorF
 		coordEnc := gob.NewEncoder(shard.Socket)
 		// Generate a header gob to send to coordinator
 		headerToSend := HeaderGob{
-			Header: header,
+			Header: &header,
 			Flags:  BFNone,
 			Height: height, // optionally this will be done after the coord accept block is performed
 		}
@@ -350,7 +364,7 @@ func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorF
 	}
 	reallog.Println("Done processing block")
 
-	coord.Chain.CoordMaybeAcceptBlock(header, flags)
+	coord.Chain.CoordMaybeAcceptBlock(headerBlock, flags)
 	return nil
 }
 

@@ -2369,8 +2369,9 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// A test to check if transactions will be accepted if they are submitted in
 	// the order they are sent to the shards
 	// Should be passing on 2 shards
-	// s1 gets: TX0, TX2(out7)
-	// s2 gets: TX1(out6), TX3(spendTx(6))
+	// co gets: TX0
+	// s0 gets: TX2(out7)
+	// s1 gets: TX1(out6), TX3(spendTx(6))
 	g.nextBlock("b6p2", outs[6], func(b *wire.MsgBlock) {
 		// Create 4 transactions that each spend from the previous tx
 		// in the block.
@@ -2387,17 +2388,22 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 
 	// Create a block with transactions that spend transactions in the block
 	// This should pass with one shard, and might be a problem with 2
-	//g.nextBlock("b7p2", outs[7], func(b *wire.MsgBlock) {
-	//	// Create 4 transactions that each spend from the previous tx
-	//	// in the block.
-	//	spendTx := b.Transactions[1]
-	//	for i := 0; i < 1; i++ {
-	//		spendTx = createSpendTxForTx(spendTx, lowFee)
-	//		b.AddTransaction(spendTx)
-	//	}
-	//})
-	//g.assertTipBlockNumTxns(3)
-	//accepted()
+	// co gets: TX0
+	// s0 gets: TX2(out8)
+	// s1 gets: TX1(out9), TX3(spendTx(out8))
+	g.nextBlock("b7p2", outs[8], func(b *wire.MsgBlock) {
+		// Create 4 transactions that each spend from the previous tx
+		// in the block.
+		fee := btcutil.Amount(1)
+		b.AddTransaction(createSpendTx(outs[9], fee))
+		spendTx := b.Transactions[2]
+		for i := 0; i < 1; i++ {
+			spendTx = createSpendTxForTx(spendTx, lowFee)
+			b.AddTransaction(spendTx)
+		}
+	})
+	g.assertTipBlockNumTxns(4)
+	accepted()
 
 	return tests, nil
 }

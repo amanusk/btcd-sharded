@@ -704,6 +704,8 @@ func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view *U
 //
 // This function MUST be called with the chain state lock held (for writes).
 func sqlConnectBlock(db *SqlBlockDB, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
+	// TODO: Lots of work in this function
+	// TODO: Locking updating DB to interface etc
 	// Make sure it's extending the end of the best chain.
 	//prevHash := &block.MsgBlock().Header.PrevBlock
 	//if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
@@ -711,12 +713,13 @@ func sqlConnectBlock(db *SqlBlockDB, block *btcutil.Block, view *UtxoViewpoint, 
 	//		"that extends the main chain")
 	//}
 
+	// TODO : improve this sainity check to differ between coinbaes/noncoinbase
 	// Sanity check the correct number of stxos are provided.
-	if len(stxos) != countSpentOutputs(block) {
-		reallog.Println("Number of stxos ", len(stxos), " spent outputs: ", countSpentOutputs(block))
-		return AssertError("connectBlock called with inconsistent " +
-			"spent transaction out information")
-	}
+	//if len(stxos) != countSpentOutputs(block) {
+	//	reallog.Println("Number of stxos ", len(stxos), " spent outputs: ", countSpentOutputs(block))
+	//	return AssertError("connectBlock called with inconsistent " +
+	//		"spent transaction out information")
+	//}
 
 	//// Generate a new best state snapshot that will be used to update the
 	//// database and later memory if all database updates are successful.
@@ -1234,6 +1237,111 @@ func (b *BlockChain) connectBestChain(node *BlockNode, block *btcutil.Block, fla
 	if err != nil {
 		return false, err
 	}
+
+	return true, nil
+}
+
+// CoordConnectBestChain handles connecting the passed block to the chain while
+// respecting proper chain selection according to the chain with the most
+// proof of work.  In the typical case, the new block simply extends the main
+// chain.  However, it may also be extending (or creating) a side chain (fork)
+// which may or may not end up becoming the main chain depending on which fork
+// cumulatively has the most proof of work.  It returns whether or not the block
+// ended up on the main chain (either due to extending the main chain or causing
+// a reorganization to become the main chain).
+//
+// The flags modify the behavior of this function as follows:
+//  - BFFastAdd: Avoids several expensive transaction validation operations.
+//    This is useful when using checkpoints.
+//
+// This function MUST be called with the chain state lock held (for writes).
+func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
+	//fastAdd := flags&BFFastAdd == BFFastAdd
+	fastAdd := true
+
+	// We are extending the main (best) chain with a new block.  This is the
+	// most common case.
+	parentHash := &block.MsgBlock().Header.PrevBlock
+	if parentHash.IsEqual(&b.bestChain.Tip().hash) {
+		// Skip checks if node has already been fully validated.
+		fastAdd = fastAdd || b.index.NodeStatus(node).KnownValid()
+
+		// Perform several checks to verify the block can be connected
+		// to the main chain without violating any rules and without
+		// actually connecting the block.
+		view := NewUtxoViewpoint()
+		view.SetBestHash(parentHash)
+		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
+		// NOTE: we are not validating the connections of the coinbase
+		//if !fastAdd {
+		//	err := b.checkConnectBlock(node, block, view, &stxos) // This is what we need to replace
+		//	if err != nil {
+		//		if _, ok := err.(RuleError); ok {
+		//			b.index.SetStatusFlags(node, statusValidateFailed)
+		//		}
+		//		return false, err
+		//	}
+		//	b.index.SetStatusFlags(node, statusValid)
+		//}
+
+		// In the fast add case the code to check the block connection
+		// was skipped, so the utxo view needs to load the referenced
+		// utxos, spend them, and add the new utxos being created by
+		// this block.
+		if fastAdd {
+			err := view.connectTransactions(block, &stxos)
+			if err != nil {
+				return false, err
+			}
+		}
+
+		reallog.Println("Connecting block", block.Hash())
+		err := sqlConnectBlock(b.SqlDB, block, view, stxos)
+		if err != nil {
+			reallog.Printf("Failed to connect block: ", err)
+			return false, err
+		}
+
+		return true, nil
+	}
+	//if fastAdd {
+	//	log.Warnf("fastAdd set in the side chain case? %v\n",
+	//		block.Hash())
+	//}
+
+	// We're extending (or creating) a side chain, but the cumulative
+	// work for this new side chain is not enough to make it the new chain.
+	//if node.WorkSum.Cmp(b.bestChain.Tip().WorkSum) <= 0 {
+	//	// Log information about how the block is forking the chain.
+	//	fork := b.bestChain.FindFork(node)
+	//	if fork.hash.IsEqual(parentHash) {
+	//		log.Infof("FORK: Block %v forks the chain at height %d"+
+	//			"/block %v, but does not cause a reorganize",
+	//			node.hash, fork.height, fork.hash)
+	//	} else {
+	//		log.Infof("EXTEND FORK: Block %v extends a side chain "+
+	//			"which forks the chain at height %d/block %v",
+	//			node.hash, fork.height, fork.hash)
+	//	}
+
+	//	return false, nil
+	//}
+
+	// We're extending (or creating) a side chain and the cumulative work
+	// for this new side chain is more than the old best chain, so this side
+	// chain needs to become the main chain.  In order to accomplish that,
+	// find the common ancestor of both sides of the fork, disconnect the
+	// blocks that form the (now) old fork from the main chain, and attach
+	// the blocks that form the new chain to the main chain starting at the
+	// common ancenstor (the point where the chain forked).
+	//detachNodes, attachNodes := b.getReorganizeNodes(node)
+
+	// Reorganize the chain.
+	//log.Infof("REORGANIZE: Block %v is causing a reorganize.", node.hash)
+	//err := b.reorganizeChain(detachNodes, attachNodes)
+	//if err != nil {
+	//	return false, err
+	//}
 
 	return true, nil
 }

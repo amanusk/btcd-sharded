@@ -11,7 +11,7 @@ import (
 	"database/sql"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
+	_ "github.com/davecgh/go-spew/spew"
 	_ "github.com/lib/pq"
 )
 
@@ -130,8 +130,8 @@ func (db *SqlBlockDB) FetchHeader(hash chainhash.Hash) *wire.BlockHeader {
 	if err != nil {
 		reallog.Println("Unable to scan transacions from query")
 	}
-	reallog.Println("Block Header")
-	reallog.Printf("%s ", spew.Sdump(&h))
+	//reallog.Println("Block Header")
+	//reallog.Printf("%s ", spew.Sdump(&h))
 	return &h
 
 }

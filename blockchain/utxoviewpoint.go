@@ -631,12 +631,12 @@ func (view *UtxoViewpoint) sqlFetchInputUtxos(db *SqlBlockDB, block *btcutil.Blo
 		txInFlight[*tx.Hash()] = i
 	}
 
-	// NOTE: This is where we might need to create a transaction
+	// NOTE: This is where we might need to create a DB transaction
 	// Loop through all of the transaction inputs (except for the coinbase
 	// which has no inputs) collecting them into sets of what is needed and
 	// what is already known (in-flight).
 	txNeededSet := make(map[chainhash.Hash]struct{})
-	for i, tx := range transactions[1:] {
+	for i, tx := range transactions[0:] {
 		for _, txIn := range tx.MsgTx().TxIn {
 			// It is acceptable for a transaction input to reference
 			// the output of another transaction in this block only
