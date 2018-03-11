@@ -107,7 +107,6 @@ func (shard *Shard) handleSendBlock(conn net.Conn) {
 	msgBlock := shard.SqlDB.FetchTXs(header.Header.BlockHash())
 	msgBlock.Header = *header.Header
 
-
 	// Create a gob of serialized msgBlock
 	blockToSend := RawBlockGob{
 		Block:  msgBlock,
@@ -169,9 +168,18 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 
 	msgBlockShard := receivedBlock.Block
 
+	coordEnc := gob.NewEncoder(shard.Socket)
+
+	msg := Message{
+		Cmd: "SHARDDONE",
+	}
+
 	// If blockShard is empty (could happen), just send SHARDDONE
 	if len(msgBlockShard.Transactions) == 0 {
-		shard.Socket.Write([]byte("SHARDDONE"))
+		err = coordEnc.Encode(msg)
+		if err != nil {
+			reallog.Println(err, "Encode failed for struct: %#v", msg)
+		}
 		return
 	}
 
@@ -191,7 +199,10 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 	reallog.Println("Done processing block, sending SHARDDONE")
 
 	// Send conformation to coordinator!
-	shard.Socket.Write([]byte("SHARDDONE"))
+	err = coordEnc.Encode(msg)
+	if err != nil {
+		reallog.Println(err, "Encode failed for struct: %#v", msg)
+	}
 
 }
 

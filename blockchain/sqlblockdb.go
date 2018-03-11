@@ -6,6 +6,8 @@ package blockchain
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	reallog "log"
 
 	"database/sql"
@@ -118,6 +120,45 @@ func (db *SqlBlockDB) FetchTXs(hash chainhash.Hash) *wire.MsgBlockShard {
 	return &blockShard
 }
 
+// Fetch the unspent transaction output information for the passed
+// transaction hash.  Return nil when there is no entry.
+func (db *SqlBlockDB) SqlDbFetchUtxoEntry(hash *chainhash.Hash) (*UtxoEntry, error) {
+	var serializedUtxo []byte
+	reallog.Println("Trying to fetch", hash[:])
+	err := db.db.QueryRow(
+		"SELECT utxodata FROM utxos WHERE txhash = $1", hash[:]).Scan(&serializedUtxo)
+	if err != nil {
+		reallog.Print("Err ", err)
+	} else {
+		reallog.Print("Fetched Serialized UTXO", serializedUtxo)
+	}
+	if serializedUtxo == nil {
+		return nil, nil
+	}
+
+	// A non-nil zero-length entry means there is an entry in the database
+	// for a fully spent transaction which should never be the case.
+	//if len(serializedUtxo) == 0 {
+	//	return nil, AssertError(fmt.Sprintf("database contains entry "+
+	//		"for fully spent tx %v", hash))
+	//}
+
+	// Deserialize the utxo entry and return it.
+	entry, err := deserializeUtxoEntry(serializedUtxo)
+	if err != nil {
+		// Ensure any deserialization errors are returned as database
+		// corruption errors.
+		if isDeserializeErr(err) {
+			erro := fmt.Sprintf("corrupt utxo entry for %v: %v", hash, err)
+			return nil, errors.New(erro)
+		}
+
+		return nil, err
+	}
+
+	return entry, nil
+}
+
 // Fetch header of given hash
 func (db *SqlBlockDB) FetchHeader(hash chainhash.Hash) *wire.BlockHeader {
 	reallog.Println("Fetching header of block", hash)
@@ -152,9 +193,17 @@ func (db *SqlBlockDB) InitTables() error {
 		reallog.Fatal(err)
 	}
 
-	// Create headers table
+	// Create utxos table
 	_, err = db.db.Exec(
 		"CREATE TABLE IF NOT EXISTS utxos (txHash BYTES PRIMARY KEY," +
+			"utxoData BYTES)")
+	if err != nil {
+		reallog.Fatal(err)
+	}
+
+	// Create headers table
+	_, err = db.db.Exec(
+		"CREATE TABLE IF NOT EXISTS txcache (txHash BYTES PRIMARY KEY," +
 			"utxoData BYTES)")
 	if err != nil {
 		reallog.Fatal(err)

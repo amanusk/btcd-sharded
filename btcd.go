@@ -5,7 +5,7 @@
 package main
 
 import (
-	_"bytes"
+	_ "bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -32,7 +32,7 @@ import (
 	"github.com/btcsuite/btcd/limits"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	_"github.com/davecgh/go-spew/spew"
+	_ "github.com/davecgh/go-spew/spew"
 )
 
 type Config struct {
@@ -531,16 +531,24 @@ func main() {
 			fmt.Println(err)
 		}
 
-		fmt.Println("Connection started", coordConn)
+		reallog.Println("Connection started", coordConn)
 
 		tests, err := fullblocktests.SimpleGenerate(false)
 		if err != nil {
 			fmt.Printf("failed to generate tests: %v", err)
 		}
 
-		// GET shards from coordinator
-		//TODO restore for full protocol
-		coordConn.Write([]byte("GETSHARDS"))
+		coordEnc := gob.NewEncoder(coordConn)
+
+		msg := blockchain.Message{
+			Cmd:  "GETSHARDS",
+			Data: nil,
+		}
+
+		err = coordEnc.Encode(msg)
+		if err != nil {
+			reallog.Println(err, "Encode failed for struct: %#v", msg)
+		}
 
 		var receivedShards blockchain.AddressesGob
 
@@ -549,6 +557,8 @@ func main() {
 		if err != nil {
 			reallog.Println("Error decoding GOB data:", err)
 			return
+		} else {
+			reallog.Println("Got shardsGOB")
 		}
 		shardConn := make([]net.Conn, numShards)
 
@@ -575,7 +585,8 @@ func main() {
 				item.Name, block.BlockHash(), blockHeight)
 
 			// Send block to coordinator
-			coordConn.Write([]byte("PROCBLOCK"))
+			gob.Register(blockchain.RawBlockGob{})
+
 			coordEnc := gob.NewEncoder(coordConn)
 
 			headerBlock := wire.NewMsgBlockShard(&block.Header)
@@ -585,16 +596,20 @@ func main() {
 			headerBlock.AddTransaction(newTx)
 
 			// Generate a header gob to send to coordinator
-			headerToSend := blockchain.RawBlockGob{
-				Block: headerBlock,
-				Flags: blockchain.BFNone,
-				Height: blockHeight,
+			msg := blockchain.Message{
+				Cmd: "PROCBLOCK",
+				Data: blockchain.RawBlockGob{
+					Block:  headerBlock,
+					Flags:  blockchain.BFNone,
+					Height: blockHeight,
+				},
 			}
 
-			err = coordEnc.Encode(headerToSend)
+			err = coordEnc.Encode(msg)
 			if err != nil {
-				reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+				reallog.Println(err, "Encode failed for struct: %#v", msg)
 			}
+			reallog.Println("Waiting for shards to request block")
 			// Wait for shard to request the block
 			for i := 0; i < numShards; i++ {
 				message := make([]byte, 8)
@@ -647,7 +662,7 @@ func main() {
 				// All data is sent in gobs
 				blockToSend := blockchain.RawBlockGob{
 					Block:  bShards[i],
-					Flags: blockchain.BFNone,
+					Flags:  blockchain.BFNone,
 					Height: blockHeight,
 				}
 				shardConn[i].Write([]byte("PRCBLOCK"))
@@ -764,12 +779,47 @@ func main() {
 		}
 	} else if strings.ToLower(*flagMode) == "test" {
 		// Connect to coordinator
-		coordConn, err := net.Dial("tcp", "localhost:22346")
+		coordConn, err := net.Dial("tcp", "localhost:12346")
 		if err != nil {
 			fmt.Println(err)
 		}
 
-		fmt.Println("Connection started", coordConn)
-		coordConn.Write([]byte("REQBLOCKS"))
+		encodeData := blockchain.Message{
+			Cmd: "THIS",
+			Data: blockchain.Complex{
+				A: 1,
+				B: "message",
+			},
+		}
+
+		gob.Register(blockchain.Complex{})
+
+		encCache := gob.NewEncoder(coordConn)
+		err = encCache.Encode(encodeData)
+		if err != nil {
+			reallog.Fatal("encode error:", err)
+		}
+
+		//mCache := new(bytes.Buffer)
+		//encCache := gob.NewEncoder(mCache)
+		//err := encCache.Encode(encodeData)
+		//if err != nil {
+		//	reallog.Fatal("encode error:", err)
+		//}
+
+		//fmt.Printf("Encoded: ")
+		//fmt.Println(mCache.Bytes())
+
+		//// Decode
+		//var msg blockchain.Message
+		//pCache := bytes.NewBuffer(mCache.Bytes())
+		//decCache := gob.NewDecoder(pCache)
+		//decCache.Decode(&msg)
+
+		//fmt.Printf("Decoded: ")
+		//fmt.Println(msg)
+		//c := msg.Data.(blockchain.Complex)
+		//fmt.Printf(c.B)
+
 	}
 }

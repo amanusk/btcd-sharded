@@ -529,7 +529,7 @@ func (view *UtxoViewpoint) sqlFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash
 	for hash := range txSet {
 		hashCopy := hash
 		reallog.Println("Going to db for ", hash)
-		entry, err := sqlDbFetchUtxoEntry(db, &hashCopy)
+		entry, err := db.SqlDbFetchUtxoEntry(&hashCopy)
 		if err != nil {
 			return err
 		}

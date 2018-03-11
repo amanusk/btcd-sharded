@@ -3,7 +3,7 @@ package blockchain
 import (
 	"encoding/gob"
 	"fmt"
-	"io"
+	_ "io"
 	reallog "log"
 	"net"
 	_ "strconv"
@@ -13,6 +13,34 @@ import (
 	"github.com/btcsuite/btcd/wire"
 )
 
+// A struct to send a list of tcp connections
+type AddressesGob struct {
+	Addresses []*net.TCPAddr
+}
+
+type HeaderGob struct {
+	Header *wire.BlockHeader
+	Flags  BehaviorFlags
+	Height int32
+}
+
+type RawBlockGob struct {
+	Block  *wire.MsgBlockShard
+	Flags  BehaviorFlags
+	Height int32
+}
+
+// Just a simple example
+type Complex struct {
+	A int
+	B string
+}
+
+type Message struct {
+	Cmd  string
+	Data interface{}
+}
+
 type Coordinator struct {
 	Socket          net.Conn              // Receive information from other coordinators
 	shards          map[*Shard]bool       // A map of shards connected to this coordinator
@@ -21,11 +49,10 @@ type Coordinator struct {
 	unregisterShard chan *Shard
 	registerCoord   chan *Coordinator
 	unregisterCoord chan *Coordinator
-	handler         map[string]HandleFunc
 	allShardsDone   chan bool
 	Connected       chan bool // Sends a sigal that a shard connection completed
-	ConnectedOut       chan bool // Sends shards finished connecting to shards
-	BlockDone		chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
+	ConnectedOut    chan bool // Sends shards finished connecting to shards
+	BlockDone       chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
 	KeepAlive       chan interface{}
 	ShardListener   net.Listener
 	CoordListener   net.Listener
@@ -51,9 +78,8 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 		registerCoord:   make(chan *Coordinator),
 		unregisterCoord: make(chan *Coordinator),
 		allShardsDone:   make(chan bool),
-		handler:         map[string]HandleFunc{},
 		Connected:       make(chan bool),
-		ConnectedOut:       make(chan bool),
+		ConnectedOut:    make(chan bool),
 		BlockDone:       make(chan bool),
 		Chain:           blockchain,
 		ShardListener:   shardListener,
@@ -63,35 +89,6 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 }
 
 type HandleFunc func(conn net.Conn, coord *Coordinator)
-
-type BlockGob struct {
-	Block []byte
-	Flags  BehaviorFlags
-	Height int32
-}
-
-// A struct to send a list of tcp connections
-type AddressesGob struct {
-	Addresses []*net.TCPAddr
-}
-
-type HeaderGob struct {
-	Header *wire.BlockHeader
-	Flags  BehaviorFlags
-	Height int32
-}
-
-type RawBlockGob struct {
-	Block *wire.MsgBlockShard
-	Flags  BehaviorFlags
-	Height int32
-}
-
-
-
-type stringData struct {
-	S string
-}
 
 func (coord *Coordinator) GetNumShardes() int {
 	return len(coord.shards)
@@ -132,18 +129,25 @@ func (coord *Coordinator) Start() {
 // with inoformation on what is the request from the server. The server will
 // handle the message according to the type of request it receives
 func (coord *Coordinator) HandleMessages(conn net.Conn) {
+}
+
+// Decode received messages with command and data
+func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
+	// Register the special types for decode to work
+
+	gob.Register(Complex{})
+	gob.Register(RawBlockGob{})
 
 	for {
-		message := make([]byte, 9)
-		n, err := conn.Read(message)
-		switch {
-		case err == io.EOF:
-			reallog.Println("Reached EOF - close this connection.\n   ---")
+		dec := gob.NewDecoder(conn)
+		var msg Message
+		err := dec.Decode(&msg)
+		if err != nil {
+			reallog.Println("Error decoding GOB data:", err)
 			return
 		}
-
-		cmd := (string(message[:n]))
-		reallog.Print("Recived command", cmd)
+		cmd := msg.Cmd
+		reallog.Println("Got cmd ", cmd)
 
 		// handle according to received command
 		switch cmd {
@@ -152,7 +156,8 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 		case "GETSHARDS":
 			coord.handleGetShards(conn)
 		case "PROCBLOCK":
-			coord.handleProcessBlock(conn)
+			block := msg.Data.(RawBlockGob)
+			coord.handleProcessBlock(&block, conn)
 		case "REQBLOCKS":
 			go coord.handleRequestBlocks(conn)
 		case "DEADBEAFS":
@@ -166,11 +171,13 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
 			reallog.Println("Command '", cmd, "' is not registered.")
 		}
 	}
+
 }
 
 // Receive a shard and handle messages from shard
 func (coord *Coordinator) ReceiveShard(shard *Shard) {
-	coord.HandleMessages(shard.Socket)
+	//coord.HandleMessages(shard.Socket)
+	coord.HandleSmartMessages(shard.Socket)
 }
 
 // This function sends a message to each of the shards connected to the coordinator
@@ -192,13 +199,13 @@ func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
 			return
 		}
 	}
-
 }
 
 // Receive messates from a coordinator
 // TODO: possiblly make shard/coordinator fit an interface
 func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
-	coord.HandleMessages(c.Socket)
+	//coord.HandleMessages(c.Socket)
+	coord.HandleSmartMessages(c.Socket)
 }
 
 // Once a shards finishes processing a block this message is received
@@ -208,6 +215,10 @@ func (coord *Coordinator) handleShardDone(conn net.Conn) {
 
 }
 
+// Once a shards finishes processing a block this message is received
+func (coord *Coordinator) handleThis(c Complex) {
+	fmt.Println("Complex data", c)
+}
 
 // Receive a conformation a shard is sucessfuly connected
 func (coord *Coordinator) handleConnectDone(conn net.Conn) {
@@ -247,17 +258,9 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 // and processing it
 // The coordinator validates the header and waits for conformation
 // from all the shards
-func (coord* Coordinator) handleProcessBlock(conn net.Conn) {
+func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.Conn) {
 	reallog.Print("Receivd process block request")
 
-	var headerBlock RawBlockGob
-
-	dec := gob.NewDecoder(conn)
-	err := dec.Decode(&headerBlock)
-	if err != nil {
-		reallog.Println("Error decoding GOB data:", err)
-		return
-	}
 	coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
 	reallog.Println("Sending BLOCKDONE")
 	conn.Write([]byte("BLOCKDONE"))
@@ -267,12 +270,12 @@ func (coord* Coordinator) handleProcessBlock(conn net.Conn) {
 // and processing it
 // The coordinator validates the header and waits for conformation
 // from all the shards
-func (coord* Coordinator) handleDeadBeaf(conn net.Conn) {
+func (coord *Coordinator) handleDeadBeaf(conn net.Conn) {
 	reallog.Print("Received dead beef command")
 }
 
 // This function handle receiving a request for blocks from another coordinator
-func (coord* Coordinator) handleRequestBlocks(conn net.Conn) {
+func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 	reallog.Print("Receivd request for blocks request")
 
 	reallog.Println("Sending request to ", conn)
@@ -307,7 +310,7 @@ func (coord* Coordinator) handleRequestBlocks(conn net.Conn) {
 		// Wait for BLOCKDONE to send next block
 		reallog.Println("Waiting for conformation on block")
 
-		<- coord.BlockDone
+		<-coord.BlockDone
 
 	}
 	return

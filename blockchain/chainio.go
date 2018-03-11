@@ -820,49 +820,6 @@ func dbFetchUtxoEntry(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry, error
 	return entry, nil
 }
 
-func sqlDbFetchUtxoEntry(db *SqlBlockDB, hash *chainhash.Hash) (*UtxoEntry, error) {
-	//TODO TODO TODO: Move this to sqlblockdb
-	// Fetch the unspent transaction output information for the passed
-	// transaction hash.  Return nil when there is no entry.
-	var serializedUtxo []byte
-	reallog.Println("Trying to fetch", hash[:])
-	err := db.db.QueryRow(
-		"SELECT utxodata FROM utxos WHERE txhash = $1", hash[:]).Scan(&serializedUtxo)
-	if err != nil {
-		reallog.Print("Err ", err)
-	} else {
-		reallog.Print("Fetched Serialized UTXO", serializedUtxo)
-	}
-	if serializedUtxo == nil {
-		return nil, nil
-	}
-
-	// A non-nil zero-length entry means there is an entry in the database
-	// for a fully spent transaction which should never be the case.
-	//if len(serializedUtxo) == 0 {
-	//	return nil, AssertError(fmt.Sprintf("database contains entry "+
-	//		"for fully spent tx %v", hash))
-	//}
-
-	// Deserialize the utxo entry and return it.
-	entry, err := deserializeUtxoEntry(serializedUtxo)
-	if err != nil {
-		// Ensure any deserialization errors are returned as database
-		// corruption errors.
-		if isDeserializeErr(err) {
-			return nil, database.Error{
-				ErrorCode: database.ErrCorruption,
-				Description: fmt.Sprintf("corrupt utxo entry "+
-					"for %v: %v", hash, err),
-			}
-		}
-
-		return nil, err
-	}
-
-	return entry, nil
-}
-
 // NOTE: replace here for store
 // dbPutUtxoView uses an existing database transaction to update the utxo set
 // in the database based on the provided utxo view contents and state.  In
