@@ -137,6 +137,8 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 
 	gob.Register(Complex{})
 	gob.Register(RawBlockGob{})
+	gob.Register(HeaderGob{})
+	gob.Register(AddressesGob{})
 
 	for {
 		dec := gob.NewDecoder(conn)
@@ -184,16 +186,18 @@ func (coord *Coordinator) ReceiveShard(shard *Shard) {
 // informing it of the connections to other shards it needs to establish
 func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
 	for shard, _ := range coord.shards {
-		shard.Socket.Write([]byte("SHARDCON"))
+		enc := gob.NewEncoder(shard.Socket)
 
 		// TODO here there should be some logic to sort which shard gets what
-		shardsToSend := AddressesGob{
-			Addresses: addressList,
+		msg := Message{
+			Cmd: "SHARDCON",
+			Data: AddressesGob{
+				Addresses: addressList,
+			},
 		}
-		reallog.Printf("Shards gob", shardsToSend.Addresses[0])
+		reallog.Printf("Shards gob", msg.Data)
 		//Actually write the GOB on the socket
-		enc := gob.NewEncoder(shard.Socket)
-		err := enc.Encode(shardsToSend)
+		err := enc.Encode(msg)
 		if err != nil {
 			reallog.Println("Error encoding addresses GOB data:", err)
 			return
@@ -234,7 +238,9 @@ func (coord *Coordinator) handleBlockDone(conn net.Conn) {
 
 // Return send a list of all the shards
 func (coord *Coordinator) handleGetShards(conn net.Conn) {
+
 	reallog.Print("Receive shards request")
+	// TODO TODO TODO Change this to work with messages like evrything else
 	shardConnections := coord.GetShardsConnections()
 
 	reallog.Printf("Shards to send", shardConnections)
@@ -263,7 +269,18 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 
 	coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
 	reallog.Println("Sending BLOCKDONE")
-	conn.Write([]byte("BLOCKDONE"))
+
+	enc := gob.NewEncoder(conn)
+
+	// TODO here there should be some logic to sort which shard gets what
+	msg := Message{
+		Cmd: "BLOCKDONE",
+	}
+	err := enc.Encode(msg)
+	if err != nil {
+		reallog.Println("Error encoding addresses GOB data:", err)
+		return
+	}
 }
 
 // This function handle receiving a block over a connection
@@ -290,22 +307,28 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		// TODO change to fetch header + coinbase
 		header, err := coord.Chain.SqlFetchHeader(blockHash)
 
-		reallog.Println("sending block hash ", header.BlockHash())
+		headerBlock := wire.NewMsgBlockShard(&header)
+		coinbase := coord.Chain.SqlDB.FetchCoinbase(blockHash)
+		headerBlock.AddTransaction(coinbase)
 
+		reallog.Println("sending block hash ", header.BlockHash())
 		reallog.Println("Sending block on", conn)
 
 		// Send block to coordinator
-		conn.Write([]byte("PROCBLOCK"))
+
 		coordEnc := gob.NewEncoder(conn)
 		// Generate a header gob to send to coordinator
-		headerToSend := HeaderGob{
-			Header: &header,
-			Flags:  BFNone,
-			Height: int32(i),
+		msg := Message {
+			Cmd: "PROCBLOCK",
+			Data:RawBlockGob{
+				Block: headerBlock,
+				Flags:  BFNone,
+				Height: int32(i),
+			},
 		}
-		err = coordEnc.Encode(headerToSend)
+		err = coordEnc.Encode(msg)
 		if err != nil {
-			reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+			reallog.Println(err, "Encode failed for struct: %#v", msg)
 		}
 		// Wait for BLOCKDONE to send next block
 		reallog.Println("Waiting for conformation on block")
@@ -346,18 +369,19 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 
 	// Send block header to request to all shards
 	for shard, _ := range coord.shards {
-		shard.Socket.Write([]byte("REQBLOCK"))
-
-		coordEnc := gob.NewEncoder(shard.Socket)
+		enc := gob.NewEncoder(shard.Socket)
 		// Generate a header gob to send to coordinator
-		headerToSend := HeaderGob{
-			Header: &header,
-			Flags:  BFNone,
-			Height: height, // optionally this will be done after the coord accept block is performed
+		msg := Message {
+			Cmd: "REQBLOCK",
+			Data:HeaderGob{
+				Header: &header,
+				Flags:  BFNone,
+				Height: height, // optionally this will be done after the coord accept block is performed
+			},
 		}
-		err = coordEnc.Encode(headerToSend)
+		err = enc.Encode(msg)
 		if err != nil {
-			reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+			reallog.Println(err, "Encode failed for struct: %#v", msg)
 		}
 	}
 
@@ -390,6 +414,15 @@ func (coord *Coordinator) SendBlocksRequest() {
 	reallog.Println("Sending blocks request")
 	for c, _ := range coord.coords {
 		reallog.Println("Sending request to ", c.Socket)
-		c.Socket.Write([]byte("REQBLOCKS"))
+		enc := gob.NewEncoder(c.Socket)
+
+		msg := Message{
+			Cmd: "REQBLOCKS",
+		}
+		err := enc.Encode(msg)
+		if err != nil {
+			reallog.Println("Error encoding addresses GOB data:", err)
+			return
+		}
 	}
 }

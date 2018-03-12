@@ -8,7 +8,7 @@ import (
 	_ "bytes"
 	"flag"
 	"fmt"
-	"io"
+	_"io"
 	reallog "log"
 	"net"
 	"net/http"
@@ -487,8 +487,17 @@ func main() {
 			manager.RegisterCoord(c)
 
 			// Request for shards
-			coordConn.Write([]byte("GETSHARDS"))
+			coordEnc := gob.NewEncoder(coordConn)
 
+			msg := blockchain.Message{
+				Cmd:  "GETSHARDS",
+			}
+
+			err = coordEnc.Encode(msg)
+			if err != nil {
+				reallog.Println(err, "Encode failed for struct: %#v", msg)
+			}
+			// TODO Change to work with Message + Move to Coord
 			var receivedShards blockchain.AddressesGob
 
 			dec := gob.NewDecoder(coordConn)
@@ -538,11 +547,15 @@ func main() {
 			fmt.Printf("failed to generate tests: %v", err)
 		}
 
+		gob.Register(blockchain.Complex{})
+		gob.Register(blockchain.HeaderGob{})
+		gob.Register(blockchain.RawBlockGob{})
+		gob.Register(blockchain.AddressesGob{})
+
 		coordEnc := gob.NewEncoder(coordConn)
 
 		msg := blockchain.Message{
 			Cmd:  "GETSHARDS",
-			Data: nil,
 		}
 
 		err = coordEnc.Encode(msg)
@@ -612,28 +625,20 @@ func main() {
 			reallog.Println("Waiting for shards to request block")
 			// Wait for shard to request the block
 			for i := 0; i < numShards; i++ {
-				message := make([]byte, 8)
-				n, err := shardConn[i].Read(message)
-				switch {
-				case err == io.EOF:
-					reallog.Println("Reached EOF - close this connection.\n   ---")
+				dec := gob.NewDecoder(shardConn[i])
+				var msg blockchain.Message
+				err := dec.Decode(&msg)
+				if err != nil {
+					reallog.Println("Error decoding GOB data:", err)
 					return
 				}
-				cmd := (string(message[:n]))
+				cmd := msg.Cmd
+
 				reallog.Println("Recived command", cmd)
 				switch cmd {
+
 				case "SNDBLOCK":
 					reallog.Println("'Shard' received requist SNDBLOCK")
-					// Decode the header sent
-					var header blockchain.HeaderGob
-
-					dec := gob.NewDecoder(shardConn[i])
-					err := dec.Decode(&header)
-					if err != nil {
-						reallog.Println("Error decoding GOB data:", err)
-						return
-					}
-					reallog.Println("'Shard' received request for header")
 					break // Quit the switch case
 				default:
 					reallog.Println("Command '", cmd, "' is not registered.")
@@ -660,34 +665,37 @@ func main() {
 			for i := 0; i < numShards; i++ {
 
 				// All data is sent in gobs
-				blockToSend := blockchain.RawBlockGob{
-					Block:  bShards[i],
-					Flags:  blockchain.BFNone,
-					Height: blockHeight,
+				msg := blockchain.Message{
+					Cmd: "PRCBLOCK",
+					Data: blockchain.RawBlockGob{
+						Block:  bShards[i],
+						Flags:  blockchain.BFNone,
+						Height: blockHeight,
+					},
 				}
-				shardConn[i].Write([]byte("PRCBLOCK"))
-
 				//Actually write the GOB on the socket
 				enc := gob.NewEncoder(shardConn[i])
-				err = enc.Encode(blockToSend)
+				err = enc.Encode(msg)
 				if err != nil {
-					reallog.Println(err, "Encode failed for struct: %#v", blockToSend)
+					reallog.Println(err, "Encode failed for struct: %#v", msg)
 				}
 			}
 
 			reallog.Println("Waiting for conformation on block")
 			for {
-				message := make([]byte, 9)
-				n, err := coordConn.Read(message)
-				switch {
-				case err == io.EOF:
-					reallog.Println("Reached EOF - close this connection.\n   ---")
+				dec := gob.NewDecoder(coordConn)
+				var msg blockchain.Message
+				err := dec.Decode(&msg)
+				if err != nil {
+					reallog.Println("Error decoding GOB data:", err)
 					return
 				}
-				cmd := (string(message[:n]))
+				cmd := msg.Cmd
+
 				reallog.Println("Recived command", cmd)
 				switch cmd {
 				case "BLOCKDONE":
+					reallog.Println("Received BLOCKDONE")
 					break // Quit the switch case
 				default:
 					reallog.Println("Command '", cmd, "' is not registered.")

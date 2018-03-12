@@ -4,7 +4,7 @@ import (
 	_ "bufio"
 	"encoding/gob"
 	"fmt"
-	"io"
+	_ "io"
 	reallog "log"
 	"net"
 	_ "os"
@@ -20,7 +20,6 @@ import (
 type Shard struct {
 	Socket          net.Conn
 	shards          map[*Shard]bool // A map of shards connected to this shard
-	handler         map[string]ShardHandleFunc
 	terminate       chan bool
 	registerShard   chan *Shard
 	unregisterShard chan *Shard
@@ -46,7 +45,6 @@ func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex
 	shard := &Shard{
 		Index:           index,
 		SqlDB:           db,
-		handler:         map[string]ShardHandleFunc{},
 		registerShard:   make(chan *Shard),
 		unregisterShard: make(chan *Shard),
 		shards:          make(map[*Shard]bool),
@@ -56,33 +54,22 @@ func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex
 	return shard
 }
 
-type ShardHandleFunc func(conn net.Conn, shard *Shard)
-
 // Handle instruction from coordinator to request the block
-func (shard *Shard) handleRequestBlock(conn net.Conn) {
+func (shard *Shard) handleRequestBlock(header *HeaderGob, conn net.Conn) {
 	reallog.Println("Received request to request block")
 
-	var header HeaderGob
-
-	dec := gob.NewDecoder(conn)
-	err := dec.Decode(&header)
-	if err != nil {
-		reallog.Println("Error decoding GOB data:", err)
-		return
-	}
 	// Send a request for txs from other shards
 	// Thes should have some logic, currently its 1:1
 	for s, _ := range shard.shards {
-		// Send a request to the shard to send back transactions for this header
-		s.Socket.Write([]byte("SNDBLOCK"))
 
 		enc := gob.NewEncoder(s.Socket)
-		// Generate a header gob to send to coordinator
-		headerToSend := HeaderGob{
-			Header: header.Header,
-			Flags:  BFNone,
+
+		headerToSend := Message{
+			Cmd:  "SNDBLOCK",
+			Data: header,
 		}
-		err = enc.Encode(headerToSend)
+
+		err := enc.Encode(headerToSend)
 		if err != nil {
 			reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
 		}
@@ -92,51 +79,33 @@ func (shard *Shard) handleRequestBlock(conn net.Conn) {
 }
 
 // Handle request for a block shard by another shard
-func (shard *Shard) handleSendBlock(conn net.Conn) {
+func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	reallog.Println("Received request to send a block shard")
-
-	var header HeaderGob
-
-	dec := gob.NewDecoder(conn)
-	err := dec.Decode(&header)
-	if err != nil {
-		reallog.Println("Error decoding GOB data:", err)
-		return
-	}
 
 	msgBlock := shard.SqlDB.FetchTXs(header.Header.BlockHash())
 	msgBlock.Header = *header.Header
 
 	// Create a gob of serialized msgBlock
-	blockToSend := RawBlockGob{
-		Block:  msgBlock,
-		Flags:  BFNone,
-		Height: header.Height,
+	msg := Message{
+		Cmd: "PRCBLOCK",
+		Data: RawBlockGob{
+			Block:  msgBlock,
+			Flags:  BFNone,
+			Height: header.Height,
+		},
 	}
-
-	conn.Write([]byte("PRCBLOCK"))
-
 	//Actually write the GOB on the socket
 	enc := gob.NewEncoder(conn)
-	err = enc.Encode(blockToSend)
+	err := enc.Encode(msg)
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct: %#v", blockToSend)
+		reallog.Println(err, "Encode failed for struct: %#v", msg)
 	}
 
 }
 
 // Receive a list of ip:port from coordinator, to which this shard will connect
-func (shard *Shard) handleShardConnect(conn net.Conn) {
+func (shard *Shard) handleShardConnect(receivedShardAddresses *AddressesGob, conn net.Conn) {
 	reallog.Println("Received request to connect to shards")
-
-	var receivedShardAddresses AddressesGob
-
-	dec := gob.NewDecoder(conn)
-	err := dec.Decode(&receivedShardAddresses)
-	if err != nil {
-		reallog.Println("Error decoding GOB data:", err)
-		return
-	}
 
 	for _, address := range receivedShardAddresses.Addresses {
 		reallog.Println("Shard connecting to shard on " + address.String())
@@ -149,22 +118,20 @@ func (shard *Shard) handleShardConnect(conn net.Conn) {
 		shard.RegisterShard(shardConn)
 		go shard.ReceiveShard(shardConn)
 	}
-
-	conn.Write([]byte("CONCTDONE"))
+	// Send connection done to coordinator
+	enc := gob.NewEncoder(conn)
+	msg := Message{
+		Cmd: "CONCTDONE",
+	}
+	err := enc.Encode(msg)
+	if err != nil {
+		reallog.Println(err, "Encode failed for struct: %#v", msg)
+	}
 
 }
 
-func (shard *Shard) handleProcessBlock(conn net.Conn) {
+func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn) {
 	reallog.Print("Received GOB data")
-
-	var receivedBlock RawBlockGob
-	// Gen information from shard!
-	dec := gob.NewDecoder(conn)
-	err := dec.Decode(&receivedBlock)
-	if err != nil {
-		reallog.Println("Error decoding GOB data:", err)
-		return
-	}
 
 	msgBlockShard := receivedBlock.Block
 
@@ -176,7 +143,7 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 
 	// If blockShard is empty (could happen), just send SHARDDONE
 	if len(msgBlockShard.Transactions) == 0 {
-		err = coordEnc.Encode(msg)
+		err := coordEnc.Encode(msg)
 		if err != nil {
 			reallog.Println(err, "Encode failed for struct: %#v", msg)
 		}
@@ -199,57 +166,54 @@ func (shard *Shard) handleProcessBlock(conn net.Conn) {
 	reallog.Println("Done processing block, sending SHARDDONE")
 
 	// Send conformation to coordinator!
-	err = coordEnc.Encode(msg)
+	err := coordEnc.Encode(msg)
 	if err != nil {
 		reallog.Println(err, "Encode failed for struct: %#v", msg)
 	}
 
 }
 
-// Example handle method
-func (shard *Shard) handleBlockDad(conn net.Conn) {
-	reallog.Print("Received DAD data")
-	// Sending a shardDone message to the coordinator
-	message := "SHARDDONE"
-	shard.Socket.Write([]byte(message))
-
-}
-
 func (shard *Shard) receive() {
 	fmt.Println("Shard started recieving")
 
-	shard.handleMessages(shard.Socket)
+	shard.handleSmartMessages(shard.Socket)
 
 }
 
-func (shard *Shard) handleMessages(conn net.Conn) {
+func (shard *Shard) handleSmartMessages(conn net.Conn) {
+
+	gob.Register(Complex{})
+	gob.Register(RawBlockGob{})
+	gob.Register(HeaderGob{})
+	gob.Register(AddressesGob{})
+
 	for {
-		message := make([]byte, 8)
-		n, err := conn.Read(message)
-		switch {
-		case err == io.EOF:
-			reallog.Println("Reached EOF - close this connection.\n   ---")
+		dec := gob.NewDecoder(conn)
+		var msg Message
+		err := dec.Decode(&msg)
+		if err != nil {
+			reallog.Println("Error decoding GOB data:", err)
 			return
 		}
-
-		reallog.Print("Receive command " + string(message))
-		cmd := (string(message[:n]))
-		reallog.Print(cmd)
+		cmd := msg.Cmd
+		reallog.Println("Got cmd ", cmd)
 
 		// handle according to received command
 		switch cmd {
 		case "PRCBLOCK":
-			shard.handleProcessBlock(conn)
-		case "BLOCKDAD":
-			shard.handleBlockDad(conn)
+			block := msg.Data.(RawBlockGob)
+			shard.handleProcessBlock(&block, conn)
 		case "SHARDCON":
-			shard.handleShardConnect(conn)
+			addresses := msg.Data.(AddressesGob)
+			shard.handleShardConnect(&addresses, conn)
 		// handle an instruction from coordinator to request a block
 		case "REQBLOCK":
-			shard.handleRequestBlock(conn)
+			header := msg.Data.(HeaderGob)
+			shard.handleRequestBlock(&header, conn)
 		// handle a request for block shard coming from another shard
 		case "SNDBLOCK":
-			shard.handleSendBlock(conn)
+			header := msg.Data.(HeaderGob)
+			shard.handleSendBlock(&header, conn)
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
 		}
@@ -283,5 +247,6 @@ func (shard *Shard) RegisterShard(s *Shard) {
 
 // Receive messages from other shards
 func (shard *Shard) ReceiveShard(s *Shard) {
-	shard.handleMessages(s.Socket)
+	//shard.handleMessages(s.Socket)
+	shard.handleSmartMessages(s.Socket)
 }

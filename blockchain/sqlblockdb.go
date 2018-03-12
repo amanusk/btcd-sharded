@@ -51,7 +51,7 @@ func (db *SqlBlockDB) AddTX(blockHash []byte, idx int32, tx *wire.MsgTx) {
 	buf := bb.Bytes()
 
 	_, err := db.db.Exec(
-		"INSERT INTO txs (txhash, blockHash, BlockIndex, txData)"+
+		"INSERT INTO txs (txhash, blockHash, txindex, txData)"+
 			"VALUES ($1, $2, $3, $4) ", txHash[:], blockHash, idx, buf)
 	if err != nil {
 		// Should be checked or something, left for debug
@@ -177,6 +177,37 @@ func (db *SqlBlockDB) FetchHeader(hash chainhash.Hash) *wire.BlockHeader {
 
 }
 
+// Fetch the first (coinbase) tx of a block
+// TODO: Move this to another table
+func (db *SqlBlockDB) FetchCoinbase(hash *chainhash.Hash) *wire.MsgTxIndex {
+	reallog.Println("Fetching header of block", hash)
+
+	var txHash []byte
+	var blockHash []byte
+	var txIdx int32
+	var txData []byte
+
+	err := db.db.QueryRow("SELECT * FROM txs WHERE blockHash=$1 AND txindex=0", hash[:]).Scan(&txHash, &blockHash, &txIdx, &txData)
+
+	if err != nil {
+		reallog.Println("Unable to scan transacions from query")
+	}
+
+	// Deserialize the transaction
+	var tx wire.MsgTx
+	rbuf := bytes.NewReader(txData)
+	err = tx.Deserialize(rbuf)
+	if err != nil {
+		reallog.Printf("Deserialize error %v", err)
+	}
+	indexedTx := wire.NewTxIndexFromTx(&tx, txIdx)
+	//reallog.Println("Transactions in fetched block")
+	//for _, val := range blockShard.Transactions {
+	//	reallog.Printf("%s ", spew.Sdump(&val))
+	//}
+	return indexedTx
+}
+
 // Create the tables in the SQL database
 // This should only be done once when starting the database
 func (db *SqlBlockDB) InitTables() error {
@@ -213,7 +244,7 @@ func (db *SqlBlockDB) InitTables() error {
 	_, err = db.db.Exec(
 		"CREATE TABLE IF NOT EXISTS txs (txHash BYTES PRIMARY KEY," +
 			"blockHash BYTES, " +
-			"BlockIndex INT, " +
+			"txindex INT, " +
 			"txData BYTES)")
 	if err != nil {
 		reallog.Fatal(err)
