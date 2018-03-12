@@ -157,7 +157,7 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(msgBlockShard))
 
 	// Store the txs in database, this could be postponed until after validation
-	ShardStoreBlockShard(shard.SqlDB, msgBlockShard)
+	StoreBlockShard(shard.SqlDB, msgBlockShard)
 
 	blockNode := NewBlockNode(&msgBlockShard.Header, receivedBlock.Height)
 

@@ -1408,7 +1408,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block)
 
 // A function to use by  a shard connecting TXs to the blockchain
 // This is similar to ConnectBestChain but much simplified
-func ShardStoreBlockShard(db *SqlBlockDB, block *wire.MsgBlockShard) {
+func StoreBlockShard(db *SqlBlockDB, block *wire.MsgBlockShard) {
 	for _, tx := range block.Transactions {
 		bhash := block.BlockHash()
 		db.AddTX(bhash[:], tx.TxIndex, &tx.MsgTx)

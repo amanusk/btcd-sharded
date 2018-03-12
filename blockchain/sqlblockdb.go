@@ -47,6 +47,7 @@ func (db *SqlBlockDB) AddTX(blockHash []byte, idx int32, tx *wire.MsgTx) {
 	txHash := tx.TxHash()
 	// Serialize tx to save
 	var bb bytes.Buffer
+	reallog.Println("Saving TX ", txHash,  " with index ", idx)
 	tx.Serialize(&bb)
 	buf := bb.Bytes()
 
@@ -190,7 +191,7 @@ func (db *SqlBlockDB) FetchCoinbase(hash *chainhash.Hash) *wire.MsgTxIndex {
 	err := db.db.QueryRow("SELECT * FROM txs WHERE blockHash=$1 AND txindex=0", hash[:]).Scan(&txHash, &blockHash, &txIdx, &txData)
 
 	if err != nil {
-		reallog.Println("Unable to scan transacions from query")
+		reallog.Println("Unable to scan transacions from query ", err)
 	}
 
 	// Deserialize the transaction

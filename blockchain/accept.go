@@ -108,7 +108,6 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 		return false, nil
 	}
 
-	// TODO: consider creating a block with header only
 	blockHeight := prevNode.GetHeight() + 1
 	//block.SetHeight(blockHeight)
 	//reallog.Println("Block height set to ", blockHeight)
@@ -130,6 +129,8 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
 	b.SqlDB.AddBlockHeader(header)
+	// Store the coinbase tx in txs
+	StoreBlockShard(b.SqlDB, headerBlock)
 
 	// Create a new block node for the block and add it to the in-memory
 	// block chain (could be either a side chain or the main chain).
