@@ -374,7 +374,7 @@ func CountSigOps(tx *btcutil.Tx) int {
 // transactions which are of the pay-to-script-hash type.  This uses the
 // precise, signature operation counting mechanism from the script engine which
 // requires access to the input transaction scripts.
-func CountP2SHSigOps(tx *btcutil.Tx, isCoinBaseTx bool, utxoView *UtxoViewpoint) (int, error) {
+func CountP2SHSigOps(tx *btcutil.Tx, isCoinBaseTx bool, utxoView UtxoView) (int, error) {
 	// Coinbase transactions have no interesting inputs.
 	if isCoinBaseTx {
 		return 0, nil
@@ -832,14 +832,14 @@ func (b *BlockChain) checkBlockContext(block *btcutil.Block, prevNode *BlockNode
 // http://r6.ca/blog/20120206T005236Z.html.
 //
 // This function MUST be called with the chain state lock held (for reads).
-func (b *BlockChain) checkBIP0030(node *BlockNode, block *btcutil.Block, view *UtxoViewpoint) error {
+func (b *BlockChain) checkBIP0030(node *BlockNode, block *btcutil.Block, view UtxoView) error {
 	// Fetch utxo details for all of the transactions in this block.
 	// Typically, there will not be any utxos for any of the transactions.
 	fetchSet := make(map[chainhash.Hash]struct{})
 	for _, tx := range block.Transactions() {
 		fetchSet[*tx.Hash()] = struct{}{}
 	}
-	err := view.fetchUtxos(b.db, fetchSet)
+	err := view.FetchUtxos(b.db, fetchSet)
 	if err != nil {
 		return err
 	}
@@ -870,7 +870,7 @@ func (b *BlockChain) checkBIP0030(node *BlockNode, block *btcutil.Block, view *U
 //
 // NOTE: The transaction MUST have already been sanity checked with the
 // CheckTransactionSanity function prior to calling this function.
-func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView *UtxoViewpoint, chainParams *chaincfg.Params) (int64, error) {
+func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, chainParams *chaincfg.Params) (int64, error) {
 	// Coinbase transactions have no inputs.
 	if IsCoinBase(tx) {
 		return 0, nil
@@ -979,7 +979,7 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView *UtxoViewpo
 // block subsidy, or fail transaction script validation.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block, view *UtxoViewpoint, stxos *[]spentTxOut) error {
+func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
 	//// If the side chain blocks end up in the database, a call to
 	//// CheckBlockSanity should be done here in case a previous version
 	//// allowed a block that is no longer valid.  However, since the
@@ -1013,7 +1013,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	////
 	//// These utxo entries are needed for verification of things such as
 	//// transaction inputs, counting pay-to-script-hashes, and scripts.
-	err := view.sqlFetchInputUtxos(shard.SqlDB, block)
+	err := view.SqlFetchInputUtxos(shard.SqlDB, block)
 	if err != nil {
 		return err
 	}
@@ -1088,7 +1088,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 		// provably unspendable as available utxos.  Also, the passed
 		// spent txos slice is updated to contain an entry for each
 		// spent txout in the order each transaction spends them.
-		err = view.connectTransaction(tx, node.height, stxos)
+		err = view.ConnectTransaction(tx, node.height, stxos)
 		if err != nil {
 			return err
 		}
@@ -1237,7 +1237,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 // with that node.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) checkConnectBlock(node *BlockNode, block *btcutil.Block, view *UtxoViewpoint, stxos *[]spentTxOut) error {
+func (b *BlockChain) checkConnectBlock(node *BlockNode, block *btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
 	// If the side chain blocks end up in the database, a call to
 	// CheckBlockSanity should be done here in case a previous version
 	// allowed a block that is no longer valid.  However, since the
@@ -1287,7 +1287,7 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block *btcutil.Block, vi
 	//
 	// These utxo entries are needed for verification of things such as
 	// transaction inputs, counting pay-to-script-hashes, and scripts.
-	err := view.fetchInputUtxos(b.db, block)
+	err := view.FetchInputUtxos(b.db, block)
 	if err != nil {
 		return err
 	}
@@ -1368,7 +1368,7 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block *btcutil.Block, vi
 		// provably unspendable as available utxos.  Also, the passed
 		// spent txos slice is updated to contain an entry for each
 		// spent txout in the order each transaction spends them.
-		err = view.connectTransaction(tx, node.height, stxos)
+		err = view.ConnectTransaction(tx, node.height, stxos)
 		if err != nil {
 			return err
 		}

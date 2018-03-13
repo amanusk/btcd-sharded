@@ -307,7 +307,7 @@ func decodeSpentTxOut(serialized []byte, stxo *spentTxOut, txVersion int32) (int
 // format comments, this function also requires the transactions that spend the
 // txouts and a utxo view that contains any remaining existing utxos in the
 // transactions referenced by the inputs to the passed transasctions.
-func deserializeSpendJournalEntry(serialized []byte, txns []*wire.MsgTx, view *UtxoViewpoint) ([]spentTxOut, error) {
+func deserializeSpendJournalEntry(serialized []byte, txns []*wire.MsgTx, view UtxoView) ([]spentTxOut, error) {
 	// Calculate the total number of stxos.
 	var numStxos int
 	for _, tx := range txns {
@@ -415,7 +415,7 @@ func serializeSpendJournalEntry(stxos []spentTxOut) []byte {
 // view MUST have the utxos referenced by all of the transactions available for
 // the passed block since that information is required to reconstruct the spent
 // txouts.
-func dbFetchSpendJournalEntry(dbTx database.Tx, block *btcutil.Block, view *UtxoViewpoint) ([]spentTxOut, error) {
+func dbFetchSpendJournalEntry(dbTx database.Tx, block *btcutil.Block, view UtxoView) ([]spentTxOut, error) {
 	// Exclude the coinbase transaction since it can't spend anything.
 	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
 	serialized := spendBucket.Get(block.Hash()[:])
@@ -825,9 +825,9 @@ func dbFetchUtxoEntry(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry, error
 // in the database based on the provided utxo view contents and state.  In
 // particular, only the entries that have been marked as modified are written
 // to the database.
-func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
+func dbPutUtxoView(dbTx database.Tx, view UtxoView) error {
 	utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
-	for txHashIter, entry := range view.entries {
+	for txHashIter, entry := range view.Entries() {
 		// No need to update the database if the entry was not modified.
 		if entry == nil || !entry.modified {
 			continue
@@ -869,9 +869,9 @@ func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
 // in the database based on the provided utxo view contents and state.  In
 // particular, only the entries that have been marked as modified are written
 // to the database.
-func sqlDbPutUtxoView(db *SqlBlockDB, view *UtxoViewpoint) error {
+func sqlDbPutUtxoView(db *SqlBlockDB, view UtxoView) error {
 	reallog.Println("Storing view", view)
-	for txHashIter, entry := range view.entries {
+	for txHashIter, entry := range view.Entries() {
 		// No need to update the database if the entry was not modified.
 		if entry == nil || !entry.modified {
 			continue

@@ -223,7 +223,7 @@ type BlockTemplate struct {
 // viewA will contain all of its original entries plus all of the entries
 // in viewB.  It will replace any entries in viewB which also exist in viewA
 // if the entry in viewA is fully spent.
-func mergeUtxoView(viewA *blockchain.UtxoViewpoint, viewB *blockchain.UtxoViewpoint) {
+func mergeUtxoView(viewA blockchain.UtxoView, viewB blockchain.UtxoView) {
 	viewAEntries := viewA.Entries()
 	for hash, entryB := range viewB.Entries() {
 		if entryA, exists := viewAEntries[hash]; !exists ||

@@ -357,7 +357,7 @@ type SequenceLock struct {
 // the candidate transaction to be included in a block.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) CalcSequenceLock(tx *btcutil.Tx, utxoView *UtxoViewpoint, mempool bool) (*SequenceLock, error) {
+func (b *BlockChain) CalcSequenceLock(tx *btcutil.Tx, utxoView UtxoView, mempool bool) (*SequenceLock, error) {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
 
@@ -368,7 +368,7 @@ func (b *BlockChain) CalcSequenceLock(tx *btcutil.Tx, utxoView *UtxoViewpoint, m
 // transaction. See the exported version, CalcSequenceLock for further details.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) calcSequenceLock(node *BlockNode, tx *btcutil.Tx, utxoView *UtxoViewpoint, mempool bool) (*SequenceLock, error) {
+func (b *BlockChain) calcSequenceLock(node *BlockNode, tx *btcutil.Tx, utxoView UtxoView, mempool bool) (*SequenceLock, error) {
 	// A value of -1 for each relative lock type represents a relative time
 	// lock value that will allow a transaction to be included in a block
 	// at any given height or time. This value is returned as the relative
@@ -579,7 +579,7 @@ func dbMaybeStoreBlock(dbTx database.Tx, block *btcutil.Block) error {
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
+func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view UtxoView, stxos []spentTxOut) error {
 	// Make sure it's extending the end of the best chain.
 	prevHash := &block.MsgBlock().Header.PrevBlock
 	if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
@@ -668,7 +668,7 @@ func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view *U
 
 	// Prune fully spent entries and mark all entries in the view unmodified
 	// now that the modifications have been committed to the database.
-	view.commit()
+	view.Commit()
 
 	// This node is now the end of the best chain.
 	b.bestChain.SetTip(node)
@@ -703,7 +703,7 @@ func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view *U
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func sqlConnectBlock(db *SqlBlockDB, block *btcutil.Block, view *UtxoViewpoint, stxos []spentTxOut) error {
+func sqlConnectBlock(db *SqlBlockDB, block *btcutil.Block, view UtxoView, stxos []spentTxOut) error {
 	// TODO: Lots of work in this function
 	// TODO: Locking updating DB to interface etc
 	// Make sure it's extending the end of the best chain.
@@ -781,7 +781,7 @@ func sqlConnectBlock(db *SqlBlockDB, block *btcutil.Block, view *UtxoViewpoint, 
 
 	// Prune fully spent entries and mark all entries in the view unmodified
 	// now that the modifications have been committed to the database.
-	view.commit()
+	view.Commit()
 
 	//// This node is now the end of the best chain.
 	//b.bestChain.SetTip(node)
@@ -809,7 +809,7 @@ func sqlConnectBlock(db *SqlBlockDB, block *btcutil.Block, view *UtxoViewpoint, 
 // the main (best) chain.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) disconnectBlock(node *BlockNode, block *btcutil.Block, view *UtxoViewpoint) error {
+func (b *BlockChain) disconnectBlock(node *BlockNode, block *btcutil.Block, view UtxoView) error {
 	// Make sure the node being disconnected is the end of the best chain.
 	if !node.hash.IsEqual(&b.bestChain.Tip().hash) {
 		return AssertError("disconnectBlock must be called with the " +
@@ -887,7 +887,7 @@ func (b *BlockChain) disconnectBlock(node *BlockNode, block *btcutil.Block, view
 
 	// Prune fully spent entries and mark all entries in the view unmodified
 	// now that the modifications have been committed to the database.
-	view.commit()
+	view.Commit()
 
 	// This node's parent is now the end of the best chain.
 	b.bestChain.SetTip(node.parent)
@@ -960,7 +960,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 
 		// Load all of the utxos referenced by the block that aren't
 		// already in the view.
-		err = view.fetchInputUtxos(b.db, block)
+		err = view.FetchInputUtxos(b.db, block)
 		if err != nil {
 			return err
 		}
@@ -980,7 +980,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		detachBlocks = append(detachBlocks, block)
 		detachSpentTxOuts = append(detachSpentTxOuts, stxos)
 
-		err = view.disconnectTransactions(block, stxos)
+		err = view.DisconnectTransactions(block, stxos)
 		if err != nil {
 			return err
 		}
@@ -1026,11 +1026,11 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		// checkConnectBlock gets skipped, we still need to update the UTXO
 		// view.
 		if b.index.NodeStatus(n).KnownValid() {
-			err = view.fetchInputUtxos(b.db, block)
+			err = view.FetchInputUtxos(b.db, block)
 			if err != nil {
 				return err
 			}
-			err = view.connectTransactions(block, nil)
+			err = view.ConnectTransactions(block, nil)
 			if err != nil {
 				return err
 			}
@@ -1075,14 +1075,14 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 
 		// Load all of the utxos referenced by the block that aren't
 		// already in the view.
-		err := view.fetchInputUtxos(b.db, block)
+		err := view.FetchInputUtxos(b.db, block)
 		if err != nil {
 			return err
 		}
 
 		// Update the view to unspend all of the spent txos and remove
 		// the utxos created by the block.
-		err = view.disconnectTransactions(block, detachSpentTxOuts[i])
+		err = view.DisconnectTransactions(block, detachSpentTxOuts[i])
 		if err != nil {
 			return err
 		}
@@ -1101,7 +1101,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 
 		// Load all of the utxos referenced by the block that aren't
 		// already in the view.
-		err := view.fetchInputUtxos(b.db, block)
+		err := view.FetchInputUtxos(b.db, block)
 		if err != nil {
 			return err
 		}
@@ -1111,7 +1111,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 		// to it.  Also, provide an stxo slice so the spent txout
 		// details are generated.
 		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
-		err = view.connectTransactions(block, &stxos)
+		err = view.ConnectTransactions(block, &stxos)
 		if err != nil {
 			return err
 		}
@@ -1181,11 +1181,11 @@ func (b *BlockChain) connectBestChain(node *BlockNode, block *btcutil.Block, fla
 		// utxos, spend them, and add the new utxos being created by
 		// this block.
 		if fastAdd {
-			err := view.fetchInputUtxos(b.db, block)
+			err := view.FetchInputUtxos(b.db, block)
 			if err != nil {
 				return false, err
 			}
-			err = view.connectTransactions(block, &stxos)
+			err = view.ConnectTransactions(block, &stxos)
 			if err != nil {
 				return false, err
 			}
@@ -1289,7 +1289,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block *btcutil.Block
 		// utxos, spend them, and add the new utxos being created by
 		// this block.
 		if fastAdd {
-			err := view.connectTransactions(block, &stxos)
+			err := view.ConnectTransactions(block, &stxos)
 			if err != nil {
 				return false, err
 			}
@@ -1377,7 +1377,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block)
 
 		// TODO see what is the fastAdd difference
 		//if fastAdd {
-		//	err := view.sqlFetchInputUtxos(shard.SqlDB, block)
+		//	err := view.SqlFetchInputUtxos(shard.SqlDB, block)
 		//	if err != nil {
 		//		reallog.Fatal("Unable to fetch Input Utxos")
 		//		return false, err
@@ -1385,7 +1385,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block)
 		//		reallog.Println("Fetched Input utxos")
 		//		view.PrintToLog()
 		//	}
-		//	err = view.connectTransactions(block, &stxos)
+		//	err = view.ConnectTransactions(block, &stxos)
 		//	if err != nil {
 		//		return false, err
 		//	}
@@ -1780,11 +1780,11 @@ type IndexManager interface {
 
 	// ConnectBlock is invoked when a new block has been connected to the
 	// main chain.
-	ConnectBlock(database.Tx, *btcutil.Block, *UtxoViewpoint) error
+	ConnectBlock(database.Tx, *btcutil.Block, UtxoView) error
 
 	// DisconnectBlock is invoked when a block has been disconnected from
 	// the main chain.
-	DisconnectBlock(database.Tx, *btcutil.Block, *UtxoViewpoint) error
+	DisconnectBlock(database.Tx, *btcutil.Block, UtxoView) error
 }
 
 // Config is a descriptor which specifies the blockchain instance configuration.
