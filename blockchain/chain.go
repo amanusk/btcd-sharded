@@ -1348,7 +1348,6 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block *btcutil.Block
 
 // A function to use by  a shard connecting TXs to the blockchain
 // This is similar to ConnectBestChain but performed by each shard
-// TODO: Add node as parameter
 func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block) (bool, error) {
 	//fastAdd := true
 

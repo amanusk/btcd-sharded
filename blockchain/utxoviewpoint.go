@@ -187,6 +187,17 @@ func newUtxoEntry(version int32, isCoinBase bool, blockHeight int32) *UtxoEntry 
 	}
 }
 
+// Define an interface for UtxoView
+
+type UtxoView interface {
+	BestHash() *chainhash.Hash
+	PrintToLog()
+	SetBestHash(hash *chainhash.Hash)
+	LookupEntry(txHash *chainhash.Hash)
+	AddTxOuts(tx *btcutil.Tx, blockHeight int32)
+	Entries() map[chainhash.Hash]*UtxoEntry
+}
+
 // UtxoViewpoint represents a view into the set of unspent transaction outputs
 // from a specific point of view in the chain.  For example, it could be for
 // the end of the main chain, some point in the history of the main chain, or
