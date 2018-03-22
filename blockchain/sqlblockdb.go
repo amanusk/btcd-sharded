@@ -47,7 +47,7 @@ func (db *SqlBlockDB) AddTX(blockHash []byte, idx int32, tx *wire.MsgTx) {
 	txHash := tx.TxHash()
 	// Serialize tx to save
 	var bb bytes.Buffer
-	reallog.Println("Saving TX ", txHash,  " with index ", idx)
+	reallog.Println("Saving TX ", txHash, " with index ", idx)
 	tx.Serialize(&bb)
 	buf := bb.Bytes()
 
@@ -71,6 +71,7 @@ func (db *SqlBlockDB) RemoveUTXO(txHash chainhash.Hash) {
 }
 
 func (db *SqlBlockDB) StoreUTXO(txHash chainhash.Hash, serialized []byte) {
+	// TODO: consider: upsert instead of insert
 	_, err := db.db.Exec("INSERT INTO utxos (txhash, utxodata)"+
 		"VALUES ($1, $2) ON CONFLICT (txhash) DO "+
 		"UPDATE SET utxodata=$2;", txHash[:], serialized)
@@ -187,7 +188,9 @@ func (db *SqlBlockDB) FetchCoinbase(hash *chainhash.Hash) *wire.MsgTxIndex {
 	var blockHash []byte
 	var txIdx int32
 	var txData []byte
-
+	// TODO: Consider a different table for coinbase
+	// TODO: Replace all SELECT * with only the columns you need
+	// TODO: Use the txindex as the secondary Index (See cockroack docs)
 	err := db.db.QueryRow("SELECT * FROM txs WHERE blockHash=$1 AND txindex=0", hash[:]).Scan(&txHash, &blockHash, &txIdx, &txData)
 
 	if err != nil {
@@ -271,6 +274,135 @@ func OpenDB(postgres string) *SqlBlockDB {
 	}
 }
 
+func (db *SqlBlockDB) NewUtoxView() {
+	// TODO: Consider drop tables if exist
+
+	// Create utxos table
+	_, err := db.db.Exec(
+		"CREATE TABLE IF NOT EXISTS viewpoint (txhash BYTES PRIMARY KEY," +
+			"modified BOOL, " +
+			"version INT, " +
+			"isCoinBase BOOL, " +
+			"blockHeight INT)")
+	if err != nil {
+		reallog.Fatal(err)
+	}
+	// Create UtxoEntry table
+	_, err = db.db.Exec(
+		"CREATE TABLE IF NOT EXISTS utxooutputs (txhash BYTES," +
+			"txOutIdx INT, " +
+			"spend BOOL, " +
+			"compressed BOOL, " +
+			"amount INT, " +
+			"pkscript BYTES, " +
+			"PRIMARY KEY (txhash, txOutIdx), " +
+			"CONSTRAINT fk_txhash FOREIGN KEY (txhash) REFERENCES viewpoint" +
+			") INTERLEAVE IN PARENT viewpoint (txhash)")
+	if err != nil {
+		reallog.Fatal(err)
+	}
+	reallog.Printf("Created utxo view")
+
+}
+
+func (db *SqlBlockDB) StoreUtxoOuptput(txHash chainhash.Hash, txOutIdx int32, amount int64, pkScript []byte) {
+	_, err := db.db.Exec("INSERT INTO utxooutputs (txhash, txOutIdx, spent, compressed, amount, pkScript)"+
+		"VALUES ($1, $2, FALSE, FALSE,$3, $4);", txHash[:], txOutIdx, amount, pkScript)
+	reallog.Print("Inserting output to utxo ", txHash[:])
+	if err != nil {
+		// Should be checked or something, left for debug
+		reallog.Print("SQL Insert Err:", err)
+	} else {
+		reallog.Print("Save tx ", txHash[:])
+	}
+}
+
+func (db *SqlBlockDB) StoreUtxoEntry(txHash chainhash.Hash, version int32, isCoinBase bool, blockHeight int32) {
+	reallog.Print("txHash ", txHash)
+	_, err := db.db.Exec("INSERT INTO viewpoint (txhash, version, iscoinbase, blockheight)"+
+		"VALUES ($1, $2, $3, $4);", txHash[:], version, isCoinBase, blockHeight)
+	reallog.Print("Inserting utxo ", txHash[:])
+	if err != nil {
+		reallog.Print("SQL Insert Err:", err)
+	} else {
+		reallog.Print("Save tx ", txHash)
+	}
+}
+
 func (db *SqlBlockDB) Close() {
 	db.db.Close()
+}
+
+// Fetch the unspent transaction output information for the passed
+// transaction hash.
+// This fetches only the necessary information from the viewpoint
+func (db *SqlBlockDB) FetchUtxoEntry(hash *chainhash.Hash) (*UtxoEntry, error) {
+
+	var txHash []byte
+	var modified bool
+	var version int32
+	var isCoinBase bool
+	var blockHeight int32
+
+	reallog.Println("Trying to fetch", hash[:])
+	err := db.db.QueryRow(
+		"SELECT * FROM viewpoint WHERE txhash = $1", hash[:]).Scan(&txHash, &modified, &version, &isCoinBase, &blockHeight)
+	if err != nil {
+		reallog.Print("Err ", err)
+		return nil, nil
+	} else {
+		reallog.Print("Fetched Serialized UTXO", hash)
+	}
+
+	return &UtxoEntry{
+		modified:    modified,
+		version:     version,
+		isCoinBase:  isCoinBase,
+		blockHeight: blockHeight,
+	}, nil
+}
+
+func (db *SqlBlockDB) UpdateUtxoEntryBlockHeight(txHash chainhash.Hash, blockHeight int32) {
+	_, err := db.db.Exec("UPDATE viewpoint SET blockheight=$1 WHERE txhash=$2;", blockHeight, txHash[:])
+	reallog.Print("Update height of ", txHash[:], " to ", blockHeight)
+	if err != nil {
+		reallog.Print("SQL Update Err:", err)
+	} else {
+		reallog.Print("Save tx ", txHash)
+	}
+}
+
+func (db *SqlBlockDB) UpdateUtxoEntryModified(txHash chainhash.Hash) {
+	_, err := db.db.Exec("UPDATE viewpoint SET modified=TRUE WHERE txhash=$1;", txHash[:])
+	if err != nil {
+		reallog.Print("SQL Update Err:", err)
+	} else {
+		reallog.Print("Update ", txHash[:], " to modified")
+	}
+}
+
+func (db *SqlBlockDB) UpdateUtxoOuptput(txHash chainhash.Hash, txOutIdx int32, amount int64, pkScript []byte) bool {
+	//_, err := db.db.Exec("UPDATE utxooutputs SET "+
+	//	"spend=FALSE, compressed = FALSE, amount=$1, pkScript=$2 WHERE txhash=$3 AND txOutIdx=$4;", amount, pkScript, txHash[:], txOutIdx)
+	_, err := db.db.Exec("UPSERT INTO utxooutputs "+
+		"VALUES ($1, $2, FALSE, FALSE, $3, $4);", txHash[:], txOutIdx, amount, pkScript)
+	if err != nil {
+		// Should be checked or something, left for debug
+		reallog.Print("Cannot update non existing tx", err)
+		return false
+	} else {
+		reallog.Print("Update pkscript and amount of tx", txHash[:])
+		return true
+	}
+}
+
+// Marks output and index as spent.
+// Returns Does nothing if output does not exist
+func (db *SqlBlockDB) UpdateOutputSpent(txHash chainhash.Hash, txOutIdx uint32) {
+	_, err := db.db.Exec("UPDATE utxooutputs SET modified=TRUE, spent=TRUE WHERE txhash=$1 AND txOutIdx=$2;", txHash[:], txOutIdx)
+	if err != nil {
+		reallog.Println("SQL Update Err:", err)
+	} else {
+		reallog.Println("Update ", txHash[:], " output ", txOutIdx, " to spent")
+	}
 }

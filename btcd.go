@@ -8,7 +8,7 @@ import (
 	_ "bytes"
 	"flag"
 	"fmt"
-	_"io"
+	_ "io"
 	reallog "log"
 	"net"
 	"net/http"
@@ -28,10 +28,12 @@ import (
 	"github.com/btcsuite/btcd/blockchain/fullblocktests"
 	"github.com/btcsuite/btcd/blockchain/indexers"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/limits"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	_ "github.com/davecgh/go-spew/spew"
 )
 
@@ -490,7 +492,7 @@ func main() {
 			coordEnc := gob.NewEncoder(coordConn)
 
 			msg := blockchain.Message{
-				Cmd:  "GETSHARDS",
+				Cmd: "GETSHARDS",
 			}
 
 			err = coordEnc.Encode(msg)
@@ -555,7 +557,7 @@ func main() {
 		coordEnc := gob.NewEncoder(coordConn)
 
 		msg := blockchain.Message{
-			Cmd:  "GETSHARDS",
+			Cmd: "GETSHARDS",
 		}
 
 		err = coordEnc.Encode(msg)
@@ -787,47 +789,88 @@ func main() {
 		}
 	} else if strings.ToLower(*flagMode) == "test" {
 		// Connect to coordinator
-		coordConn, err := net.Dial("tcp", "localhost:12346")
+		config, _ := LoadConfig(strings.ToLower(*flagConfig))
+
+		f, err := os.OpenFile(config.Shard.ShardLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Printf("Failed to create Shard log file: %v", err)
 		}
+		defer f.Close()
 
-		encodeData := blockchain.Message{
-			Cmd: "THIS",
-			Data: blockchain.Complex{
-				A: 1,
-				B: "message",
-			},
-		}
+		reallog.SetOutput(f)
+		reallog.SetFlags(reallog.Lshortfile)
 
-		gob.Register(blockchain.Complex{})
-
-		encCache := gob.NewEncoder(coordConn)
-		err = encCache.Encode(encodeData)
-		if err != nil {
-			reallog.Fatal("encode error:", err)
-		}
-
-		//mCache := new(bytes.Buffer)
-		//encCache := gob.NewEncoder(mCache)
-		//err := encCache.Encode(encodeData)
+		fmt.Printf("Openning DB\n")
+		sqlDB := blockchain.OpenDB(config.Shard.Shard_db)
+		//hash, err := chainhash.NewHash([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
 		//if err != nil {
-		//	reallog.Fatal("encode error:", err)
+		//	fmt.Printf("Failed to create hash", err)
 		//}
+		//reallog.Println("Hash ", hash)
 
-		//fmt.Printf("Encoded: ")
-		//fmt.Println(mCache.Bytes())
+		tx := btcutil.NewTx(multiTx)
 
-		//// Decode
-		//var msg blockchain.Message
-		//pCache := bytes.NewBuffer(mCache.Bytes())
-		//decCache := gob.NewDecoder(pCache)
-		//decCache.Decode(&msg)
+		view := blockchain.NewSqlUtxoViewpoint(sqlDB)
 
-		//fmt.Printf("Decoded: ")
-		//fmt.Println(msg)
-		//c := msg.Data.(blockchain.Complex)
-		//fmt.Printf(c.B)
+		view.AddTxOuts(tx, 1)
+
+		entry := view.LookupEntry(tx.Hash())
+		if entry == nil {
+			reallog.Println("Could not find tx ", tx.Hash())
+		}
+		sqlDB.Close()
 
 	}
+}
+
+// multiTx is a MsgTx with an input and output and used in various tests.
+var multiTx = &wire.MsgTx{
+	Version: 1,
+	TxIn: []*wire.TxIn{
+		{
+			PreviousOutPoint: wire.OutPoint{
+				Hash:  chainhash.Hash{},
+				Index: 0xffffffff,
+			},
+			SignatureScript: []byte{
+				0x04, 0x31, 0xdc, 0x00, 0x1b, 0x01, 0x62,
+			},
+			Sequence: 0xffffffff,
+		},
+	},
+	TxOut: []*wire.TxOut{
+		{
+			Value: 0x12a05f200,
+			PkScript: []byte{
+				0x41, // OP_DATA_65
+				0x04, 0xd6, 0x4b, 0xdf, 0xd0, 0x9e, 0xb1, 0xc5,
+				0xfe, 0x29, 0x5a, 0xbd, 0xeb, 0x1d, 0xca, 0x42,
+				0x81, 0xbe, 0x98, 0x8e, 0x2d, 0xa0, 0xb6, 0xc1,
+				0xc6, 0xa5, 0x9d, 0xc2, 0x26, 0xc2, 0x86, 0x24,
+				0xe1, 0x81, 0x75, 0xe8, 0x51, 0xc9, 0x6b, 0x97,
+				0x3d, 0x81, 0xb0, 0x1c, 0xc3, 0x1f, 0x04, 0x78,
+				0x34, 0xbc, 0x06, 0xd6, 0xd6, 0xed, 0xf6, 0x20,
+				0xd1, 0x84, 0x24, 0x1a, 0x6a, 0xed, 0x8b, 0x63,
+				0xa6, // 65-byte signature
+				0xac, // OP_CHECKSIG
+			},
+		},
+		{
+			Value: 0x5f5e100,
+			PkScript: []byte{
+				0x41, // OP_DATA_65
+				0x04, 0xd6, 0x4b, 0xdf, 0xd0, 0x9e, 0xb1, 0xc5,
+				0xfe, 0x29, 0x5a, 0xbd, 0xeb, 0x1d, 0xca, 0x42,
+				0x81, 0xbe, 0x98, 0x8e, 0x2d, 0xa0, 0xb6, 0xc1,
+				0xc6, 0xa5, 0x9d, 0xc2, 0x26, 0xc2, 0x86, 0x24,
+				0xe1, 0x81, 0x75, 0xe8, 0x51, 0xc9, 0x6b, 0x97,
+				0x3d, 0x81, 0xb0, 0x1c, 0xc3, 0x1f, 0x04, 0x78,
+				0x34, 0xbc, 0x06, 0xd6, 0xd6, 0xed, 0xf6, 0x20,
+				0xd1, 0x84, 0x24, 0x1a, 0x6a, 0xed, 0x8b, 0x63,
+				0xa6, // 65-byte signature
+				0xac, // OP_CHECKSIG
+			},
+		},
+	},
+	LockTime: 0,
 }

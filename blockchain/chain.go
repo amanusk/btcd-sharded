@@ -1167,6 +1167,7 @@ func (b *BlockChain) connectBestChain(node *BlockNode, block *btcutil.Block, fla
 		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
 		if !fastAdd {
 			err := b.checkConnectBlock(node, block, view, &stxos) // This is what we need to replace
+
 			if err != nil {
 				if _, ok := err.(RuleError); ok {
 					b.index.SetStatusFlags(node, statusValidateFailed)

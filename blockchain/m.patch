@@ -1,0 +1,1471 @@
+diff --git a/.gitignore b/.gitignore
+index a42bbb3..ba15bc0 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -38,5 +38,3 @@ blockchain/testdb/*
+ blockchain/fullblocktests/cockroach-data/*
+ 
+ btcd
+-
+-*.*.bkp
+diff --git a/blockchain/client.go b/blockchain/client.go
+new file mode 100644
+index 0000000..36ec5f5
+--- /dev/null
++++ b/blockchain/client.go
+@@ -0,0 +1,192 @@
++package blockchain
++
++import (
++	_ "bufio"
++	"bytes"
++	"encoding/gob"
++	"fmt"
++	"github.com/pkg/errors"
++	"io"
++	reallog "log"
++	"net"
++	_ "os"
++	_ "strings"
++	"sync"
++
++	_ "github.com/btcsuite/btcd/chaincfg/chainhash"
++	"github.com/btcsuite/btcd/wire"
++	"github.com/btcsuite/btcutil"
++	_ "github.com/davecgh/go-spew/spew"
++)
++
++type Client struct {
++	Socket    net.Conn
++	data      chan []byte
++	handler   map[string]ClientHandleFunc
++	terminate chan bool
++	Index     *BlockIndex
++	SqlDB     *SqlBlockDB
++	m         sync.RWMutex
++}
++
++// Creates a new client connection for a coordintor to use.
++// It has a connection and a channel to receive data from the server
++func NewClientConnection(connection net.Conn) *Client {
++	client := &Client{
++		Socket: connection,
++		data:   make(chan []byte),
++	}
++	return client
++}
++
++// Creates a new client for a coordintor to use.
++// It has a connection and a channel to receive data from the server
++func NewClient(connection net.Conn, index *BlockIndex, db *SqlBlockDB) *Client {
++	client := &Client{
++		Index:   index,
++		SqlDB:   db,
++		handler: map[string]ClientHandleFunc{},
++		Socket:  connection,
++		data:    make(chan []byte),
++	}
++	return client
++}
++
++func (client *Client) AddHandleFunc(name string, f ClientHandleFunc) {
++	client.m.Lock()
++	client.handler[name] = f
++	client.m.Unlock()
++}
++
++type ClientHandleFunc func(conn net.Conn, client *Client)
++
++func handleStatusRequest(conn net.Conn) {
++	reallog.Print("Receive request for status:")
++	//var data stringData
++
++	//dec := gob.NewDecoder(conn)
++	//err := dec.Decode(&data)
++	//if err != nil {
++	//	reallog.Println("Error decoding GOB data:", err)
++	//	return
++	//}
++
++	//reallog.Printf("Outer stringData struct: \n%#v\n", data)
++
++	//manager.broadcast <- []byte(data.S)
++}
++
++func handleBlockGob(conn net.Conn, client *Client) {
++	reallog.Print("Receive GOB data:")
++
++	var recievedBlock BlockGob
++
++	dec := gob.NewDecoder(client.Socket)
++	err := dec.Decode(&recievedBlock)
++	if err != nil {
++		reallog.Println("Error decoding GOB data:", err)
++		return
++	}
++
++	var msgBlockShard wire.MsgBlockShard
++	rbuf := bytes.NewReader(recievedBlock.Block)
++	err = msgBlockShard.Deserialize(rbuf)
++	if err != nil {
++		reallog.Println("Error decoding GOB data:", err)
++		return
++	} else {
++		//fmt.Printf("%s ", spew.Sdump(&block))
++	}
++	// TODO this should all be in seperate functions!
++
++	// Process the transactions
++	// Create a new block node for the block and add it to the in-memory
++	// TODO this creates a new block with mostly the same informtion,
++	// This needs to be optimized
++	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(&msgBlockShard))
++
++	ShardConnectBestChain(client.SqlDB, block)
++
++	// Sending a shardDone message to the coordinator
++	message := "SHARDDONE"
++	client.Socket.Write([]byte(message))
++
++}
++
++func (client *Client) receive() {
++	fmt.Printf("Client started recieving")
++	client.AddHandleFunc("BLOCKGOB", handleBlockGob)
++	client.handleMessages(client.Socket)
++
++}
++
++func (client *Client) sendGob() error {
++	testStruct := complexData{
++		N: 23,
++		S: "string data",
++		M: map[string]int{"one": 1, "two": 2, "three": 3},
++		P: []byte("abc"),
++		C: &complexData{
++			N: 256,
++			S: "Recursive structs? Piece of cake!",
++			M: map[string]int{"01": 1, "10": 2, "11": 3},
++		},
++	}
++
++	reallog.Println("Send a struct as GOB:")
++	reallog.Printf("Outer complexData struct: \n%#v\n", testStruct)
++	reallog.Printf("Inner complexData struct: \n%#v\n", testStruct.C)
++	enc := gob.NewEncoder(client.Socket)
++	err := enc.Encode(testStruct)
++	if err != nil {
++		return errors.Wrapf(err, "Encode failed for struct: %#v", testStruct)
++	}
++	return nil
++}
++
++func (client *Client) sendStringGob() error {
++	testStruct := stringData{
++		S: "string data",
++	}
++
++	reallog.Println("Send a struct as GOB:")
++	reallog.Printf("Outer stringData struct: \n%#v\n", testStruct)
++	enc := gob.NewEncoder(client.Socket)
++	err := enc.Encode(testStruct)
++	if err != nil {
++		return errors.Wrapf(err, "Encode failed for struct: %#v", testStruct)
++	}
++	return nil
++}
++
++func (client *Client) handleMessages(conn net.Conn) {
++	for {
++		message := make([]byte, 8)
++		n, err := conn.Read(message)
++		switch {
++		case err == io.EOF:
++			reallog.Println("Reached EOF - close this connection.\n   ---")
++			return
++		}
++
++		reallog.Print("Receive command " + string(message))
++		cmd := (string(message[:n]))
++		reallog.Print(cmd)
++
++		client.m.RLock()
++		handleCommand, ok := client.handler[cmd]
++		client.m.RUnlock()
++		reallog.Println(handleCommand)
++
++		if !ok {
++			reallog.Println("Command '", cmd, "' is not registered.")
++		} else {
++			handleCommand(conn, client)
++		}
++	}
++}
++
++func (client *Client) StartClient() {
++	go client.receive()
++	<-client.terminate
++}
+diff --git a/blockchain/coordinator.go b/blockchain/coordinator.go
+index d13d935..6afc360 100644
+--- a/blockchain/coordinator.go
++++ b/blockchain/coordinator.go
+@@ -7,53 +7,39 @@ import (
+ 	reallog "log"
+ 	"net"
+ 	_ "strconv"
+-	_ "sync"
++	"sync"
+ 
+ 	"github.com/btcsuite/btcd/wire"
+ )
+ 
+ type Coordinator struct {
+-	Socket          net.Conn              // Receive information from other coordinators
+-	shards          map[*Shard]bool       // A map of shards connected to this coordinator
+-	coords          map[*Coordinator]bool // A map of shards connected to this coordinator
+-	broadcast       chan []byte           // A channel to broadcast to shards
+-	registerShard   chan *Shard
+-	unregisterShard chan *Shard
+-	registerCoord   chan *Coordinator
+-	unregisterCoord chan *Coordinator
+-	handler         map[string]HandleFunc
+-	allShardsDone   chan bool
+-	Connected       chan bool // Sends a sigal that a shard connection completed
+-	ShardListener   net.Listener
+-	CoordListener   net.Listener
+-	Chain           *BlockChain
+-}
++	clients       map[*Client]bool
++	broadcast     chan []byte
++	register      chan *Client
++	unregister    chan *Client
++	handler       map[string]HandleFunc
++	allShardsDone chan bool
++	Connected     chan bool // Sends a sigal that a client connection completed
++	Listener      net.Listener
++	Chain         *BlockChain
+ 
+-// Creates a new shard connection for a coordintor to use.
+-// It has a connection and a channel to receive data from the server
+-func NewCoordConnection(connection net.Conn) *Coordinator {
+-	coord := &Coordinator{
+-		Socket: connection,
+-	}
+-	return coord
++	m sync.RWMutex
++
++	ClientsMutex sync.RWMutex
+ }
+ 
+ // Cerates and returns a new coordinator
+-func NewCoordinator(shardListener net.Listener, coordListener net.Listener, blockchain *BlockChain) *Coordinator {
++func NewCoordinator(listener net.Listener, blockchain *BlockChain) *Coordinator {
+ 	coord := Coordinator{
+-		shards:          make(map[*Shard]bool),
+-		coords:          make(map[*Coordinator]bool),
+-		broadcast:       make(chan []byte),
+-		registerShard:   make(chan *Shard),
+-		unregisterShard: make(chan *Shard),
+-		registerCoord:   make(chan *Coordinator),
+-		unregisterCoord: make(chan *Coordinator),
+-		allShardsDone:   make(chan bool),
+-		handler:         map[string]HandleFunc{},
+-		Connected:       make(chan bool),
+-		Chain:           blockchain,
+-		ShardListener:   shardListener,
+-		CoordListener:   coordListener,
++		clients:       make(map[*Client]bool),
++		broadcast:     make(chan []byte),
++		register:      make(chan *Client),
++		unregister:    make(chan *Client),
++		allShardsDone: make(chan bool),
++		handler:       map[string]HandleFunc{},
++		Connected:     make(chan bool),
++		Chain:         blockchain,
++		Listener:      listener,
+ 	}
+ 	return &coord
+ }
+@@ -72,59 +58,42 @@ type BlockGob struct {
+ 	Block []byte
+ }
+ 
+-type AddressesGob struct {
+-	Addresses []*net.TCPAddr
+-}
+-
+-type HeaderGob struct {
+-	Header       *wire.BlockHeader
+-	Flags        BehaviorFlags
+-	ActiveShards int
+-}
+-
+ type stringData struct {
+ 	S string
+ }
+ 
+-func (c *Coordinator) GetNumShardes() int {
+-	return len(c.shards)
++func (c *Coordinator) GetNumClientes() int {
++	return len(c.clients)
+ }
+ 
+-func (c *Coordinator) RegisterShard(shard *Shard) {
+-	c.registerShard <- shard
+-}
+-
+-func (c *Coordinator) RegisterCoord(coord *Coordinator) {
+-	c.registerCoord <- coord
++func (c *Coordinator) Register(client *Client) {
++	c.register <- client
+ }
+ 
+ func (coord *Coordinator) Start() {
++	coord.AddHandleFunc("STRING", handleStrings)
++	coord.AddHandleFunc("GOB", handleGob)
++	coord.AddHandleFunc("SHARDDONE", handleBlockCheck)
+ 	for {
+ 		select {
+-		// Handle shard connect/disconnect
+-		case connection := <-coord.registerShard:
+-			coord.shards[connection] = true
+-			fmt.Println("Added new shard!")
++		case connection := <-coord.register:
++			coord.clients[connection] = true
++			fmt.Println("Added new connection!")
+ 			coord.Connected <- true
+-		case connection := <-coord.unregisterShard:
+-			if _, ok := coord.shards[connection]; ok {
++		case connection := <-coord.unregister:
++			if _, ok := coord.clients[connection]; ok {
+ 				close(connection.data)
+-				delete(coord.shards, connection)
++				delete(coord.clients, connection)
+ 				fmt.Println("A connection has terminated!")
+ 			}
+-
+-		// Register a new connected coordinator
+-		case connection := <-coord.registerCoord:
+-			coord.coords[connection] = true
+-			fmt.Println("Added new peer!")
+-		// TODO Replace with fucntion this is how we broadcast messages
++		// TODO Replace with fucntion
+ 		case message := <-coord.broadcast:
+-			for connection := range coord.shards {
++			for connection := range coord.clients {
+ 				select {
+ 				case connection.data <- message:
+ 				default:
+ 					close(connection.data)
+-					delete(coord.shards, connection)
++					delete(coord.clients, connection)
+ 				}
+ 			}
+ 		}
+@@ -137,7 +106,7 @@ func (coord *Coordinator) Start() {
+ func (coord *Coordinator) HandleMessages(conn net.Conn) {
+ 
+ 	for {
+-		message := make([]byte, 9)
++		message := make([]byte, 4096)
+ 		n, err := conn.Read(message)
+ 		switch {
+ 		case err == io.EOF:
+@@ -148,30 +117,27 @@ func (coord *Coordinator) HandleMessages(conn net.Conn) {
+ 		cmd := (string(message[:n]))
+ 		reallog.Print("Recived command", cmd)
+ 
+-		// handle according to received command
+-		switch cmd {
+-		case "SHARDDONE":
+-			handleBlockCheck(conn, coord)
+-		case "GETSHARDS":
+-			handleGetShards(conn, coord)
+-		case "PROCBLOCK":
+-			handleProcessBlock(conn, coord)
++		coord.m.RLock()
++		handleCommand, ok := coord.handler[cmd]
++		coord.m.RUnlock()
++		reallog.Println(handleCommand)
+ 
+-		default:
++		if !ok {
+ 			reallog.Println("Command '", cmd, "' is not registered.")
++		} else {
++			handleCommand(conn, coord)
+ 		}
+ 	}
+ }
+ 
+-// Receive a shard and handle messages from shard
+-func (coord *Coordinator) ReceiveShard(shard *Shard) {
+-	coord.HandleMessages(shard.Socket)
++func (coord *Coordinator) AddHandleFunc(name string, f HandleFunc) {
++	coord.m.Lock()
++	coord.handler[name] = f
++	coord.m.Unlock()
+ }
+ 
+-// Receive messates from a coordinator
+-// TODO: possiblly make shard/coordinator fit an interface
+-func (coord *Coordinator) ReceiveCoord(coordinator *Coordinator) {
+-	coord.HandleMessages(coordinator.Socket)
++func (coord *Coordinator) Receive(client *Client) {
++	coord.HandleMessages(client.Socket)
+ }
+ 
+ func handleStrings(conn net.Conn, coord *Coordinator) {
+@@ -211,82 +177,41 @@ func handleBlockCheck(conn net.Conn, coord *Coordinator) {
+ 
+ }
+ 
+-// Return send a list of all the shards
+-func handleGetShards(conn net.Conn, coord *Coordinator) {
+-	reallog.Print("Receive shards request")
+-	shardConnections := coord.GetShardsConnections()
+-
+-	reallog.Printf("Shards to send", shardConnections)
+-
+-	// All data is sent in gobs
+-	shardsToSend := AddressesGob{
+-		Addresses: shardConnections,
+-	}
+-	reallog.Printf("Shards gob", shardsToSend.Addresses[0])
+-
+-	//Actually write the GOB on the socket
+-	enc := gob.NewEncoder(conn)
+-	err := enc.Encode(shardsToSend)
+-	if err != nil {
+-		reallog.Println("Error encoding addresses GOB data:", err)
+-		return
+-	}
+-}
+-
+-// Return send a list of all the shards
+-func handleProcessBlock(conn net.Conn, coord *Coordinator) {
+-	reallog.Print("Receivd process block request")
+-
+-	var header HeaderGob
+-
+-	dec := gob.NewDecoder(conn)
+-	err := dec.Decode(&header)
+-	if err != nil {
+-		reallog.Println("Error decoding GOB data:", err)
+-		return
+-	}
+-	coord.ProcessBlock(header.Header, header.Flags, header.ActiveShards)
+-	conn.Write([]byte("BLOCKDONE"))
+-}
+-
+-// Send the information in shard.data to the shard via socket
+-// This is used for broadcast
+-func (coord *Coordinator) Send(shard *Shard) {
+-	defer shard.Socket.Close()
++func (coord *Coordinator) Send(client *Client) {
++	defer client.Socket.Close()
+ 	for {
+ 		select {
+-		case message, ok := <-shard.data:
++		case message, ok := <-client.data:
+ 			if !ok {
+ 				return
+ 			}
+-			shard.Socket.Write(message)
++			client.Socket.Write(message)
+ 		}
+ 	}
++
+ }
+ 
+-// Returns all the shards in the coordinator shards maps
+-func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
+-	connections := make([]*net.TCPAddr, 0, len(coord.shards))
++// Returns all the clients in the coordinator clients maps
++func (coord *Coordinator) GetClients() []*Client {
++	clients := make([]*Client, 0, len(coord.clients))
+ 
+-	for key, _ := range coord.shards {
+-		conn := key.Socket.RemoteAddr().(*net.TCPAddr)
+-		connections = append(connections, conn)
++	for key, _ := range coord.clients {
++		clients = append(clients, key)
+ 	}
+-	return connections
++	return clients
+ 
+ }
+ 
+ // Process block will make a sanity check on the block header and will wait for confirmations from all the shards
+ // that the block has been processed
+-func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags, activeShards int) error {
++func (coord *Coordinator) ProcessBlock(header *wire.BlockHeader, flags BehaviorFlags, activeClients int) error {
+ 	err := CheckBlockHeaderSanity(header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
+ 	if err != nil {
+ 		return err
+ 	}
+ 	// Wait for all the shards to send finish report
+-	for i := 0; i < activeShards; i++ {
++	for i := 0; i < activeClients; i++ {
+ 		<-coord.allShardsDone
+-		reallog.Println("Done processing block")
+ 	}
+ 	coord.Chain.CoordMaybeAcceptBlock(header, flags)
+ 	return nil
+diff --git a/blockchain/example_test.go b/blockchain/example_test.go
+new file mode 100644
+index 0000000..ed24bc6
+--- /dev/null
++++ b/blockchain/example_test.go
+@@ -0,0 +1,112 @@
++// Copyright (c) 2014-2016 The btcsuite developers
++// Use of this source code is governed by an ISC
++// license that can be found in the LICENSE file.
++
++package blockchain_test
++
++import (
++	"fmt"
++	"math/big"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/btcsuite/btcd/blockchain"
++	"github.com/btcsuite/btcd/chaincfg"
++	"github.com/btcsuite/btcd/database"
++	_ "github.com/btcsuite/btcd/database/ffldb"
++	"github.com/btcsuite/btcutil"
++)
++
++const (
++	testdb = "/home/amanusk/go/src/github.com/btcsuite/btcd/blockchain/testdb"
++)
++
++// This example demonstrates how to create a new chain instance and use
++// ProcessBlock to attempt to attempt add a block to the chain.  As the package
++// overview documentation describes, this includes all of the Bitcoin consensus
++// rules.  This example intentionally attempts to insert a duplicate genesis
++// block to illustrate how an invalid block is handled.
++func ExampleBlockChain_ProcessBlockTest(t *testing.T) {
++	// Create a new database to store the accepted blocks into.  Typically
++	// this would be opening an existing database and would not be deleting
++	// and creating a new database like this, but it is done here so this is
++	// a complete working example and does not leave temporary files laying
++	// around.
++	dbPath := filepath.Join(testdb, "exampleprocessblock")
++	_ = os.RemoveAll(dbPath)
++	db, err := database.Create("ffldb", dbPath, chaincfg.MainNetParams.Net)
++	if err != nil {
++		fmt.Printf("Failed to create database: %v\n", err)
++		return
++	}
++	//defer os.RemoveAll(dbPath)
++	defer db.Close()
++
++	// Create a new BlockChain instance using the underlying database for
++	// the main bitcoin network.  This example does not demonstrate some
++	// of the other available configuration options such as specifying a
++	// notification callback and signature cache.  Also, the caller would
++	// ordinarily keep a reference to the median time source and add time
++	// values obtained from other peers on the network so the local time is
++	// adjusted to be in agreement with other peers.
++	chain, err := blockchain.New(&blockchain.Config{
++		DB:          db,
++		ChainParams: &chaincfg.MainNetParams,
++		TimeSource:  blockchain.NewMedianTime(),
++	})
++	if err != nil {
++		fmt.Printf("Failed to create chain instance: %v\n", err)
++		return
++	}
++
++	// Process a block.  For this example, we are going to intentionally
++	// cause an error by trying to process the genesis block which already
++	// exists.
++	genesisBlock := btcutil.NewBlock(chaincfg.MainNetParams.GenesisBlock)
++	isMainChain, isOrphan, err := chain.ProcessBlock(genesisBlock,
++		blockchain.BFNone)
++	if err != nil {
++		fmt.Printf("Failed to process block: %v\n", err)
++		return
++	}
++	fmt.Printf("Block accepted. Is it on the main chain?: %v", isMainChain)
++	fmt.Printf("Block accepted. Is it an orphan?: %v", isOrphan)
++
++	// Output:
++	// Failed to process block: already have block 000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
++}
++
++// This example demonstrates how to convert the compact "bits" in a block header
++// which represent the target difficulty to a big integer and display it using
++// the typical hex notation.
++func ExampleCompactToBig() {
++	// Convert the bits from block 300000 in the main block chain.
++	bits := uint32(419465580)
++	targetDifficulty := blockchain.CompactToBig(bits)
++
++	// Display it in hex.
++	fmt.Printf("%064x\n", targetDifficulty.Bytes())
++
++	// Output:
++	// 0000000000000000896c00000000000000000000000000000000000000000000
++}
++
++// This example demonstrates how to convert a target difficulty into the compact
++// "bits" in a block header which represent that target difficulty .
++func ExampleBigToCompact() {
++	// Convert the target difficulty from block 300000 in the main block
++	// chain to compact form.
++	t := "0000000000000000896c00000000000000000000000000000000000000000000"
++	targetDifficulty, success := new(big.Int).SetString(t, 16)
++	if !success {
++		fmt.Println("invalid target difficulty")
++		return
++	}
++	bits := blockchain.BigToCompact(targetDifficulty)
++
++	fmt.Println(bits)
++
++	// Output:
++	// 419465580
++}
+diff --git a/blockchain/fullblocktests/generate.go b/blockchain/fullblocktests/generate.go
+index 6c309e3..5bc0ad5 100644
+--- a/blockchain/fullblocktests/generate.go
++++ b/blockchain/fullblocktests/generate.go
+@@ -33,7 +33,7 @@ const (
+ 	maxBlockSigOps       = 20000
+ 	maxBlockSize         = 1000000
+ 	minCoinbaseScriptLen = 2
+-	maxCoinbaseScriptLen = 27
++	maxCoinbaseScriptLen = 100
+ 	medianTimeBlocks     = 11
+ 	maxScriptElementSize = 520
+ 
+diff --git a/blockchain/myexample_test.go b/blockchain/myexample_test.go
+new file mode 100644
+index 0000000..cb375d3
+--- /dev/null
++++ b/blockchain/myexample_test.go
+@@ -0,0 +1,72 @@
++package blockchain
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/btcsuite/btcd/blockchain"
++	"github.com/btcsuite/btcd/chaincfg"
++	"github.com/btcsuite/btcd/database"
++	_ "github.com/btcsuite/btcd/database/ffldb"
++	"github.com/btcsuite/btcutil"
++)
++
++const (
++	testdb = "/home/amanusk/go/src/github.com/btcsuite/btcd/blockchain/testdb"
++)
++
++// This example demonstrates how to create a new chain instance and use
++// ProcessBlock to attempt to attempt add a block to the chain.  As the package
++// overview documentation describes, this includes all of the Bitcoin consensus
++// rules.  This example intentionally attempts to insert a duplicate genesis
++// block to illustrate how an invalid block is handled.
++func TestExampleBlockChainProcessBlock(t *testing.T) {
++	// Create a new database to store the accepted blocks into.  Typically
++	// this would be opening an existing database and would not be deleting
++	// and creating a new database like this, but it is done here so this is
++	// a complete working example and does not leave temporary files laying
++	// around.
++	dbPath := filepath.Join(testdb, "exampleprocessblock")
++	_ = os.RemoveAll(dbPath)
++	db, err := database.Create("ffldb", dbPath, chaincfg.MainNetParams.Net)
++	if err != nil {
++		t.Logf("Failed to create database: %v\n", err)
++		return
++	}
++	//defer os.RemoveAll(dbPath)
++	defer db.Close()
++
++	// Create a new BlockChain instance using the underlying database for
++	// the main bitcoin network.  This example does not demonstrate some
++	// of the other available configuration options such as specifying a
++	// notification callback and signature cache.  Also, the caller would
++	// ordinarily keep a reference to the median time source and add time
++	// values obtained from other peers on the network so the local time is
++	// adjusted to be in agreement with other peers.
++	chain, err := blockchain.New(&blockchain.Config{
++		DB:          db,
++		ChainParams: &chaincfg.MainNetParams,
++		TimeSource:  blockchain.NewMedianTime(),
++	})
++	if err != nil {
++		t.Logf("Failed to create chain instance: %v\n", err)
++		return
++	}
++
++	// Process a block.  For this example, we are going to intentionally
++	// cause an error by trying to process the genesis block which already
++	// exists.
++	genesisBlock := btcutil.NewBlock(chaincfg.MainNetParams.GenesisBlock)
++	isMainChain, isOrphan, err := chain.ProcessBlock(genesisBlock,
++		blockchain.BFNone)
++	if err != nil {
++		t.Logf("Failed to process block: %v\n", err)
++		return
++	}
++	t.Logf("Block accepted. Is it on the main chain?: %v", isMainChain)
++	t.Logf("Block accepted. Is it an orphan?: %v", isOrphan)
++
++	// Output:
++	// Failed to process block: already have block 000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
++}
+diff --git a/blockchain/myfullblocks_test.go b/blockchain/myfullblocks_test.go
+new file mode 100644
+index 0000000..2426a6f
+--- /dev/null
++++ b/blockchain/myfullblocks_test.go
+@@ -0,0 +1,211 @@
++// Copyright (c) 2016 The Decred developers
++// Copyright (c) 2016-2017 The btcsuite developers Use of this source code is governed by an ISC
++// license that can be found in the LICENSE file.
++
++package blockchain_test
++
++import (
++	_ "bytes"
++	"flag"
++	"fmt"
++	reallog "log"
++	"net"
++	"os"
++	_ "path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/btcsuite/btcd/blockchain"
++	"github.com/btcsuite/btcd/blockchain/fullblocktests"
++	"github.com/btcsuite/btcd/chaincfg"
++	_ "github.com/btcsuite/btcd/chaincfg/chainhash"
++	"github.com/btcsuite/btcd/database"
++	_ "github.com/btcsuite/btcd/database/ffldb"
++	"github.com/btcsuite/btcd/txscript"
++	"github.com/btcsuite/btcd/wire"
++	"github.com/btcsuite/btcutil"
++)
++
++const (
++	// testDbType is the database backend type to use for the tests.
++	testDbType = "ffldb"
++
++	// testDbRoot is the root directory used to create all test databases.
++	testDbRoot = "testdbs"
++
++	// blockDataNet is the expected network in the test block data.
++	blockDataNet = wire.MainNet
++)
++
++// filesExists returns whether or not the named file or directory exists.
++func fileExists(name string) bool {
++	if _, err := os.Stat(name); err != nil {
++		if os.IsNotExist(err) {
++			return false
++		}
++	}
++	return true
++}
++
++// isSupportedDbType returns whether or not the passed database type is
++// currently supported.
++func isSupportedDbType(dbType string) bool {
++	supportedDrivers := database.SupportedDrivers()
++	for _, driver := range supportedDrivers {
++		if dbType == driver {
++			return true
++		}
++	}
++
++	return false
++}
++
++// chainSetup is used to create a new db and chain instance with the genesis
++// block already inserted.  In addition to the new chain instance, it returns
++// a teardown function the caller should invoke when done testing to clean up.
++func chainSetup(dbName string, params *chaincfg.Params) (*blockchain.BlockChain, func(), error) {
++
++	// Handle memory database specially since it doesn't need the disk
++	// specific handling.
++	var teardown func()
++	sqlDB := blockchain.OpenDB()
++
++	// Setup a teardown function for cleaning up.  This function is
++	// returned to the caller to be invoked when it is done testing.
++	teardown = func() {
++		sqlDB.Close()
++	}
++
++	// Copy the chain params to ensure any modifications the tests do to
++	// the chain parameters do not affect the global instance.
++	paramsCopy := *params
++
++	// Create the main chain instance.
++	chain, err := blockchain.SqlNew(&blockchain.Config{
++		SqlDB:       sqlDB,
++		ChainParams: &paramsCopy,
++		Checkpoints: nil,
++		TimeSource:  blockchain.NewMedianTime(),
++		SigCache:    txscript.NewSigCache(1000),
++	})
++	if err != nil {
++		teardown()
++		err := fmt.Errorf("failed to create chain instance: %v", err)
++		return nil, nil, err
++	}
++	return chain, teardown, nil
++}
++
++var flagMode *string
++
++func init() {
++	flagMode = flag.String("mode", "server", "start in client or server mode")
++	flag.Parse()
++}
++
++// TestFullBlocks ensures all tests generated by the fullblocktests package
++// have the expected result when processed via ProcessBlock.
++func TestFullBlocksSQL(t *testing.T) {
++
++	if strings.ToLower(*flagMode) == "server" {
++		fmt.Print("Server mode\n")
++
++		// Setting up my logging system
++		f, err := os.OpenFile("testlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
++		defer f.Close()
++		reallog.SetOutput(f)
++		reallog.SetFlags(reallog.Lshortfile)
++		reallog.Println("This is a test log entry")
++
++		tests, err := fullblocktests.SimpleGenerate(false)
++		if err != nil {
++			t.Fatalf("failed to generate tests: %v", err)
++		}
++
++		// Create a new database and chain instance to run tests against.
++		chain, teardownFunc, err := chainSetup("fullblocktest",
++			&chaincfg.RegressionNetParams)
++		if err != nil {
++			reallog.Printf("Failed to setup chain instance: %v", err)
++			return
++		}
++		defer teardownFunc()
++
++		// Start listener on port 12345 for coordinator
++		fmt.Println("Starting server...")
++		listener, error := net.Listen("tcp", ":12345")
++		if error != nil {
++			fmt.Println(error)
++		}
++
++		manager := blockchain.NewCoordinator(listener, chain)
++		go manager.Start()
++
++		// Wait for all the clients to get connected
++		for manager.GetNumClientes() < 2 {
++			connection, _ := manager.Listener.Accept()
++			client := blockchain.NewClientConnection(connection)
++			manager.Register(client)
++			go manager.Receive(client)
++			go manager.Send(client)
++			// Will continue loop once a client has connected
++			<-manager.Connected
++		}
++
++		// testAcceptedBlock attempts to process the block in the provided test
++		// instance and ensures that it was accepted according to the flags
++		// specified in the test.
++		testAcceptedBlock := func(item fullblocktests.AcceptedBlock) {
++			blockHeight := item.Height
++			block := btcutil.NewBlock(item.Block)
++			block.SetHeight(blockHeight)
++			reallog.Printf("Testing block %s (hash %s, height %d)",
++				item.Name, block.Hash(), blockHeight)
++
++			//manager.Chain.SqlProcessBlock(block, blockchain.BFNone)
++			manager.ProcessBlock(&block.MsgBlock().Header, blockchain.BFNone)
++			if err != nil {
++				reallog.Printf("block %q (hash %s, height %d) should "+
++					"have been accepted: %v", item.Name,
++					block.Hash(), blockHeight, err)
++			}
++
++			// Ensure the main chain and orphan flags match the values
++			// specified in the test.
++			//if isMainChain != item.IsMainChain {
++			//	t.Fatalf("block %q (hash %s, height %d) unexpected main "+
++			//		"chain flag -- got %v, want %v", item.Name,
++			//		block.Hash(), blockHeight, isMainChain,
++			//		item.IsMainChain)
++			//}
++			//if isOrphan != item.IsOrphan {
++			//	t.Fatalf("block %q (hash %s, height %d) unexpected "+
++			//		"orphan flag -- got %v, want %v", item.Name,
++			//		block.Hash(), blockHeight, isOrphan,
++			//		item.IsOrphan)
++			//}
++		}
++		fmt.Printf("Started testing blocks")
++		for testNum, test := range tests {
++			for itemNum, item := range test {
++				switch item := item.(type) {
++				case fullblocktests.AcceptedBlock:
++					testAcceptedBlock(item)
++				//case fullblocktests.RejectedBlock:
++				//	testRejectedBlock(item)
++				//case fullblocktests.RejectedNonCanonicalBlock:
++				//	testRejectedNonCanonicalBlock(item)
++				//case fullblocktests.OrphanOrRejectedBlock:
++				//	testOrphanOrRejectedBlock(item)
++				//case fullblocktests.ExpectedTip:
++				//	testExpectedTip(item)
++				default:
++					t.Fatalf("test #%d, item #%d is not one of "+
++						"the supported test instance types -- "+
++						"got type: %T", testNum, itemNum, item)
++				}
++			}
++		}
++		// Start a shard client
++	}
++}
+diff --git a/blockchain/shard.go b/blockchain/shard.go
+deleted file mode 100644
+index 7ba3446..0000000
+--- a/blockchain/shard.go
++++ /dev/null
+@@ -1,226 +0,0 @@
+-package blockchain
+-
+-import (
+-	_ "bufio"
+-	"bytes"
+-	"encoding/gob"
+-	"fmt"
+-	"github.com/pkg/errors"
+-	"io"
+-	reallog "log"
+-	"net"
+-	_ "os"
+-	_ "strings"
+-	_ "sync"
+-
+-	_ "github.com/btcsuite/btcd/chaincfg/chainhash"
+-	"github.com/btcsuite/btcd/wire"
+-	"github.com/btcsuite/btcutil"
+-	_ "github.com/davecgh/go-spew/spew"
+-)
+-
+-type Shard struct {
+-	Socket          net.Conn
+-	shards          map[*Shard]bool // A map of shards connected to this shard
+-	data            chan []byte
+-	handler         map[string]ShardHandleFunc
+-	terminate       chan bool
+-	registerShard   chan *Shard
+-	unregisterShard chan *Shard
+-	Index           *BlockIndex
+-	SqlDB           *SqlBlockDB
+-	ShardListener   net.Listener
+-}
+-
+-// Creates a new shard connection for a coordintor to use.
+-// It has a connection and a channel to receive data from the server
+-func NewShardConnection(connection net.Conn) *Shard {
+-	shard := &Shard{
+-		Socket: connection,
+-		data:   make(chan []byte),
+-	}
+-	return shard
+-}
+-
+-// Creates a new shard for a coordintor to use.
+-// It has a connection and a channel to receive data from the server
+-func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex, db *SqlBlockDB) *Shard {
+-	shard := &Shard{
+-		Index:           index,
+-		SqlDB:           db,
+-		handler:         map[string]ShardHandleFunc{},
+-		registerShard:   make(chan *Shard),
+-		unregisterShard: make(chan *Shard),
+-		shards:          make(map[*Shard]bool),
+-		Socket:          connection,
+-		data:            make(chan []byte),
+-		ShardListener:   shardListener,
+-	}
+-	return shard
+-}
+-
+-type ShardHandleFunc func(conn net.Conn, shard *Shard)
+-
+-func handleStatusRequest(conn net.Conn) {
+-	reallog.Print("Receive request for status:")
+-	//var data stringData
+-
+-	//dec := gob.NewDecoder(conn)
+-	//err := dec.Decode(&data)
+-	//if err != nil {
+-	//	reallog.Println("Error decoding GOB data:", err)
+-	//	return
+-	//}
+-
+-	//reallog.Printf("Outer stringData struct: \n%#v\n", data)
+-
+-	//manager.broadcast <- []byte(data.S)
+-}
+-
+-func handleBlockGob(conn net.Conn, shard *Shard) {
+-	reallog.Print("Received GOB data")
+-
+-	var receivedBlock BlockGob
+-	// Gen information from shard!
+-	dec := gob.NewDecoder(conn)
+-	err := dec.Decode(&receivedBlock)
+-	if err != nil {
+-		reallog.Println("Error decoding GOB data:", err)
+-		return
+-	}
+-
+-	var msgBlockShard wire.MsgBlockShard
+-	rbuf := bytes.NewReader(receivedBlock.Block)
+-	err = msgBlockShard.Deserialize(rbuf)
+-	if err != nil {
+-		reallog.Println("Error decoding GOB data:", err)
+-		return
+-	} else {
+-		//fmt.Printf("%s ", spew.Sdump(&msgBlockShard))
+-	}
+-
+-	// Process the transactions
+-	// Create a new block node for the block and add it to the in-memory
+-	// TODO this creates a new block with mostly the same informtion,
+-	// This needs to be optimized
+-	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(&msgBlockShard))
+-
+-	ShardConnectBestChain(shard.SqlDB, block)
+-
+-	// Sending a shardDone message to the coordinator
+-	message := "SHARDDONE"
+-	// Send conformation to coordinator!
+-	shard.Socket.Write([]byte(message))
+-
+-}
+-
+-func handleBlockDad(conn net.Conn, shard *Shard) {
+-	reallog.Print("Received DAD data")
+-	// Sending a shardDone message to the coordinator
+-	message := "SHARDDONE"
+-	shard.Socket.Write([]byte(message))
+-
+-}
+-
+-func (shard *Shard) receive() {
+-	fmt.Printf("Shard started recieving")
+-
+-	shard.handleMessages(shard.Socket)
+-
+-}
+-
+-func (shard *Shard) sendGob() error {
+-	testStruct := complexData{
+-		N: 23,
+-		S: "string data",
+-		M: map[string]int{"one": 1, "two": 2, "three": 3},
+-		P: []byte("abc"),
+-		C: &complexData{
+-			N: 256,
+-			S: "Recursive structs? Piece of cake!",
+-			M: map[string]int{"01": 1, "10": 2, "11": 3},
+-		},
+-	}
+-
+-	reallog.Println("Send a struct as GOB:")
+-	reallog.Printf("Outer complexData struct: \n%#v\n", testStruct)
+-	reallog.Printf("Inner complexData struct: \n%#v\n", testStruct.C)
+-	enc := gob.NewEncoder(shard.Socket)
+-	err := enc.Encode(testStruct)
+-	if err != nil {
+-		return errors.Wrapf(err, "Encode failed for struct: %#v", testStruct)
+-	}
+-	return nil
+-}
+-
+-func (shard *Shard) sendStringGob() error {
+-	testStruct := stringData{
+-		S: "string data",
+-	}
+-
+-	reallog.Println("Send a struct as GOB:")
+-	reallog.Printf("Outer stringData struct: \n%#v\n", testStruct)
+-	enc := gob.NewEncoder(shard.Socket)
+-	err := enc.Encode(testStruct)
+-	if err != nil {
+-		return errors.Wrapf(err, "Encode failed for struct: %#v", testStruct)
+-	}
+-	return nil
+-}
+-
+-func (shard *Shard) handleMessages(conn net.Conn) {
+-	for {
+-		message := make([]byte, 8)
+-		n, err := conn.Read(message)
+-		switch {
+-		case err == io.EOF:
+-			reallog.Println("Reached EOF - close this connection.\n   ---")
+-			return
+-		}
+-
+-		reallog.Print("Receive command " + string(message))
+-		cmd := (string(message[:n]))
+-		reallog.Print(cmd)
+-
+-		// handle according to received command
+-		switch cmd {
+-		case "BLOCKGOB":
+-			handleBlockGob(conn, shard)
+-		case "BLOCKDAD":
+-			handleBlockDad(conn, shard)
+-		default:
+-			reallog.Println("Command '", cmd, "' is not registered.")
+-		}
+-
+-	}
+-}
+-
+-func (shard *Shard) StartShard() {
+-	// Receive messages from coordinator
+-	go shard.receive()
+-	for {
+-		select {
+-		// Handle shard connect/disconnect
+-		case connection := <-shard.registerShard:
+-			shard.shards[connection] = true
+-			fmt.Println("Added new shard to shard!")
+-		case connection := <-shard.unregisterShard:
+-			if _, ok := shard.shards[connection]; ok {
+-				close(connection.data)
+-				delete(shard.shards, connection)
+-				fmt.Println("A connection has terminated!")
+-			}
+-		}
+-	}
+-	<-shard.terminate
+-}
+-
+-// Recored a connection to another shard
+-func (s *Shard) RegisterShard(shard *Shard) {
+-	s.registerShard <- shard
+-}
+-
+-// Receive messages from other shards
+-func (s *Shard) ReceiveShard(shard *Shard) {
+-	s.handleMessages(shard.Socket)
+-}
+diff --git a/btcd.go b/btcd.go
+index 6ea2ab7..80058a3 100644
+--- a/btcd.go
++++ b/btcd.go
+@@ -8,7 +8,6 @@ import (
+ 	"bytes"
+ 	"flag"
+ 	"fmt"
+-	"io"
+ 	reallog "log"
+ 	"net"
+ 	"net/http"
+@@ -47,8 +46,6 @@ var (
+ // as a service and reacts accordingly.
+ var winServiceMain func() (bool, error)
+ 
+-var numShards int = 1
+-
+ // btcdMain is the real main function for btcd.  It is necessary to work around
+ // the fact that deferred functions do not run when os.Exit() is called.  The
+ // optional serverChan parameter is mainly used by the service code to be
+@@ -149,6 +146,7 @@ func btcdMain(serverChan chan<- *server) error {
+ 
+ 		return nil
+ 	}
++
+ 	// Create server and start it.
+ 	server, err := newServer(cfg.Listeners, db, activeNetParams.Params,
+ 		interrupt)
+@@ -375,7 +373,7 @@ func chainSetup(dbName string, params *chaincfg.Params) (*blockchain.BlockChain,
+ var flagMode *string
+ 
+ func init() {
+-	flagMode = flag.String("mode", "server", "start in shard or server mode")
++	flagMode = flag.String("mode", "server", "start in client or server mode")
+ 	flag.Parse()
+ }
+ 
+@@ -395,6 +393,11 @@ func main() {
+ 		reallog.SetFlags(reallog.Lshortfile)
+ 		reallog.Println("This is a test log entry")
+ 
++		tests, err := fullblocktests.SimpleGenerate(false)
++		if err != nil {
++			fmt.Printf("failed to generate tests: %v", err)
++		}
++
+ 		// Create a new database and chain instance to run tests against.
+ 		chain, teardownFunc, err := chainSetup("fullblocktest",
+ 			&chaincfg.RegressionNetParams)
+@@ -406,77 +409,25 @@ func main() {
+ 
+ 		// Start listener on port 12345 for coordinator
+ 		fmt.Println("Starting server...")
+-		shardListener, error := net.Listen("tcp", ":12345")
+-		if error != nil {
+-			fmt.Println(error)
+-		}
+-		// Listner for other coordinators (peers)
+-		coordListener, error := net.Listen("tcp", ":12346")
++		listener, error := net.Listen("tcp", ":12345")
+ 		if error != nil {
+ 			fmt.Println(error)
+ 		}
+ 
+-		manager := blockchain.NewCoordinator(shardListener, coordListener, chain)
++		manager := blockchain.NewCoordinator(listener, chain)
+ 		go manager.Start()
+ 
+-		// Wait for all the shards to get connected
+-		for manager.GetNumShardes() < numShards {
+-			connection, _ := manager.ShardListener.Accept()
+-			shard := blockchain.NewShardConnection(connection)
+-			manager.RegisterShard(shard)
+-			go manager.ReceiveShard(shard)
+-			// Will continue loop once a shard has connected
+-			<-manager.Connected
+-		}
+-
+-		// Wait for connections from other coordinators
+-		fmt.Println("Waiting for coordinators to connect")
+-		for {
+-			connection, _ := manager.CoordListener.Accept()
+-			coord := blockchain.NewCoordConnection(connection)
+-			manager.RegisterCoord(coord)
+-			go manager.ReceiveCoord(coord)
+-		}
+-		// Start in oracle mode
+-	} else if strings.ToLower(*flagMode) == "oracle" {
++		numClients := 2
+ 
+-		// Setting up my logging system
+-		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+-		defer f.Close()
+-		reallog.SetOutput(f)
+-		reallog.SetFlags(reallog.Lshortfile)
+-
+-		// Connect to coordinator
+-		coordConn, err := net.Dial("tcp", "localhost:12346")
+-		if err != nil {
+-			fmt.Println(err)
+-		}
+-
+-		fmt.Println("Connection started", coordConn)
+-
+-		tests, err := fullblocktests.SimpleGenerate(false)
+-		if err != nil {
+-			fmt.Printf("failed to generate tests: %v", err)
+-		}
+-
+-		// GET shards from coordinator
+-		//TODO restore for full protocol
+-		coordConn.Write([]byte("GETSHARDS"))
+-
+-		var receivedShards blockchain.AddressesGob
+-
+-		dec := gob.NewDecoder(coordConn)
+-		err = dec.Decode(&receivedShards)
+-		if err != nil {
+-			reallog.Println("Error decoding GOB data:", err)
+-			return
+-		}
+-		//TODO Logic to connect to shards will be moved to coordinator
+-		shardDial := receivedShards.Addresses[0].IP.String() + ":12347"
+-		// NOTE: There should be an array of shards to communicate with
+-		shardConn, err := net.Dial("tcp", shardDial)
+-		if err != nil {
+-			fmt.Println(err)
++		// Wait for all the clients to get connected
++		for manager.GetNumClientes() < numClients {
++			connection, _ := manager.Listener.Accept()
++			client := blockchain.NewClientConnection(connection)
++			manager.Register(client)
++			go manager.Receive(client)
++			go manager.Send(client)
++			// Will continue loop once a client has connected
++			<-manager.Connected
+ 		}
+ 
+ 		// testAcceptedBlock attempts to process the block in the provided test
+@@ -489,37 +440,21 @@ func main() {
+ 			reallog.Printf("Testing block %s (hash %s, height %d)",
+ 				item.Name, block.Hash(), blockHeight)
+ 
+-			// Send block to coordinator
+-			coordConn.Write([]byte("PROCBLOCK"))
+-			coordEnc := gob.NewEncoder(coordConn)
+-			// Generate a header gob to send to coordinator
+-			headerToSend := blockchain.HeaderGob{
+-				Header:       &block.MsgBlock().Header,
+-				Flags:        blockchain.BFNone,
+-				ActiveShards: numShards,
+-			}
+-			err = coordEnc.Encode(headerToSend)
+-			if err != nil {
+-				reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+-			}
+-
+-			bShards := make([]*wire.MsgBlockShard, numShards)
++			clients := manager.GetClients()
++			bShards := make([]*wire.MsgBlockShard, numClients)
+ 
+-			// Create a block shard to send to shards
++			// Create a block shard to send to clients
+ 			for idx, _ := range bShards {
+ 				bShards[idx] = wire.NewMsgBlockShard(&block.MsgBlock().Header)
+ 			}
+ 
+-			// Split transactions between blocks
+ 			for idx, tx := range block.MsgBlock().Transactions {
+ 				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
+-				// NOTE: This should be a DHT
+-				bShards[idx%numShards].AddTransaction(newTx)
++				bShards[idx%numClients].AddTransaction(newTx)
+ 			}
+-			reallog.Println("Sending shards")
+-			reallog.Println(bShards[0])
+-			activeShards := numShards
+-			for i := 0; i < numShards; i++ {
++
++			activeClients := numClients
++			for i := 0; i < numClients; i++ {
+ 				if len(bShards[i].Transactions) > 0 {
+ 					var bb bytes.Buffer
+ 					bShards[i].Serialize(&bb)
+@@ -528,39 +463,20 @@ func main() {
+ 					blockToSend := blockchain.BlockGob{
+ 						Block: bb.Bytes(),
+ 					}
+-					shardConn.Write([]byte("BLOCKGOB"))
++					clients[i].Socket.Write([]byte("BLOCKGOB"))
+ 
+ 					//Actually write the GOB on the socket
+-					enc := gob.NewEncoder(shardConn)
++					enc := gob.NewEncoder(clients[i].Socket)
+ 					err = enc.Encode(blockToSend)
+ 					if err != nil {
+ 						reallog.Println(err, "Encode failed for struct: %#v", blockToSend)
+ 					}
+ 				} else {
+-					activeShards--
++					activeClients--
+ 				}
+ 			}
+-			//shardConn.Write([]byte("BLOCKDAD"))
+-
+-			reallog.Println("Waiting for conformation on block")
+-			for {
+-				message := make([]byte, 9)
+-				n, err := coordConn.Read(message)
+-				switch {
+-				case err == io.EOF:
+-					reallog.Println("Reached EOF - close this connection.\n   ---")
+-					return
+-				}
+-				cmd := (string(message[:n]))
+-				reallog.Println("Recived command", cmd)
+-				switch cmd {
+-				case "BLOCKDONE":
+-					break // Quit the switch case
+-				default:
+-					reallog.Println("Command '", cmd, "' is not registered.")
+-				}
+-				break // Quit the for loop
+-			}
++
++			manager.ProcessBlock(&block.MsgBlock().Header, blockchain.BFNone, activeClients)
+ 
+ 			// Ensure the main chain and orphan flags match the values
+ 			// specified in the test.
+@@ -598,12 +514,11 @@ func main() {
+ 				}
+ 			}
+ 		}
+-
+-		// Start a shard
++		// Start a shard client
+ 	} else {
+-		f, err := os.OpenFile("stestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
++		f, err := os.OpenFile("ctestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+ 		if err != nil {
+-			fmt.Printf("Failed to create Shard log file: %v", err)
++			fmt.Printf("Failed to create Client log file: %v", err)
+ 		}
+ 		defer f.Close()
+ 
+@@ -611,35 +526,21 @@ func main() {
+ 		reallog.SetFlags(reallog.Lshortfile)
+ 		reallog.Println("This is a test log entry")
+ 
+-		fmt.Print("Shard mode\n")
++		fmt.Print("Client mode\n")
+ 		index := blockchain.MyNewBlockIndex(&chaincfg.RegressionNetParams)
+ 		sqlDB := blockchain.OpenDB()
+ 
+ 		reallog.Printf("Index is", index)
+ 		reallog.Printf("DB is", sqlDB)
+ 
+-		fmt.Println("Starting shard...")
++		fmt.Println("Starting client...")
+ 		connection, err := net.Dial("tcp", "localhost:12345")
+ 		if err != nil {
+ 			fmt.Println(err)
+ 		}
+ 
+-		// Listner for other shards to connect
+-		shardListener, error := net.Listen("tcp", ":12347")
+-		if error != nil {
+-			fmt.Println(error)
+-		}
+-
+ 		fmt.Println("Connection started", connection)
+-		s := blockchain.NewShard(shardListener, connection, index, sqlDB)
+-		go s.StartShard()
+-
+-		fmt.Println("Waiting for shards to connect")
+-		for {
+-			connection, _ := s.ShardListener.Accept()
+-			shardConn := blockchain.NewShardConnection(connection)
+-			s.RegisterShard(shardConn)
+-			go s.ReceiveShard(shardConn)
+-		}
++		c := blockchain.NewClient(connection, index, sqlDB)
++		c.StartClient()
+ 	}
+ }
+diff --git a/clean.sh b/clean.sh
+index a6facae..1f695e5 100755
+--- a/clean.sh
++++ b/clean.sh
+@@ -1,8 +1,6 @@
+ #!/bin/bash
+ /bin/rm testlog.log
+ /bin/rm ctestlog.log
+-/bin/rm stestlog.log
+-/bin/rm otestlog.log
+ 
+ 
+ 
