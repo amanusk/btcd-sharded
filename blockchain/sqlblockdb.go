@@ -90,6 +90,10 @@ func (db *SqlBlockDB) FetchTXs(hash chainhash.Hash) *wire.MsgBlockShard {
 	// Query all txs from databse
 	rows, err := db.db.Query("SELECT * FROM txs WHERE blockHash=$1", hash[:])
 	// Read the txs from the database after query
+	if err != nil {
+		reallog.Print("Err ", err)
+		return nil
+	}
 
 	var blockShard wire.MsgBlockShard
 
@@ -274,6 +278,8 @@ func OpenDB(postgres string) *SqlBlockDB {
 	}
 }
 
+// ---------------- UTXO view methods --------------//
+
 func (db *SqlBlockDB) NewUtoxView() {
 	// TODO: Consider drop tables if exist
 
@@ -291,7 +297,7 @@ func (db *SqlBlockDB) NewUtoxView() {
 	_, err = db.db.Exec(
 		"CREATE TABLE IF NOT EXISTS utxooutputs (txhash BYTES," +
 			"txOutIdx INT, " +
-			"spend BOOL, " +
+			"spent BOOL, " +
 			"compressed BOOL, " +
 			"amount INT, " +
 			"pkscript BYTES, " +
@@ -305,9 +311,10 @@ func (db *SqlBlockDB) NewUtoxView() {
 
 }
 
-func (db *SqlBlockDB) StoreUtxoOuptput(txHash chainhash.Hash, txOutIdx int32, amount int64, pkScript []byte) {
+// Adds an entry to the TxOuts database
+func (db *SqlBlockDB) StoreUtxoOutput(txHash chainhash.Hash, txOutIdx int32, spent bool, amount int64, pkScript []byte) {
 	_, err := db.db.Exec("INSERT INTO utxooutputs (txhash, txOutIdx, spent, compressed, amount, pkScript)"+
-		"VALUES ($1, $2, FALSE, FALSE,$3, $4);", txHash[:], txOutIdx, amount, pkScript)
+		"VALUES ($1, $2, $5, FALSE,$3, $4);", txHash[:], txOutIdx, amount, pkScript, spent)
 	reallog.Print("Inserting output to utxo ", txHash[:])
 	if err != nil {
 		// Should be checked or something, left for debug
@@ -351,17 +358,45 @@ func (db *SqlBlockDB) FetchUtxoEntry(hash *chainhash.Hash) (*UtxoEntry, error) {
 		reallog.Print("Err ", err)
 		return nil, nil
 	} else {
-		reallog.Print("Fetched Serialized UTXO", hash)
+		reallog.Println("Fetched UTXO Entry ", hash)
 	}
 
-	return &UtxoEntry{
-		modified:    modified,
-		version:     version,
-		isCoinBase:  isCoinBase,
-		blockHeight: blockHeight,
-	}, nil
+	entry := newUtxoEntry(version, isCoinBase, blockHeight)
+	entry.modified = modified
+
+	// Fetch all outputs of this UtxoEntry:
+	rows, err := db.db.Query(
+		"SELECT * FROM utxooutputs WHERE txhash = $1", hash[:])
+	if err != nil {
+		reallog.Println("Err ", err)
+		return nil, err
+	} else {
+		reallog.Println("Fetched Ouptputs of UtxoEntry ", hash)
+	}
+
+	for rows.Next() {
+		var txHash []byte
+		var txOutIdx int
+		var spent bool
+		var compressed bool
+		var amount int64
+		var pkScript []byte
+		err = rows.Scan(&txHash, &txOutIdx, &spent, &compressed, &amount, &pkScript)
+		if err != nil {
+			reallog.Println("Unable to scan outputs from query")
+		}
+		// Deserialize the transaction
+		entry.sparseOutputs[uint32(txOutIdx)] = &utxoOutput{
+			spent:      spent,
+			compressed: compressed,
+			amount:     amount,
+			pkScript:   pkScript,
+		}
+	}
+	return entry, nil
 }
 
+// Updates the blockHeight of a UtxoEntry
 func (db *SqlBlockDB) UpdateUtxoEntryBlockHeight(txHash chainhash.Hash, blockHeight int32) {
 	_, err := db.db.Exec("UPDATE viewpoint SET blockheight=$1 WHERE txhash=$2;", blockHeight, txHash[:])
 	reallog.Print("Update height of ", txHash[:], " to ", blockHeight)
@@ -397,7 +432,7 @@ func (db *SqlBlockDB) UpdateUtxoOuptput(txHash chainhash.Hash, txOutIdx int32, a
 }
 
 // Marks output and index as spent.
-// Returns Does nothing if output does not exist
+// Does nothing if output does not exist
 func (db *SqlBlockDB) UpdateOutputSpent(txHash chainhash.Hash, txOutIdx uint32) {
 	_, err := db.db.Exec("UPDATE utxooutputs SET modified=TRUE, spent=TRUE WHERE txhash=$1 AND txOutIdx=$2;", txHash[:], txOutIdx)
 	if err != nil {
@@ -405,4 +440,60 @@ func (db *SqlBlockDB) UpdateOutputSpent(txHash chainhash.Hash, txOutIdx uint32) 
 	} else {
 		reallog.Println("Update ", txHash[:], " output ", txOutIdx, " to spent")
 	}
+}
+
+func (db *SqlBlockDB) FetchUtxoOutput(txHash chainhash.Hash, txOutIdx int32) *utxoOutput {
+
+	var spent bool
+	var compressed bool
+	var amount int64
+	var pkScript []byte
+
+	reallog.Println("Trying to fetch", txHash[:], " Index ", txOutIdx)
+	err := db.db.QueryRow(
+		"SELECT spent,compressed,amount,pkScript FROM utxooutputs WHERE txhash = $1 AND txOutIdx=$2", txHash[:], txOutIdx).Scan(&spent, &compressed, &amount, &pkScript)
+	if err != nil {
+		reallog.Print("Err ", err)
+		return nil
+	} else {
+		reallog.Print("Fetched TxOutput at idx", txOutIdx)
+	}
+	return &utxoOutput{
+		spent:      spent,
+		compressed: compressed,
+		amount:     amount,
+		pkScript:   pkScript,
+	}
+
+}
+
+// Fetch all transactions associated with the received block hash
+func (db *SqlBlockDB) FetchAllUtxoEntries() map[chainhash.Hash]*UtxoEntry {
+	reallog.Println("Fetching all UtxoEntries")
+
+	entries := make(map[chainhash.Hash]*UtxoEntry)
+
+	rows, err := db.db.Query("SELECT txHash FROM viewpoint")
+	// Read the txs from the database after query
+	if err != nil {
+		reallog.Print("Err ", err)
+		return nil
+	}
+
+	for rows.Next() {
+		var txHash []byte
+		err = rows.Scan(&txHash)
+		if err != nil {
+			reallog.Println("Unable to scan txHash")
+		}
+		hash, err := chainhash.NewHash(txHash)
+		if err != nil {
+			reallog.Println("Unable to create Hash from bytes")
+		}
+		entries[*hash], err = db.FetchUtxoEntry(hash)
+		if err != nil {
+			reallog.Fatalf("Unable to fetch txOuts")
+		}
+	}
+	return entries
 }

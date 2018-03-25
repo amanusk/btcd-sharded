@@ -2317,10 +2317,10 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	})
 	accepted()
 
-	manySigOps := repeatOpcode(txscript.OP_CHECKSIG, maxBlockSigOps)
-	g.nextBlock("b4", outs[5], replaceSpendScript(manySigOps))
-	g.assertTipBlockSigOpsCount(maxBlockSigOps)
-	accepted()
+	//manySigOps := repeatOpcode(txscript.OP_CHECKSIG, maxBlockSigOps)
+	//g.nextBlock("b4", outs[5], replaceSpendScript(manySigOps))
+	//g.assertTipBlockSigOpsCount(maxBlockSigOps)
+	//accepted()
 
 	//TESTED!
 	// Create block with transaction that pays more than its inputs.

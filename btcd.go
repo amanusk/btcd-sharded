@@ -818,6 +818,13 @@ func main() {
 		if entry == nil {
 			reallog.Println("Could not find tx ", tx.Hash())
 		}
+
+		entries := view.Entries()
+
+		for entry := range entries {
+			reallog.Println(entry)
+		}
+
 		sqlDB.Close()
 
 	}
