@@ -364,7 +364,7 @@ func (db *SqlBlockDB) FetchUtxoEntry(hash *chainhash.Hash) (*UtxoEntry, error) {
 	entry := newUtxoEntry(version, isCoinBase, blockHeight)
 	entry.modified = modified
 
-	// Fetch all outputs of this UtxoEntry:
+	//Fetch all outputs of this UtxoEntry:
 	rows, err := db.db.Query(
 		"SELECT * FROM utxooutputs WHERE txhash = $1", hash[:])
 	if err != nil {
