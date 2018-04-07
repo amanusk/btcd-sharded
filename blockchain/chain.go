@@ -1270,8 +1270,8 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block *btcutil.Block
 		// Perform several checks to verify the block can be connected
 		// to the main chain without violating any rules and without
 		// actually connecting the block.
-		//view := NewSqlUtxoViewpoint(b.SqlDB)
-		view := NewUtxoViewpoint()
+		view := NewSqlUtxoViewpoint(b.SqlDB)
+		//view := NewUtxoViewpoint()
 		view.SetBestHash(parentHash)
 		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
 		// NOTE: we are not validating the connections of the coinbase
@@ -1360,8 +1360,8 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block)
 		// Perform several checks to verify the block can be connected
 		// to the main chain without violating any rules and without
 		// actually connecting the block.
-		//view := NewSqlUtxoViewpoint(shard.SqlDB)
-		view := NewUtxoViewpoint()
+		view := NewSqlUtxoViewpoint(shard.SqlDB)
+		//view := NewUtxoViewpoint()
 		//view.SetBestHash(parentHash)
 		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
 

@@ -145,6 +145,8 @@ func TestCalcSequenceLock(t *testing.T) {
 			Value:    10,
 		}},
 	})
+	//sqlDB := OpenDB("postgresql://amanusk@localhost:26257/blockchain?sslmode=disable")
+	//utxoView := NewSqlUtxoViewpoint(sqlDB)
 	utxoView := NewUtxoViewpoint()
 	utxoView.AddTxOuts(targetTx, int32(numBlocksToActivate)-4)
 	utxoView.SetBestHash(&node.hash)
@@ -191,7 +193,7 @@ func TestCalcSequenceLock(t *testing.T) {
 
 	tests := []struct {
 		tx      *wire.MsgTx
-		view    *UtxoViewpoint
+		view    UtxoView
 		mempool bool
 		want    *SequenceLock
 	}{
