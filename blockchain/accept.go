@@ -23,7 +23,7 @@ import (
 // their documentation for how the flags modify their behavior.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) maybeAcceptBlock(block btcutil.Block, flags BehaviorFlags) (bool, error) {
 	// The height of this block is one more than the referenced previous
 	// block.
 	prevHash := &block.MsgBlock().Header.PrevBlock
@@ -144,7 +144,7 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 	// Block is added to the index, only the coordinator holds the index
 	b.index.AddNode(newNode)
 
-	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(headerBlock))
+	block := btcutil.NewFullBlock(wire.NewMsgBlockFromShard(headerBlock))
 
 	// NOTE: Each shard is validating its part
 	// The coorinator is validating the coinbase transaction!

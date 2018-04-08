@@ -46,7 +46,7 @@ func TestSimpleBlock(t *testing.T) {
 	}
 
 	// Here we basically check the block and add it to the "blockchain"
-	blockchain.MyCheckBlockSanity(btcutil.NewBlock(g.tip), g.params.PowLimit, blockchain.NewMedianTime(), blockchain.BFNone)
+	blockchain.MyCheckBlockSanity(btcutil.NewFullBlock(g.tip), g.params.PowLimit, blockchain.NewMedianTime(), blockchain.BFNone)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestSimpleBlock(t *testing.T) {
 
 	addBlock(db, g.tip)
 
-	MymaybeAcceptBlock(db, index, btcutil.NewBlock(g.tip), blockchain.BFNone)
+	MymaybeAcceptBlock(db, index, btcutil.NewFullBlock(g.tip), blockchain.BFNone)
 
 	// Now comes logic to connect the block to the best chain
 
@@ -77,7 +77,7 @@ func TestSimpleBlock(t *testing.T) {
 		g.nextBlock(blockName, nil)
 
 		// This is where we want to add the block and all of its transactions to the DB
-		processBlock(db, btcutil.NewBlock(g.tip), index, g.params.PowLimit)
+		processBlock(db, btcutil.NewFullBlock(g.tip), index, g.params.PowLimit)
 
 		g.saveTipCoinbaseOut()
 	}
@@ -90,10 +90,10 @@ func TestSimpleBlock(t *testing.T) {
 	}
 	// Start adding blocks
 	g.nextBlock("b1", outs[0])
-	processBlock(db, btcutil.NewBlock(g.tip), index, g.params.PowLimit)
+	processBlock(db, btcutil.NewFullBlock(g.tip), index, g.params.PowLimit)
 
 	g.nextBlock("b2", outs[1])
-	processBlock(db, btcutil.NewBlock(g.tip), index, g.params.PowLimit)
+	processBlock(db, btcutil.NewFullBlock(g.tip), index, g.params.PowLimit)
 
 	blockHash := g.tip.BlockHash()
 

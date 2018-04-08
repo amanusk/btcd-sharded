@@ -827,6 +827,9 @@ func main() {
 
 		sqlDB.Close()
 
+		b := btcutil.NewFullBlockFromScratch()
+		fmt.Print(b)
+
 	}
 }
 

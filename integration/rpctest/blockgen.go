@@ -186,7 +186,7 @@ func CreateBlock(prevBlock *btcutil.Block, inclusionTxs []*btcutil.Tx,
 		return nil, errors.New("Unable to solve block")
 	}
 
-	utilBlock := btcutil.NewBlock(&block)
+	utilBlock := btcutil.NewFullBlock(&block)
 	utilBlock.SetHeight(blockHeight)
 	return utilBlock, nil
 }

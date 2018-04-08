@@ -154,7 +154,7 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 	// Create a new block node for the block and add it to the in-memory
 	// TODO this creates a new block with mostly the same informtion,
 	// TODO: Go over the transactions and save them accroding to the Index in msgBlockShard
-	block := btcutil.NewBlock(wire.NewMsgBlockFromShard(msgBlockShard))
+	block := btcutil.NewFullBlock(wire.NewMsgBlockFromShard(msgBlockShard))
 
 	// Store the txs in database, this could be postponed until after validation
 	StoreBlockShard(shard.SqlDB, msgBlockShard)

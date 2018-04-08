@@ -591,7 +591,7 @@ func (view *UtxoViewpoint) FetchUtxos(db database.DB, txSet map[chainhash.Hash]s
 // by the transactions in the given block into the view from the database as
 // needed.  In particular, referenced entries that are earlier in the block are
 // added to the view and entries that are already in the view are not modified.
-func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block *btcutil.Block) error {
+func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) error {
 	// Build a map of in-flight transactions because some of the inputs in
 	// this block could be referencing other transactions earlier in this
 	// block which are not yet in the chain.
