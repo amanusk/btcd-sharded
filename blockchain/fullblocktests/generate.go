@@ -1833,6 +1833,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 		b.AddTransaction(tx4)
 	})
 	rejected(blockchain.ErrMissingTxOut)
+	//accepted()
 
 	// ---------------------------------------------------------------------
 	// Extra subsidy tests.
@@ -2402,6 +2403,22 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 			b.AddTransaction(spendTx)
 		}
 	})
+	g.assertTipBlockNumTxns(4)
+	accepted()
+
+	// Create block that double spends a transaction created in the same
+	// block.
+	//
+	//   ... -> b65(19)
+	//                 \-> b67(20)
+	g.nextBlock("b67", outs[9], func(b *wire.MsgBlock) {
+		tx2 := b.Transactions[1]
+		tx3 := createSpendTxForTx(tx2, lowFee)
+		tx4 := createSpendTxForTx(tx2, lowFee)
+		b.AddTransaction(tx3)
+		b.AddTransaction(tx4)
+	})
+	//rejected(blockchain.ErrMissingTxOut)
 	g.assertTipBlockNumTxns(4)
 	accepted()
 
