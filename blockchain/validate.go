@@ -880,6 +880,7 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 	var totalSatoshiIn int64
 	for txInIndex, txIn := range tx.MsgTx().TxIn {
 		// Ensure the referenced input transaction is available.
+		// TODO: Make sure the indexes are referenced correctly in the shard!
 		originTxHash := &txIn.PreviousOutPoint.Hash
 		originTxIndex := txIn.PreviousOutPoint.Index
 		utxoEntry := utxoView.LookupEntry(originTxHash)
@@ -1068,7 +1069,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 
 	// TODO: pass block height to shard.
 	// Only relevant for checking if TX is older than CoinBase
-	for _, tx := range transactions {
+	for txIdx, tx := range transactions {
+		reallog.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx , " in block")
 		txFee, err := CheckTransactionInputs(tx, node.height, view,
 			params)
 		if err != nil {
