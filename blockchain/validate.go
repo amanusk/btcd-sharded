@@ -880,6 +880,7 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 	var totalSatoshiIn int64
 	for txInIndex, txIn := range tx.MsgTx().TxIn {
 		// Ensure the referenced input transaction is available.
+		// TODO: Make sure the indexes are referenced correctly in the shard!
 		originTxHash := &txIn.PreviousOutPoint.Hash
 		originTxIndex := txIn.PreviousOutPoint.Index
 		utxoEntry := utxoView.LookupEntry(originTxHash)
@@ -965,6 +966,7 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 	txFeeInSatoshi := totalSatoshiIn - totalSatoshiOut
 	return txFeeInSatoshi, nil
 }
+
 // ShardCheckConnectBlock performs several checks to confirm connecting the passed
 // block to the chain represented by the passed view does not violate any rules.
 // In addition, the passed view is updated to spend all of the referenced
@@ -1019,8 +1021,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	}
 
 	// TODO deal with segwit
-	enforceBIP0016 := false;
-	enforceSegWit := false;
+	enforceBIP0016 := false
+	enforceSegWit := false
 
 	// The number of signature operations must be less than the maximum
 	// allowed per block.  Note that the preliminary sanity checks on a
@@ -1067,8 +1069,10 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	params := &chaincfg.RegressionNetParams
 
 	// TODO: pass block height to shard.
+	// TODO TODO TODO: CheckTransactionInpus only works with tx containing correct Index!
 	// Only relevant for checking if TX is older than CoinBase
-	for _, tx := range transactions {
+	for txIdx, tx := range transactions {
+		reallog.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
 		txFee, err := CheckTransactionInputs(tx, node.height, view,
 			params)
 		if err != nil {
@@ -1088,6 +1092,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 		// provably unspendable as available utxos.  Also, the passed
 		// spent txos slice is updated to contain an entry for each
 		// spent txout in the order each transaction spends them.
+		// This is where transactions are marked as spent
+		// Note: If the input is not yet in the local view, this will fail!
 		err = view.ConnectTransaction(tx, node.height, stxos)
 		if err != nil {
 			return err
@@ -1214,7 +1220,6 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 
 	return nil
 }
-
 
 // checkConnectBlock performs several checks to confirm connecting the passed
 // block to the chain represented by the passed view does not violate any rules.

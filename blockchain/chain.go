@@ -1360,14 +1360,15 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block)
 		// Perform several checks to verify the block can be connected
 		// to the main chain without violating any rules and without
 		// actually connecting the block.
-		view := NewSqlUtxoViewpoint(shard.SqlDB)
-		//view := NewUtxoViewpoint()
+		//globalView := NewSqlUtxoViewpoint(shard.SqlDB)
+		view := NewUtxoViewpoint()
 		//view.SetBestHash(parentHash)
 		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
 
 		// Validating signatre and other characteristics block shard
 		// This might require communication with the coordinator
 		reallog.Println("Connecting block ", block.Hash(), " height ", node.height)
+		// TODO, ConnectCheckBlock should contain the write to the the global view
 		err := shard.ShardCheckConnectBlock(node, block, view, &stxos) // This is what we need to replace
 		if err != nil {
 			if _, ok := err.(RuleError); ok {

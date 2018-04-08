@@ -366,17 +366,17 @@ func (view *UtxoViewpoint) ConnectTransaction(tx *btcutil.Tx, blockHeight int32,
 // append an entry for each spent txout.
 func (view *UtxoViewpoint) ConnectTransactions(block *btcutil.Block, stxos *[]spentTxOut) error {
 	// NOTE: debug information for stxos
-	reallog.Printf("stxos Before", stxos)
+	//reallog.Printf("stxos Before", stxos)
 	for _, tx := range block.Transactions() {
 		err := view.ConnectTransaction(tx, block.Height(), stxos)
 
-		reallog.Printf("Connected tx", tx)
+		//reallog.Printf("Connected tx", tx)
 		if err != nil {
 			reallog.Printf("Error connecting", tx)
 			return err
 		}
 	}
-	reallog.Printf("stxos After", stxos)
+	//reallog.Printf("stxos After", stxos)
 
 	// Update the best hash for view to include this block since all of its
 	// transactions have been connected.

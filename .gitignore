@@ -48,3 +48,7 @@ watch
 *.ref
 *.*.bkp
 *.sql
+*.out
+*.test
+*.svg
+*.prof
