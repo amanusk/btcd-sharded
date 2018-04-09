@@ -121,7 +121,7 @@ type MessageListeners struct {
 	OnTx func(p *Peer, msg *wire.MsgTx)
 
 	// OnBlock is invoked when a peer receives a block bitcoin message.
-	OnBlock func(p *Peer, msg *wire.MsgBlock, buf []byte)
+	OnBlock func(p *Peer, msg wire.MsgBlock, buf []byte)
 
 	// OnInv is invoked when a peer receives an inv bitcoin message.
 	OnInv func(p *Peer, msg *wire.MsgInv)
@@ -1544,7 +1544,7 @@ out:
 				p.cfg.Listeners.OnTx(p, msg)
 			}
 
-		case *wire.MsgBlock:
+		case wire.MsgBlock:
 			if p.cfg.Listeners.OnBlock != nil {
 				p.cfg.Listeners.OnBlock(p, msg, buf)
 			}

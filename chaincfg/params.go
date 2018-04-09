@@ -121,7 +121,7 @@ type Params struct {
 	DNSSeeds []DNSSeed
 
 	// GenesisBlock defines the first block of the chain.
-	GenesisBlock *wire.MsgBlock
+	GenesisBlock wire.MsgBlock
 
 	// GenesisHash is the starting block hash.
 	GenesisHash *chainhash.Hash

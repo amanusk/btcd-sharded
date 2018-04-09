@@ -103,7 +103,7 @@ func makeEmptyMessage(command string) (Message, error) {
 		msg = &MsgGetBlocks{}
 
 	case CmdBlock:
-		msg = &MsgBlock{}
+		msg = &MsgFullBlock{}
 
 	case CmdInv:
 		msg = &MsgInv{}

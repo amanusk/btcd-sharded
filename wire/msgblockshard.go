@@ -265,8 +265,8 @@ func NewMsgBlockShard(blockHeader *BlockHeader) *MsgBlockShard {
 }
 
 // Return the same block but with all TXs as regular MsgTx
-func NewMsgBlockFromShard(msgBlockShard *MsgBlockShard) *MsgBlock {
-	newMsgBlock := NewMsgBlock(&msgBlockShard.Header)
+func NewMsgBlockFromShard(msgBlockShard *MsgBlockShard) *MsgFullBlock {
+	newMsgBlock := NewMsgFullBlock(&msgBlockShard.Header)
 	for _, tx := range msgBlockShard.Transactions {
 		newMsgBlock.AddTransaction(&tx.MsgTx)
 	}

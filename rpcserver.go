@@ -1515,7 +1515,7 @@ func (state *gbtWorkState) updateBlockTemplate(s *rpcServer, useCoinbaseValue bo
 	// changed or the transactions in the memory pool have been updated and
 	// it has been at least gbtRegenerateSecond since the last template was
 	// generated.
-	var msgBlock *wire.MsgBlock
+	var msgBlock wire.MsgBlock
 	var targetDifficulty string
 	latestHash := &s.cfg.Chain.BestSnapshot().Hash
 	template := state.template

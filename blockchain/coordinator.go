@@ -25,7 +25,7 @@ type HeaderGob struct {
 }
 
 type RawBlockGob struct {
-	Block  *wire.MsgBlockShard
+	Block  wire.MsgBlockShard
 	Flags  BehaviorFlags
 	Height int32
 }
@@ -355,7 +355,7 @@ func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
 
 // Process block will make a sanity check on the block header and will wait for confirmations from all the shards
 // that the block has been processed
-func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags BehaviorFlags, height int32) error {
+func (coord *Coordinator) ProcessBlock(headerBlock wire.MsgBlockShard, flags BehaviorFlags, height int32) error {
 
 	header := headerBlock.Header
 

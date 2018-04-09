@@ -648,7 +648,7 @@ func main() {
 				//break // Quit the for loop
 			}
 
-			bShards := make([]*wire.MsgBlockShard, numShards)
+			bShards := make([]wire.MsgBlockShard, numShards)
 
 			// Create a block shard to send to shards
 			for idx, _ := range bShards {
