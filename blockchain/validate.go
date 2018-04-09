@@ -341,7 +341,7 @@ func checkProofOfWork(header *wire.BlockHeader, powLimit *big.Int, flags Behavio
 // CheckProofOfWork ensures the block header bits which indicate the target
 // difficulty is in min/max range and that the block hash is less than the
 // target difficulty as claimed.
-func CheckProofOfWork(block *btcutil.Block, powLimit *big.Int) error {
+func CheckProofOfWork(block btcutil.Block, powLimit *big.Int) error {
 	return checkProofOfWork(&block.MsgBlock().Header, powLimit, BFNone)
 }
 
@@ -468,7 +468,7 @@ func CheckBlockHeaderSanity(header *wire.BlockHeader, powLimit *big.Int, timeSou
 //
 // The flags do not modify the behavior of this function directly, however they
 // are needed to pass along to CheckBlockHeaderSanity.
-func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
+func checkBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
 	msgBlock := block.MsgBlock()
 	header := &msgBlock.Header
 	err := CheckBlockHeaderSanity(header, powLimit, timeSource, flags)
@@ -575,7 +575,7 @@ func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource Median
 
 // CheckBlockSanity performs some preliminary checks on a block to ensure it is
 // sane before continuing with block processing.  These checks are context free.
-func CheckBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource) error {
+func CheckBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource) error {
 	return checkBlockSanity(block, powLimit, timeSource, BFNone)
 }
 
@@ -832,7 +832,7 @@ func (b *BlockChain) checkBlockContext(block btcutil.Block, prevNode *BlockNode,
 // http://r6.ca/blog/20120206T005236Z.html.
 //
 // This function MUST be called with the chain state lock held (for reads).
-func (b *BlockChain) checkBIP0030(node *BlockNode, block *btcutil.Block, view UtxoView) error {
+func (b *BlockChain) checkBIP0030(node *BlockNode, block btcutil.Block, view UtxoView) error {
 	// Fetch utxo details for all of the transactions in this block.
 	// Typically, there will not be any utxos for any of the transactions.
 	fetchSet := make(map[chainhash.Hash]struct{})
@@ -981,7 +981,7 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 // block subsidy, or fail transaction script validation.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
+func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
 	//// If the side chain blocks end up in the database, a call to
 	//// CheckBlockSanity should be done here in case a previous version
 	//// allowed a block that is no longer valid.  However, since the
@@ -1242,7 +1242,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 // with that node.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) checkConnectBlock(node *BlockNode, block *btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
+func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
 	// If the side chain blocks end up in the database, a call to
 	// CheckBlockSanity should be done here in case a previous version
 	// allowed a block that is no longer valid.  However, since the
@@ -1499,7 +1499,7 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block *btcutil.Block, vi
 // work requirement. The block must connect to the current tip of the main chain.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) CheckConnectBlockTemplate(block *btcutil.Block) error {
+func (b *BlockChain) CheckConnectBlockTemplate(block btcutil.Block) error {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
 
@@ -1541,7 +1541,7 @@ func (b *BlockChain) CheckConnectBlockTemplate(block *btcutil.Block) error {
 //
 // The flags do not modify the behavior of this function directly, however they
 // are needed to pass along to CheckBlockHeaderSanity.
-func SqlCheckBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
+func SqlCheckBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
 	msgBlock := block.MsgBlock()
 	header := &msgBlock.Header
 	err := CheckBlockHeaderSanity(header, powLimit, timeSource, flags)

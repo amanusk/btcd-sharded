@@ -205,7 +205,7 @@ func addTX(db *sql.DB, blockHash []byte, idx int, tx *wire.MsgTx) {
 	}
 }
 
-func processBlock(db *sql.DB, block *btcutil.Block, index *blockchain.BlockIndex, powLimit *big.Int) {
+func processBlock(db *sql.DB, block btcutil.Block, index *blockchain.BlockIndex, powLimit *big.Int) {
 
 	blockHash := block.Hash()
 	log.Printf("Processing block %v", blockHash)
@@ -229,7 +229,7 @@ func processBlock(db *sql.DB, block *btcutil.Block, index *blockchain.BlockIndex
 // their documentation for how the flags modify their behavior.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func MymaybeAcceptBlock(db *sql.DB, index *blockchain.BlockIndex, block *btcutil.Block, flags blockchain.BehaviorFlags) (bool, error) {
+func MymaybeAcceptBlock(db *sql.DB, index *blockchain.BlockIndex, block btcutil.Block, flags blockchain.BehaviorFlags) (bool, error) {
 	// The height of this block is one more than the referenced previous
 	// block.
 	prevHash := &block.MsgBlock().Header.PrevBlock

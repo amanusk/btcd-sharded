@@ -692,7 +692,7 @@ func (idx *AddrIndex) indexPkScript(data writeIndexData, pkScript []byte, txIdx 
 // indexBlock extract all of the standard addresses from all of the transactions
 // in the passed block and maps each of them to the assocaited transaction using
 // the passed map.
-func (idx *AddrIndex) indexBlock(data writeIndexData, block *btcutil.Block, view blockchain.UtxoView) {
+func (idx *AddrIndex) indexBlock(data writeIndexData, block btcutil.Block, view blockchain.UtxoView) {
 	for txIdx, tx := range block.Transactions() {
 		// Coinbases do not reference any inputs.  Since the block is
 		// required to have already gone through full validation, it has
@@ -725,7 +725,7 @@ func (idx *AddrIndex) indexBlock(data writeIndexData, block *btcutil.Block, view
 // the transactions in the block involve.
 //
 // This is part of the Indexer interface.
-func (idx *AddrIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Block, view blockchain.UtxoView) error {
+func (idx *AddrIndex) ConnectBlock(dbTx database.Tx, block btcutil.Block, view blockchain.UtxoView) error {
 	// The offset and length of the transactions within the serialized
 	// block.
 	txLocs, err := block.TxLoc()
@@ -763,7 +763,7 @@ func (idx *AddrIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Block, view 
 // each transaction in the block involve.
 //
 // This is part of the Indexer interface.
-func (idx *AddrIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block, view blockchain.UtxoView) error {
+func (idx *AddrIndex) DisconnectBlock(dbTx database.Tx, block btcutil.Block, view blockchain.UtxoView) error {
 	// Build all of the address to transaction mappings in a local map.
 	addrsToTxns := make(writeIndexData)
 	idx.indexBlock(addrsToTxns, block, view)

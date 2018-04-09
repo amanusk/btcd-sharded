@@ -703,7 +703,7 @@ func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view Utx
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func sqlConnectBlock(db *SqlBlockDB, block *btcutil.Block, view UtxoView, stxos []spentTxOut) error {
+func sqlConnectBlock(db *SqlBlockDB, block btcutil.Block, view UtxoView, stxos []spentTxOut) error {
 	// TODO: Lots of work in this function
 	// TODO: Locking updating DB to interface etc
 	// Make sure it's extending the end of the best chain.
@@ -936,9 +936,9 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	// be loaded from the database during the reorg check phase below and
 	// then they are needed again when doing the actual database updates.
 	// Rather than doing two loads, cache the loaded data into these slices.
-	detachBlocks := make([]*btcutil.Block, 0, detachNodes.Len())
+	detachBlocks := make([]btcutil.Block, 0, detachNodes.Len())
 	detachSpentTxOuts := make([][]spentTxOut, 0, detachNodes.Len())
-	attachBlocks := make([]*btcutil.Block, 0, attachNodes.Len())
+	attachBlocks := make([]btcutil.Block, 0, attachNodes.Len())
 
 	// Disconnect all of the blocks back to the point of the fork.  This
 	// entails loading the blocks and their associated spent txos from the
@@ -1009,7 +1009,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 			continue
 		}
 
-		var block *btcutil.Block
+		var block btcutil.Block
 		err := b.db.View(func(dbTx database.Tx) error {
 			var err error
 			block, err = dbFetchBlockByNode(dbTx, n)
@@ -1350,7 +1350,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 
 // A function to use by  a shard connecting TXs to the blockchain
 // This is similar to ConnectBestChain but performed by each shard
-func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block) (bool, error) {
+func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) (bool, error) {
 	//fastAdd := true
 
 	// We are extending the main (best) chain with a new block.  This is the

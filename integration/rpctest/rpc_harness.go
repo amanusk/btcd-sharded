@@ -405,7 +405,7 @@ func (h *Harness) P2PAddress() string {
 //
 // This function is safe for concurrent access.
 func (h *Harness) GenerateAndSubmitBlock(txns []*btcutil.Tx, blockVersion int32,
-	blockTime time.Time) (*btcutil.Block, error) {
+	blockTime time.Time) (btcutil.Block, error) {
 
 	h.Lock()
 	defer h.Unlock()
