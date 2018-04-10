@@ -161,10 +161,9 @@ func (m *CPUMiner) submitBlock(block btcutil.Block) bool {
 	// detected and all work on the stale block is halted to start work on
 	// a new block, but the check only happens periodically, so it is
 	// possible a block was found and submitted in between.
-	msgBlock := block.MsgBlock()
-	if !msgBlock.Header.PrevBlock.IsEqual(&m.g.BestSnapshot().Hash) {
+	if !block.Header().PrevBlock.IsEqual(&m.g.BestSnapshot().Hash) {
 		log.Debugf("Block submitted via CPU miner with previous "+
-			"block %s is stale", msgBlock.Header.PrevBlock)
+			"block %s is stale", block.Header().PrevBlock)
 		return false
 	}
 
@@ -189,7 +188,7 @@ func (m *CPUMiner) submitBlock(block btcutil.Block) bool {
 	}
 
 	// The block was accepted.
-	coinbaseTx := block.MsgBlock().Transactions[0].TxOut[0]
+	coinbaseTx := block.MsgBlock().(*wire.MsgBlock).Transactions[0].TxOut[0]
 	log.Infof("Block submitted via CPU miner accepted (hash %s, "+
 		"amount %v)", block.Hash(), btcutil.Amount(coinbaseTx.Value))
 	return true

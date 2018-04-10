@@ -419,7 +419,7 @@ func dbFetchSpendJournalEntry(dbTx database.Tx, block btcutil.Block, view UtxoVi
 	// Exclude the coinbase transaction since it can't spend anything.
 	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
 	serialized := spendBucket.Get(block.Hash()[:])
-	blockTxns := block.MsgBlock().Transactions[1:]
+	blockTxns := block.MsgBlock().(*wire.MsgBlock).Transactions[1:]
 	stxos, err := deserializeSpendJournalEntry(serialized, blockTxns, view)
 	if err != nil {
 		// Ensure any deserialization errors are returned as database
@@ -1108,8 +1108,8 @@ func (b *BlockChain) createChainState() error {
 
 	// Initialize the state related to the best block.  Since it is the
 	// genesis block, use its timestamp for the median time.
-	numTxns := uint64(len(genesisBlock.MsgBlock().Transactions))
-	blockSize := uint64(genesisBlock.MsgBlock().SerializeSize())
+	numTxns := uint64(len(genesisBlock.MsgBlock().(*wire.MsgBlock).Transactions))
+	blockSize := uint64(genesisBlock.MsgBlock().(*wire.MsgBlock).SerializeSize())
 	blockWeight := uint64(GetBlockWeight(genesisBlock))
 	b.stateSnapshot = newBestState(node, blockSize, blockWeight, numTxns,
 		numTxns, time.Unix(node.timestamp, 0))
@@ -1183,8 +1183,8 @@ func (b *BlockChain) sqlCreateChainState() error {
 
 	// Initialize the state related to the best block.  Since it is the
 	// genesis block, use its timestamp for the median time.
-	numTxns := uint64(len(genesisBlock.MsgBlock().Transactions))
-	blockSize := uint64(genesisBlock.MsgBlock().SerializeSize())
+	numTxns := uint64(len(genesisBlock.MsgBlock().(*wire.MsgBlock).Transactions))
+	blockSize := uint64(genesisBlock.MsgBlock().(*wire.MsgBlock).SerializeSize())
 	blockWeight := uint64(GetBlockWeight(genesisBlock))
 	b.stateSnapshot = newBestState(node, blockSize, blockWeight, numTxns,
 		numTxns, time.Unix(node.timestamp, 0))
@@ -1198,7 +1198,7 @@ func (b *BlockChain) sqlCreateChainState() error {
 	// Create headers table
 	err := b.SqlDB.InitTables()
 
-	b.SqlDB.AddBlock(genesisBlock.MsgBlock())
+	b.SqlDB.AddBlock(genesisBlock.MsgBlock().(*wire.MsgBlock))
 
 	return err
 }

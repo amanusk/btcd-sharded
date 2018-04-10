@@ -1162,7 +1162,7 @@ func (s *server) pushMerkleBlockMsg(sp *serverPeer, hash *chainhash.Hash,
 	sp.QueueMessage(merkle, dc)
 
 	// Finally, send any matched transactions.
-	blkTransactions := blk.MsgBlock().Transactions
+	blkTransactions := blk.MsgBlock().(*wire.MsgBlock).Transactions
 	for i, txIndex := range matchedTxIndices {
 		// Only send the done channel on the final transaction.
 		var dc chan<- struct{}

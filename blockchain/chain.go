@@ -614,8 +614,8 @@ func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view Utx
 	b.stateLock.RLock()
 	curTotalTxns := b.stateSnapshot.TotalTxns
 	b.stateLock.RUnlock()
-	numTxns := uint64(len(block.MsgBlock().Transactions))
-	blockSize := uint64(block.MsgBlock().SerializeSize())
+	numTxns := uint64(len(block.MsgBlock().(*wire.MsgBlock).Transactions))
+	blockSize := uint64(block.MsgBlock().(*wire.MsgBlock).SerializeSize())
 	blockWeight := uint64(GetBlockWeight(block))
 	state := newBestState(node, blockSize, blockWeight, numTxns,
 		curTotalTxns+numTxns, node.CalcPastMedianTime())
@@ -833,10 +833,10 @@ func (b *BlockChain) disconnectBlock(node *BlockNode, block btcutil.Block, view 
 	b.stateLock.RLock()
 	curTotalTxns := b.stateSnapshot.TotalTxns
 	b.stateLock.RUnlock()
-	numTxns := uint64(len(prevBlock.MsgBlock().Transactions))
-	blockSize := uint64(prevBlock.MsgBlock().SerializeSize())
+	numTxns := uint64(len(prevBlock.MsgBlock().(*wire.MsgBlock).Transactions))
+	blockSize := uint64(prevBlock.MsgBlock().(*wire.MsgBlock).SerializeSize())
 	blockWeight := uint64(GetBlockWeight(prevBlock))
-	newTotalTxns := curTotalTxns - uint64(len(block.MsgBlock().Transactions))
+	newTotalTxns := curTotalTxns - uint64(len(block.MsgBlock().(*wire.MsgBlock).Transactions))
 	state := newBestState(prevNode, blockSize, blockWeight, numTxns,
 		newTotalTxns, prevNode.CalcPastMedianTime())
 

@@ -470,14 +470,14 @@ func CheckBlockHeaderSanity(header *wire.BlockHeader, powLimit *big.Int, timeSou
 // are needed to pass along to CheckBlockHeaderSanity.
 func checkBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
 	msgBlock := block.MsgBlock()
-	header := &msgBlock.Header
+	header := block.Header()
 	err := CheckBlockHeaderSanity(header, powLimit, timeSource, flags)
 	if err != nil {
 		return err
 	}
 
 	// A block must have at least one transaction.
-	numTx := len(msgBlock.Transactions)
+	numTx := len(msgBlock.(*wire.MsgBlock).Transactions)
 	if numTx == 0 {
 		return ruleError(ErrNoTransactions, "block does not contain "+
 			"any transactions")
@@ -493,7 +493,7 @@ func checkBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianT
 
 	// A block must not exceed the maximum allowed block payload when
 	// serialized.
-	serializedSize := msgBlock.SerializeSizeStripped()
+	serializedSize := msgBlock.(*wire.MsgBlock).SerializeSizeStripped()
 	if serializedSize > MaxBlockBaseSize {
 		str := fmt.Sprintf("serialized block is too big - got %d, "+
 			"max %d", serializedSize, MaxBlockBaseSize)
@@ -1541,16 +1541,17 @@ func (b *BlockChain) CheckConnectBlockTemplate(block btcutil.Block) error {
 //
 // The flags do not modify the behavior of this function directly, however they
 // are needed to pass along to CheckBlockHeaderSanity.
+// TODO TODO TODO: use this to check merkle tree etc
 func SqlCheckBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
 	msgBlock := block.MsgBlock()
-	header := &msgBlock.Header
+	header := block.Header()
 	err := CheckBlockHeaderSanity(header, powLimit, timeSource, flags)
 	if err != nil {
 		return err
 	}
 
 	// A block must have at least one transaction.
-	numTx := len(msgBlock.Transactions)
+	numTx := len(msgBlock.(*wire.MsgBlockShard).Transactions)
 	if numTx == 0 {
 		return ruleError(ErrNoTransactions, "block does not contain "+
 			"any transactions")
@@ -1566,7 +1567,7 @@ func SqlCheckBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource Medi
 
 	// A block must not exceed the maximum allowed block payload when
 	// serialized.
-	serializedSize := msgBlock.SerializeSizeStripped()
+	serializedSize := msgBlock.(*wire.MsgBlockShard).SerializeSizeStripped()
 	if serializedSize > MaxBlockBaseSize {
 		str := fmt.Sprintf("serialized block is too big - got %d, "+
 			"max %d", serializedSize, MaxBlockBaseSize)
