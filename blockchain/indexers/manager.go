@@ -76,7 +76,7 @@ func dbIndexConnectBlock(dbTx database.Tx, indexer Indexer, block btcutil.Block,
 	if err != nil {
 		return err
 	}
-	if !curTipHash.IsEqual(&block.MsgBlock().Header.PrevBlock) {
+	if !curTipHash.IsEqual(&block.Header().PrevBlock) {
 		return AssertError(fmt.Sprintf("dbIndexConnectBlock must be "+
 			"called with a block that extends the current index "+
 			"tip (%s, tip %s, block %s)", indexer.Name(),
@@ -118,7 +118,7 @@ func dbIndexDisconnectBlock(dbTx database.Tx, indexer Indexer, block btcutil.Blo
 	}
 
 	// Update the current index tip.
-	prevHash := &block.MsgBlock().Header.PrevBlock
+	prevHash := &block.Header().PrevBlock
 	return dbPutIndexerTip(dbTx, idxKey, prevHash, block.Height()-1)
 }
 
@@ -332,7 +332,7 @@ func (m *Manager) Init(chain *blockchain.BlockChain, interrupt <-chan struct{}) 
 				}
 
 				// Update the tip to the previous block.
-				hash = &block.MsgBlock().Header.PrevBlock
+				hash = &block.Header().PrevBlock
 				height--
 
 				return nil

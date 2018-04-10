@@ -100,7 +100,7 @@ func (bi *blockImporter) processBlock(serializedBlock []byte) (bool, error) {
 	}
 
 	// update progress statistics
-	bi.lastBlockTime = block.MsgBlock().Header.Timestamp
+	bi.lastBlockTime = block.Header().Timestamp
 	bi.receivedLogTx += int64(len(block.MsgBlock().Transactions))
 
 	// Skip blocks that already exist.
@@ -114,7 +114,7 @@ func (bi *blockImporter) processBlock(serializedBlock []byte) (bool, error) {
 	}
 
 	// Don't bother trying to process orphans.
-	prevHash := &block.MsgBlock().Header.PrevBlock
+	prevHash := &block.Header().PrevBlock
 	if !prevHash.IsEqual(&zeroHash) {
 		exists, err := bi.chain.HaveBlock(prevHash)
 		if err != nil {

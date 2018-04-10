@@ -242,7 +242,7 @@ func (b *BlockChain) IsCheckpointCandidate(block btcutil.Block) (bool, error) {
 	// either side of it in order (due to the median time allowance this is
 	// not always the case).
 	prevTime := time.Unix(node.parent.timestamp, 0)
-	curTime := block.MsgBlock().Header.Timestamp
+	curTime := block.Header().Timestamp
 	nextTime := time.Unix(nextNode.timestamp, 0)
 	if prevTime.After(curTime) || nextTime.Before(curTime) {
 		return false, nil

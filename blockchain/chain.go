@@ -248,7 +248,7 @@ func (b *BlockChain) GetOrphanRoot(hash *chainhash.Hash) *chainhash.Hash {
 			break
 		}
 		orphanRoot = prevHash
-		prevHash = &orphan.block.MsgBlock().Header.PrevBlock
+		prevHash = &orphan.block.Header().PrevBlock
 	}
 
 	return orphanRoot
@@ -269,7 +269,7 @@ func (b *BlockChain) removeOrphanBlock(orphan *orphanBlock) {
 	// for loop is intentionally used over a range here as range does not
 	// reevaluate the slice on each iteration nor does it adjust the index
 	// for the modified slice.
-	prevHash := &orphan.block.MsgBlock().Header.PrevBlock
+	prevHash := &orphan.block.Header().PrevBlock
 	orphans := b.prevOrphans[*prevHash]
 	for i := 0; i < len(orphans); i++ {
 		hash := orphans[i].block.Hash()
@@ -333,7 +333,7 @@ func (b *BlockChain) addOrphanBlock(block btcutil.Block) {
 	b.orphans[*block.Hash()] = oBlock
 
 	// Add to previous hash lookup index for faster dependency lookups.
-	prevHash := &block.MsgBlock().Header.PrevBlock
+	prevHash := &block.Header().PrevBlock
 	b.prevOrphans[*prevHash] = append(b.prevOrphans[*prevHash], oBlock)
 }
 
@@ -581,7 +581,7 @@ func dbMaybeStoreBlock(dbTx database.Tx, block btcutil.Block) error {
 // This function MUST be called with the chain state lock held (for writes).
 func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view UtxoView, stxos []spentTxOut) error {
 	// Make sure it's extending the end of the best chain.
-	prevHash := &block.MsgBlock().Header.PrevBlock
+	prevHash := &block.Header().PrevBlock
 	if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
 		return AssertError("connectBlock must be called with a block " +
 			"that extends the main chain")
@@ -707,7 +707,7 @@ func sqlConnectBlock(db *SqlBlockDB, block btcutil.Block, view UtxoView, stxos [
 	// TODO: Lots of work in this function
 	// TODO: Locking updating DB to interface etc
 	// Make sure it's extending the end of the best chain.
-	//prevHash := &block.MsgBlock().Header.PrevBlock
+	//prevHash := &block.Header().PrevBlock
 	//if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
 	//	return AssertError("connectBlock must be called with a block " +
 	//		"that extends the main chain")
@@ -1154,7 +1154,7 @@ func (b *BlockChain) connectBestChain(node *BlockNode, block btcutil.Block, flag
 
 	// We are extending the main (best) chain with a new block.  This is the
 	// most common case.
-	parentHash := &block.MsgBlock().Header.PrevBlock
+	parentHash := &block.Header().PrevBlock
 	if parentHash.IsEqual(&b.bestChain.Tip().hash) {
 		// Skip checks if node has already been fully validated.
 		fastAdd = fastAdd || b.index.NodeStatus(node).KnownValid()
@@ -1262,7 +1262,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 
 	// We are extending the main (best) chain with a new block.  This is the
 	// most common case.
-	parentHash := &block.MsgBlock().Header.PrevBlock
+	parentHash := &block.Header().PrevBlock
 	if parentHash.IsEqual(&b.bestChain.Tip().hash) {
 		// Skip checks if node has already been fully validated.
 		fastAdd = fastAdd || b.index.NodeStatus(node).KnownValid()
@@ -1355,7 +1355,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 
 	// We are extending the main (best) chain with a new block.  This is the
 	// most common case.
-	// parentHash := &block.MsgBlock().Header.PrevBlock
+	// parentHash := &block.Header().PrevBlock
 	if true {
 		// Perform several checks to verify the block can be connected
 		// to the main chain without violating any rules and without

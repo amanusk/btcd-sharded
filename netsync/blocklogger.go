@@ -68,7 +68,7 @@ func (b *blockProgressLogger) LogBlockHeight(block btcutil.Block) {
 	}
 	b.subsystemLogger.Infof("%s %d %s in the last %s (%d %s, height %d, %s)",
 		b.progressAction, b.receivedLogBlocks, blockStr, tDuration, b.receivedLogTx,
-		txStr, block.Height(), block.MsgBlock().Header.Timestamp)
+		txStr, block.Height(), block.Header().Timestamp)
 
 	b.receivedLogBlocks = 0
 	b.receivedLogTx = 0

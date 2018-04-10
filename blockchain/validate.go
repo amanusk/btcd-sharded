@@ -342,7 +342,7 @@ func checkProofOfWork(header *wire.BlockHeader, powLimit *big.Int, flags Behavio
 // difficulty is in min/max range and that the block hash is less than the
 // target difficulty as claimed.
 func CheckProofOfWork(block btcutil.Block, powLimit *big.Int) error {
-	return checkProofOfWork(&block.MsgBlock().Header, powLimit, BFNone)
+	return checkProofOfWork(block.Header(), powLimit, BFNone)
 }
 
 // CountSigOps returns the number of signature operations for all transaction
@@ -729,7 +729,7 @@ func (b *BlockChain) checkBlockHeaderContext(header *wire.BlockHeader, prevNode 
 // This function MUST be called with the chain state lock held (for writes).
 func (b *BlockChain) checkBlockContext(block btcutil.Block, prevNode *BlockNode, flags BehaviorFlags) error {
 	// Perform all block header related validation checks.
-	header := &block.MsgBlock().Header
+	header := block.Header()
 	err := b.checkBlockHeaderContext(header, prevNode, flags)
 	if err != nil {
 		return err
@@ -998,7 +998,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 
 	// TODO this needs to be done in coordinator
 	//// Ensure the view is for the node being checked.
-	//parentHash := &block.MsgBlock().Header.PrevBlock
+	//parentHash := &block.Header().PrevBlock
 	//if !view.BestHash().IsEqual(parentHash) {
 	//	return AssertError(fmt.Sprintf("inconsistent view when "+
 	//		"checking block connection: best hash is %v instead "+
@@ -1141,7 +1141,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// TODO: pass params
 	//// Enforce DER signatures for block versions 3+ once the historical
 	//// activation threshold has been reached.  This is part of BIP0066.
-	//blockHeader := &block.MsgBlock().Header
+	//blockHeader := &block.Header()
 	//if blockHeader.Version >= 3 && node.height >= b.chainParams.BIP0066Height {
 	//	scriptFlags |= txscript.ScriptVerifyDERSignatures
 	//}
@@ -1257,7 +1257,7 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 	}
 
 	// Ensure the view is for the node being checked.
-	parentHash := &block.MsgBlock().Header.PrevBlock
+	parentHash := &block.Header().PrevBlock
 	if !view.BestHash().IsEqual(parentHash) {
 		return AssertError(fmt.Sprintf("inconsistent view when "+
 			"checking block connection: best hash is %v instead "+
@@ -1418,7 +1418,7 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 
 	// Enforce DER signatures for block versions 3+ once the historical
 	// activation threshold has been reached.  This is part of BIP0066.
-	blockHeader := &block.MsgBlock().Header
+	blockHeader := block.Header()
 	if blockHeader.Version >= 3 && node.height >= b.chainParams.BIP0066Height {
 		scriptFlags |= txscript.ScriptVerifyDERSignatures
 	}
@@ -1509,7 +1509,7 @@ func (b *BlockChain) CheckConnectBlockTemplate(block btcutil.Block) error {
 	// This only checks whether the block can be connected to the tip of the
 	// current chain.
 	tip := b.bestChain.Tip()
-	header := block.MsgBlock().Header
+	header := block.Header()
 	if tip.hash != header.PrevBlock {
 		str := fmt.Sprintf("previous block must be the current chain tip %v, "+
 			"instead got %v", tip.hash, header.PrevBlock)
@@ -1530,7 +1530,7 @@ func (b *BlockChain) CheckConnectBlockTemplate(block btcutil.Block) error {
 	// is not needed and thus extra work can be avoided.
 	view := NewUtxoViewpoint()
 	view.SetBestHash(&tip.hash)
-	newNode := newBlockNode(&header, tip.height+1)
+	newNode := newBlockNode(header, tip.height+1)
 	newNode.parent = tip
 	newNode.WorkSum = newNode.WorkSum.Add(tip.WorkSum, newNode.WorkSum)
 	return b.checkConnectBlock(newNode, block, view, nil)

@@ -695,7 +695,7 @@ func (*wsNotificationManager) notifyBlockConnected(clients map[chan struct{}]*ws
 
 	// Notify interested websocket clients about the connected block.
 	ntfn := btcjson.NewBlockConnectedNtfn(block.Hash().String(), block.Height(),
-		block.MsgBlock().Header.Timestamp.Unix())
+		block.Header().Timestamp.Unix())
 	marshalledJSON, err := btcjson.MarshalCmd(nil, ntfn)
 	if err != nil {
 		rpcsLog.Errorf("Failed to marshal block connected notification: "+
@@ -719,7 +719,7 @@ func (*wsNotificationManager) notifyBlockDisconnected(clients map[chan struct{}]
 
 	// Notify interested websocket clients about the disconnected block.
 	ntfn := btcjson.NewBlockDisconnectedNtfn(block.Hash().String(),
-		block.Height(), block.MsgBlock().Header.Timestamp.Unix())
+		block.Height(), block.Header().Timestamp.Unix())
 	marshalledJSON, err := btcjson.MarshalCmd(nil, ntfn)
 	if err != nil {
 		rpcsLog.Errorf("Failed to marshal block disconnected "+
@@ -739,7 +739,7 @@ func (m *wsNotificationManager) notifyFilteredBlockConnected(clients map[chan st
 	// Create the common portion of the notification that is the same for
 	// every client.
 	var w bytes.Buffer
-	err := block.MsgBlock().Header.Serialize(&w)
+	err := block.Header().Serialize(&w)
 	if err != nil {
 		rpcsLog.Errorf("Failed to serialize header for filtered block "+
 			"connected notification: %v", err)
@@ -789,7 +789,7 @@ func (*wsNotificationManager) notifyFilteredBlockDisconnected(clients map[chan s
 
 	// Notify interested websocket clients about the disconnected block.
 	var w bytes.Buffer
-	err := block.MsgBlock().Header.Serialize(&w)
+	err := block.Header().Serialize(&w)
 	if err != nil {
 		rpcsLog.Errorf("Failed to serialize header for filtered block "+
 			"disconnected notification: %v", err)
@@ -956,7 +956,7 @@ func blockDetails(block btcutil.Block, txIndex int) *btcjson.BlockDetails {
 		Height: block.Height(),
 		Hash:   block.Hash().String(),
 		Index:  txIndex,
-		Time:   block.MsgBlock().Header.Timestamp.Unix(),
+		Time:   block.Header().Timestamp.Unix(),
 	}
 }
 
@@ -2232,7 +2232,7 @@ func handleRescanBlocks(wsc *wsClient, icmd interface{}) (interface{}, error) {
 				Message: "Failed to fetch block: " + err.Error(),
 			}
 		}
-		if lastBlockHash != nil && block.MsgBlock().Header.PrevBlock != *lastBlockHash {
+		if lastBlockHash != nil && block.Header().PrevBlock != *lastBlockHash {
 			return nil, &btcjson.RPCError{
 				Code: btcjson.ErrRPCInvalidParameter,
 				Message: fmt.Sprintf("Block %v is not a child of %v",
@@ -2292,7 +2292,7 @@ func recoverFromReorg(chain *blockchain.BlockChain, minBlock, maxBlock int32,
 // descendantBlock returns the appropriate JSON-RPC error if a current block
 // fetched during a reorganize is not a direct child of the parent block hash.
 func descendantBlock(prevHash *chainhash.Hash, curBlock btcutil.Block) error {
-	curHash := &curBlock.MsgBlock().Header.PrevBlock
+	curHash := &curBlock.Header().PrevBlock
 	if !prevHash.IsEqual(curHash) {
 		rpcsLog.Errorf("Stopping rescan for reorged block %v "+
 			"(replaced by block %v)", prevHash, curHash)
@@ -2580,7 +2580,7 @@ fetchRange:
 			}
 
 			n := btcjson.NewRescanProgressNtfn(hashList[i].String(),
-				blk.Height(), blk.MsgBlock().Header.Timestamp.Unix())
+				blk.Height(), blk.Header().Timestamp.Unix())
 			mn, err := btcjson.MarshalCmd(nil, n)
 			if err != nil {
 				rpcsLog.Errorf("Failed to marshal rescan "+
@@ -2608,7 +2608,7 @@ fetchRange:
 	// been sent.
 	n := btcjson.NewRescanFinishedNtfn(lastBlockHash.String(),
 		lastBlock.Height(),
-		lastBlock.MsgBlock().Header.Timestamp.Unix())
+		lastBlock.Header().Timestamp.Unix())
 	if mn, err := btcjson.MarshalCmd(nil, n); err != nil {
 		rpcsLog.Errorf("Failed to marshal rescan finished "+
 			"notification: %v", err)

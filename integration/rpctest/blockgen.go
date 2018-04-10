@@ -136,7 +136,7 @@ func CreateBlock(prevBlock btcutil.Block, inclusionTxs []*btcutil.Tx,
 	} else {
 		prevHash = prevBlock.Hash()
 		blockHeight = prevBlock.Height() + 1
-		prevBlockTime = prevBlock.MsgBlock().Header.Timestamp
+		prevBlockTime = prevBlock.Header().Timestamp
 	}
 
 	// If a target block time was specified, then use that as the header's

@@ -232,7 +232,7 @@ func processBlock(db *sql.DB, block btcutil.Block, index *blockchain.BlockIndex,
 func MymaybeAcceptBlock(db *sql.DB, index *blockchain.BlockIndex, block btcutil.Block, flags blockchain.BehaviorFlags) (bool, error) {
 	// The height of this block is one more than the referenced previous
 	// block.
-	prevHash := &block.MsgBlock().Header.PrevBlock
+	prevHash := &block.Header().PrevBlock
 	prevNode := index.LookupNode(prevHash)
 	if prevNode == nil {
 		str := fmt.Sprintf("previous block %s is unknown", prevHash)
@@ -268,7 +268,7 @@ func MymaybeAcceptBlock(db *sql.DB, index *blockchain.BlockIndex, block btcutil.
 
 	// Create a new block node for the block and add it to the in-memory
 	// block chain (could be either a side chain or the main chain).
-	blockHeader := &block.MsgBlock().Header
+	blockHeader := &block.Header()
 	newNode := blockchain.NewBlockNode(blockHeader, blockHeight)
 	newNode.Status = blockchain.StatusDataStored
 	if prevNode != nil {

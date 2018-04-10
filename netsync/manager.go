@@ -607,7 +607,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 		// block height from the scriptSig of the coinbase transaction.
 		// Extraction is only attempted if the block's version is
 		// high enough (ver 2+).
-		header := &bmsg.block.MsgBlock().Header
+		header := bmsg.block.Header()
 		if blockchain.ShouldHaveSerializedBlockHeight(header) {
 			coinbaseTx := bmsg.block.Transactions()[0]
 			cbHeight, err := blockchain.ExtractCoinbaseHeight(coinbaseTx)
@@ -1223,7 +1223,7 @@ func (sm *SyncManager) handleBlockchainNotification(notification *blockchain.Not
 
 		// Generate the inventory vector and relay it.
 		iv := wire.NewInvVect(wire.InvTypeBlock, block.Hash())
-		sm.peerNotifier.RelayInventory(iv, block.MsgBlock().Header)
+		sm.peerNotifier.RelayInventory(iv, block.Header())
 
 	// A block has been connected to the main block chain.
 	case blockchain.NTBlockConnected:

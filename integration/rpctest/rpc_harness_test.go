@@ -362,7 +362,7 @@ func testGenerateAndSubmitBlock(r *Harness, t *testing.T) {
 		t.Fatalf("block did not include all transactions: "+
 			"expected %v, got %v", numTxns+1, numBlocksTxns)
 	}
-	blockVersion := block.MsgBlock().Header.Version
+	blockVersion := block.Header().Version
 	if blockVersion != BlockVersion {
 		t.Fatalf("block version is not default: expected %v, got %v",
 			BlockVersion, blockVersion)
@@ -370,7 +370,7 @@ func testGenerateAndSubmitBlock(r *Harness, t *testing.T) {
 
 	// Next generate a block with a "non-standard" block version along with
 	// time stamp a minute after the previous block's timestamp.
-	timestamp := block.MsgBlock().Header.Timestamp.Add(time.Minute)
+	timestamp := block.Header().Timestamp.Add(time.Minute)
 	targetBlockVersion := int32(1337)
 	block, err = r.GenerateAndSubmitBlock(nil, targetBlockVersion, timestamp)
 	if err != nil {
@@ -379,7 +379,7 @@ func testGenerateAndSubmitBlock(r *Harness, t *testing.T) {
 
 	// Finally ensure that the desired block version and timestamp were set
 	// properly.
-	header := block.MsgBlock().Header
+	header := block.Header()
 	blockVersion = header.Version
 	if blockVersion != targetBlockVersion {
 		t.Fatalf("block version mismatch: expected %v, got %v",

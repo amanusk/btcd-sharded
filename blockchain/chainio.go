@@ -1098,7 +1098,7 @@ func dbPutBestState(dbTx database.Tx, snapshot *BestState, WorkSum *big.Int) err
 func (b *BlockChain) createChainState() error {
 	// Create a new node from the genesis block and set it as the best node.
 	genesisBlock := btcutil.NewFullBlock(b.chainParams.GenesisBlock)
-	header := &genesisBlock.MsgBlock().Header
+	header := genesisBlock.Header()
 	node := newBlockNode(header, 0)
 	node.Status = StatusDataStored | statusValid
 	b.bestChain.SetTip(node)
@@ -1173,7 +1173,7 @@ func (b *BlockChain) sqlCreateChainState() error {
 
 	// Create a new node from the genesis block and set it as the best node.
 	genesisBlock := btcutil.NewFullBlock(b.chainParams.GenesisBlock)
-	header := &genesisBlock.MsgBlock().Header
+	header := genesisBlock.Header()
 	node := newBlockNode(header, 0)
 	node.Status = StatusDataStored | statusValid
 	b.bestChain.SetTip(node)

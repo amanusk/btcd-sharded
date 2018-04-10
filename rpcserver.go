@@ -1090,7 +1090,7 @@ func handleGetBlock(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (i
 	}
 
 	params := s.cfg.ChainParams
-	blockHeader := &blk.MsgBlock().Header
+	blockHeader := blk.Header()
 	blockReply := btcjson.GetBlockVerboseResult{
 		Hash:          c.Hash,
 		Version:       blockHeader.Version,
@@ -2095,7 +2095,7 @@ func handleGetBlockTemplateProposal(s *rpcServer, request *btcjson.TemplateReque
 
 	// Ensure the block is building from the expected previous block.
 	expectedPrevHash := s.cfg.Chain.BestSnapshot().Hash
-	prevHash := &block.MsgBlock().Header.PrevBlock
+	prevHash := &block.Header().PrevBlock
 	if !expectedPrevHash.IsEqual(prevHash) {
 		return "bad-prevblk", nil
 	}

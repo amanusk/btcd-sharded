@@ -161,8 +161,8 @@ func TestCheckBlockSanity(t *testing.T) {
 
 	// Ensure a block that has a timestamp with a precision higher than one
 	// second fails.
-	timestamp := block.MsgBlock().Header.Timestamp
-	block.MsgBlock().Header.Timestamp = timestamp.Add(time.Nanosecond)
+	timestamp := block.Header().Timestamp
+	block.Header().Timestamp = timestamp.Add(time.Nanosecond)
 	err = CheckBlockSanity(block, powLimit, timeSource)
 	if err == nil {
 		t.Errorf("CheckBlockSanity: error is nil when it shouldn't be")

@@ -26,7 +26,7 @@ import (
 func (b *BlockChain) maybeAcceptBlock(block btcutil.Block, flags BehaviorFlags) (bool, error) {
 	// The height of this block is one more than the referenced previous
 	// block.
-	prevHash := &block.MsgBlock().Header.PrevBlock
+	prevHash := &block.Header().PrevBlock
 	prevNode := b.index.LookupNode(prevHash)
 	if prevNode == nil {
 		str := fmt.Sprintf("previous block %s is unknown", prevHash)
@@ -64,7 +64,7 @@ func (b *BlockChain) maybeAcceptBlock(block btcutil.Block, flags BehaviorFlags) 
 
 	// Create a new block node for the block and add it to the in-memory
 	// block chain (could be either a side chain or the main chain).
-	blockHeader := &block.MsgBlock().Header
+	blockHeader := block.Header()
 	newNode := newBlockNode(blockHeader, blockHeight)
 	newNode.Status = StatusDataStored
 	if prevNode != nil {

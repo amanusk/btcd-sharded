@@ -176,7 +176,7 @@ func (b *BlockChain) ProcessBlock(block btcutil.Block, flags BehaviorFlags) (boo
 	// rejecting easy to mine, but otherwise bogus, blocks that could be
 	// used to eat memory, and ensuring expected (versus claimed) proof of
 	// work requirements since the previous checkpoint are met.
-	blockHeader := &block.MsgBlock().Header
+	blockHeader := block.Header()
 	checkpointNode, err := b.findPreviousCheckpoint()
 	if err != nil {
 		return false, false, err
