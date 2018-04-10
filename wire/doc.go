@@ -101,7 +101,7 @@ switch or type assertion.  An example of a type switch follows:
 	case *wire.MsgVersion:
 		// The message is a pointer to a MsgVersion struct.
 		fmt.Printf("Protocol version: %v", msg.ProtocolVersion)
-	case *wire.MsgBlock:
+	case wire.MsgBlock:
 		// The message is a pointer to a MsgBlock struct.
 		fmt.Printf("Number of tx in block: %v", msg.Header.TxnCount)
 	}

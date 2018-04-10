@@ -58,7 +58,7 @@ type FutureGetBlockResult chan *response
 
 // Receive waits for the response promised by the future and returns the raw
 // block requested from the server given its hash.
-func (r FutureGetBlockResult) Receive() (*wire.MsgBlock, error) {
+func (r FutureGetBlockResult) Receive() (wire.MsgBlock, error) {
 	res, err := receiveFuture(r)
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func (c *Client) GetBlockAsync(blockHash *chainhash.Hash) FutureGetBlockResult {
 //
 // See GetBlockVerbose to retrieve a data structure with information about the
 // block instead.
-func (c *Client) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
+func (c *Client) GetBlock(blockHash *chainhash.Hash) (wire.MsgBlock, error) {
 	return c.GetBlockAsync(blockHash).Receive()
 }
 

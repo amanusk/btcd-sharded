@@ -190,7 +190,7 @@ type BlockTemplate struct {
 	// Block is a block that is ready to be solved by miners.  Thus, it is
 	// completely valid with the exception of satisfying the proof-of-work
 	// requirement.
-	Block *wire.MsgBlock
+	Block wire.MsgBlock
 
 	// Fees contains the amount of fees each transaction in the generated
 	// template pays in base units.  Since the first transaction is the
@@ -904,7 +904,7 @@ mempoolLoop:
 // consensus rules.  Finally, it will update the target difficulty if needed
 // based on the new time for the test networks since their target difficulty can
 // change based upon time.
-func (g *BlkTmplGenerator) UpdateBlockTime(msgBlock *wire.MsgBlock) error {
+func (g *BlkTmplGenerator) UpdateBlockTime(msgBlock wire.MsgBlock) error {
 	// The new timestamp is potentially adjusted to ensure it comes after
 	// the median time of the last several blocks per the chain consensus
 	// rules.
@@ -927,7 +927,7 @@ func (g *BlkTmplGenerator) UpdateBlockTime(msgBlock *wire.MsgBlock) error {
 // block by regenerating the coinbase script with the passed value and block
 // height.  It also recalculates and updates the new merkle root that results
 // from changing the coinbase script.
-func (g *BlkTmplGenerator) UpdateExtraNonce(msgBlock *wire.MsgBlock, blockHeight int32, extraNonce uint64) error {
+func (g *BlkTmplGenerator) UpdateExtraNonce(msgBlock wire.MsgBlock, blockHeight int32, extraNonce uint64) error {
 	coinbaseScript, err := standardCoinbaseScript(blockHeight, extraNonce)
 	if err != nil {
 		return err

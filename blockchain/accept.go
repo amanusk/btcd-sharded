@@ -91,7 +91,7 @@ func (b *BlockChain) maybeAcceptBlock(block btcutil.Block, flags BehaviorFlags) 
 	return isMainChain, nil
 }
 
-func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock wire.MsgBlockShard, flags BehaviorFlags) (bool, error) {
 	// The height of this block is one more than the referenced previous
 	// block.
 	header := headerBlock.Header

@@ -65,7 +65,7 @@ type TestInstance interface {
 // orphan.
 type AcceptedBlock struct {
 	Name        string
-	Block       *wire.MsgBlock
+	Block       wire.MsgBlock
 	Height      int32
 	IsMainChain bool
 	IsOrphan    bool
@@ -84,7 +84,7 @@ func (b AcceptedBlock) FullBlockTestInstance() {}
 // the blockchain consensus rules.
 type RejectedBlock struct {
 	Name       string
-	Block      *wire.MsgBlock
+	Block      wire.MsgBlock
 	Height     int32
 	RejectCode blockchain.ErrorCode
 }
@@ -106,7 +106,7 @@ func (b RejectedBlock) FullBlockTestInstance() {}
 // to ultimately link it).
 type OrphanOrRejectedBlock struct {
 	Name   string
-	Block  *wire.MsgBlock
+	Block  wire.MsgBlock
 	Height int32
 }
 
@@ -123,7 +123,7 @@ func (b OrphanOrRejectedBlock) FullBlockTestInstance() {}
 // tip of the main chain.
 type ExpectedTip struct {
 	Name   string
-	Block  *wire.MsgBlock
+	Block  wire.MsgBlock
 	Height int32
 }
 
@@ -171,7 +171,7 @@ func makeSpendableOutForTx(tx *wire.MsgTx, txOutIndex uint32) spendableOut {
 
 // makeSpendableOut returns a spendable output for the given block, transaction
 // index within the block, and transaction output index within the transaction.
-func makeSpendableOut(block *wire.MsgBlock, txIndex, txOutIndex uint32) spendableOut {
+func makeSpendableOut(block wire.MsgBlock, txIndex, txOutIndex uint32) spendableOut {
 	return makeSpendableOutForTx(block.Transactions[txIndex], txOutIndex)
 }
 
@@ -180,11 +180,11 @@ func makeSpendableOut(block *wire.MsgBlock, txIndex, txOutIndex uint32) spendabl
 // available spendable outputs used throughout the tests.
 type testGenerator struct {
 	params       *chaincfg.Params
-	tip          *wire.MsgBlock
+	tip          wire.MsgBlock
 	tipName      string
 	tipHeight    int32
-	blocks       map[chainhash.Hash]*wire.MsgBlock
-	blocksByName map[string]*wire.MsgBlock
+	blocks       map[chainhash.Hash]wire.MsgBlock
+	blocksByName map[string]wire.MsgBlock
 	blockHeights map[string]int32
 
 	// Used for tracking spendable coinbase outputs.
@@ -203,8 +203,8 @@ func makeTestGenerator(params *chaincfg.Params) (testGenerator, error) {
 	genesisHash := genesis.BlockHash()
 	return testGenerator{
 		params:       params,
-		blocks:       map[chainhash.Hash]*wire.MsgBlock{genesisHash: genesis},
-		blocksByName: map[string]*wire.MsgBlock{"genesis": genesis},
+		blocks:       map[chainhash.Hash]wire.MsgBlock{genesisHash: genesis},
+		blocksByName: map[string]wire.MsgBlock{"genesis": genesis},
 		blockHeights: map[string]int32{"genesis": 0},
 		tip:          genesis,
 		tipName:      "genesis",
@@ -380,8 +380,8 @@ func solveBlock(header *wire.BlockHeader) bool {
 
 // additionalCoinbase returns a function that itself takes a block and
 // modifies it by adding the provided amount to coinbase subsidy.
-func additionalCoinbase(amount btcutil.Amount) func(*wire.MsgBlock) {
-	return func(b *wire.MsgBlock) {
+func additionalCoinbase(amount btcutil.Amount) func(wire.MsgBlock) {
+	return func(b wire.MsgBlock) {
 		// Increase the first proof-of-work coinbase subsidy by the
 		// provided amount.
 		b.Transactions[0].TxOut[0].Value += int64(amount)
@@ -393,8 +393,8 @@ func additionalCoinbase(amount btcutil.Amount) func(*wire.MsgBlock) {
 //
 // NOTE: The coinbase value is NOT updated to reflect the additional fee.  Use
 // 'additionalCoinbase' for that purpose.
-func additionalSpendFee(fee btcutil.Amount) func(*wire.MsgBlock) {
-	return func(b *wire.MsgBlock) {
+func additionalSpendFee(fee btcutil.Amount) func(wire.MsgBlock) {
+	return func(b wire.MsgBlock) {
 		// Increase the fee of the spending transaction by reducing the
 		// amount paid.
 		if int64(fee) > b.Transactions[1].TxOut[0].Value {
@@ -408,24 +408,24 @@ func additionalSpendFee(fee btcutil.Amount) func(*wire.MsgBlock) {
 
 // replaceSpendScript returns a function that itself takes a block and modifies
 // it by replacing the public key script of the spending transaction.
-func replaceSpendScript(pkScript []byte) func(*wire.MsgBlock) {
-	return func(b *wire.MsgBlock) {
+func replaceSpendScript(pkScript []byte) func(wire.MsgBlock) {
+	return func(b wire.MsgBlock) {
 		b.Transactions[1].TxOut[0].PkScript = pkScript
 	}
 }
 
 // replaceCoinbaseSigScript returns a function that itself takes a block and
 // modifies it by replacing the signature key script of the coinbase.
-func replaceCoinbaseSigScript(script []byte) func(*wire.MsgBlock) {
-	return func(b *wire.MsgBlock) {
+func replaceCoinbaseSigScript(script []byte) func(wire.MsgBlock) {
+	return func(b wire.MsgBlock) {
 		b.Transactions[0].TxIn[0].SignatureScript = script
 	}
 }
 
 // additionalTx returns a function that itself takes a block and modifies it by
 // adding the the provided transaction.
-func additionalTx(tx *wire.MsgTx) func(*wire.MsgBlock) {
-	return func(b *wire.MsgBlock) {
+func additionalTx(tx *wire.MsgTx) func(wire.MsgBlock) {
+	return func(b wire.MsgBlock) {
 		b.AddTransaction(tx)
 	}
 }
@@ -478,7 +478,7 @@ func createSpendTxForTx(tx *wire.MsgTx, fee btcutil.Amount) *wire.MsgTx {
 // applied after all munge functions have been invoked:
 // - The merkle root will be recalculated unless it was manually changed
 // - The block will be solved unless the nonce was changed
-func (g *testGenerator) nextBlock(blockName string, spend *spendableOut, mungers ...func(*wire.MsgBlock)) *wire.MsgBlock {
+func (g *testGenerator) nextBlock(blockName string, spend *spendableOut, mungers ...func(wire.MsgBlock)) wire.MsgBlock {
 	// Create coinbase transaction for the block using any additional
 	// subsidy if specified.
 	nextHeight := g.tipHeight + 1
@@ -553,7 +553,7 @@ func (g *testGenerator) nextBlock(blockName string, spend *spendableOut, mungers
 // map references to a block via its old hash and insert new ones for the new
 // block hash.  This is useful if the test code has to manually change a block
 // after 'nextBlock' has returned.
-func (g *testGenerator) updateBlockState(oldBlockName string, oldBlockHash chainhash.Hash, newBlockName string, newBlock *wire.MsgBlock) {
+func (g *testGenerator) updateBlockState(oldBlockName string, oldBlockHash chainhash.Hash, newBlockName string, newBlock wire.MsgBlock) {
 	// Look up the height from the existing entries.
 	blockHeight := g.blockHeights[oldBlockName]
 
@@ -606,7 +606,7 @@ func (g *testGenerator) saveSpendableCoinbaseOuts() {
 	// Loop through the ancestors of the current tip until the
 	// reaching the block that has already had the coinbase outputs
 	// collected.
-	var collectBlocks []*wire.MsgBlock
+	var collectBlocks []wire.MsgBlock
 	for b := g.tip; b != nil; b = g.blocks[b.Header.PrevBlock] {
 		if b.BlockHash() == g.prevCollectedHash {
 			break
@@ -633,7 +633,7 @@ func nonCanonicalVarInt(val uint32) []byte {
 // encoding the number of transactions using a variable-length encoded integer
 // with 9 bytes even though it should be encoded with a minimal canonical
 // encoding.
-func encodeNonCanonicalBlock(b *wire.MsgBlock) []byte {
+func encodeNonCanonicalBlock(b wire.MsgBlock) []byte {
 	var buf bytes.Buffer
 	b.Header.BtcEncode(&buf, 0, wire.BaseEncoding)
 	buf.Write(nonCanonicalVarInt(uint32(len(b.Transactions))))
@@ -644,7 +644,7 @@ func encodeNonCanonicalBlock(b *wire.MsgBlock) []byte {
 }
 
 // cloneBlock returns a deep copy of the provided block.
-func cloneBlock(b *wire.MsgBlock) wire.MsgBlock {
+func cloneBlock(b wire.MsgBlock) wire.MsgBlock {
 	var blockCopy wire.MsgBlock
 	blockCopy.Header = b.Header
 	for _, tx := range b.Transactions {
@@ -673,7 +673,7 @@ func assertScriptSigOpsCount(script []byte, expected int) {
 
 // countBlockSigOps returns the number of legacy signature operations in the
 // scripts in the passed block.
-func countBlockSigOps(block *wire.MsgBlock) int {
+func countBlockSigOps(block wire.MsgBlock) int {
 	totalSigOps := 0
 	for _, tx := range block.Transactions {
 		for _, txIn := range tx.TxIn {
@@ -835,25 +835,25 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	// expectTipBlock creates a test instance that expects the provided
 	// block to be the current tip of the block chain.
-	acceptBlock := func(blockName string, block *wire.MsgBlock, isMainChain, isOrphan bool) TestInstance {
+	acceptBlock := func(blockName string, block wire.MsgBlock, isMainChain, isOrphan bool) TestInstance {
 		blockHeight := g.blockHeights[blockName]
 		return AcceptedBlock{blockName, block, blockHeight, isMainChain,
 			isOrphan}
 	}
-	rejectBlock := func(blockName string, block *wire.MsgBlock, code blockchain.ErrorCode) TestInstance {
+	rejectBlock := func(blockName string, block wire.MsgBlock, code blockchain.ErrorCode) TestInstance {
 		blockHeight := g.blockHeights[blockName]
 		return RejectedBlock{blockName, block, blockHeight, code}
 	}
-	rejectNonCanonicalBlock := func(blockName string, block *wire.MsgBlock) TestInstance {
+	rejectNonCanonicalBlock := func(blockName string, block wire.MsgBlock) TestInstance {
 		blockHeight := g.blockHeights[blockName]
 		encoded := encodeNonCanonicalBlock(block)
 		return RejectedNonCanonicalBlock{blockName, encoded, blockHeight}
 	}
-	orphanOrRejectBlock := func(blockName string, block *wire.MsgBlock) TestInstance {
+	orphanOrRejectBlock := func(blockName string, block wire.MsgBlock) TestInstance {
 		blockHeight := g.blockHeights[blockName]
 		return OrphanOrRejectedBlock{blockName, block, blockHeight}
 	}
-	expectTipBlock := func(blockName string, block *wire.MsgBlock) TestInstance {
+	expectTipBlock := func(blockName string, block wire.MsgBlock) TestInstance {
 		blockHeight := g.blockHeights[blockName]
 		return ExpectedTip{blockName, block, blockHeight}
 	}
@@ -1124,7 +1124,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	//   ... -> b15(5) -> b23(6)
 	g.setTip("b15")
-	g.nextBlock("b23", outs[6], func(b *wire.MsgBlock) {
+	g.nextBlock("b23", outs[6], func(b wire.MsgBlock) {
 		bytesToMaxSize := maxBlockSize - b.SerializeSize() - 3
 		sizePadScript := repeatOpcode(0x00, bytesToMaxSize)
 		replaceSpendScript(sizePadScript)(b)
@@ -1138,7 +1138,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b15(5) -> b23(6)
 	//                \-> b24(6) -> b25(7)
 	g.setTip("b15")
-	g.nextBlock("b24", outs[6], func(b *wire.MsgBlock) {
+	g.nextBlock("b24", outs[6], func(b wire.MsgBlock) {
 		bytesToMaxSize := maxBlockSize - b.SerializeSize() - 3
 		sizePadScript := repeatOpcode(0x00, bytesToMaxSize+1)
 		replaceSpendScript(sizePadScript)(b)
@@ -1304,7 +1304,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	//   ... -> b35(10) -> b39(11)
 	g.setTip("b35")
-	b39 := g.nextBlock("b39", outs[11], func(b *wire.MsgBlock) {
+	b39 := g.nextBlock("b39", outs[11], func(b wire.MsgBlock) {
 		// Create a chain of transactions each spending from the
 		// previous one such that each contains an output that pays to
 		// the redeem script and the total number of signature
@@ -1329,7 +1329,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b35(10) -> b39(11)
 	//                            \-> b40(12)
 	g.setTip("b39")
-	g.nextBlock("b40", outs[12], func(b *wire.MsgBlock) {
+	g.nextBlock("b40", outs[12], func(b wire.MsgBlock) {
 		txnsNeeded := (maxBlockSigOps / redeemScriptSigOps)
 		for i := 0; i < txnsNeeded; i++ {
 			// Create a signed transaction that spends from the
@@ -1362,7 +1362,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	//   ... -> b35(10) -> b39(11) -> b41(12)
 	g.setTip("b39")
-	g.nextBlock("b41", outs[12], func(b *wire.MsgBlock) {
+	g.nextBlock("b41", outs[12], func(b wire.MsgBlock) {
 		txnsNeeded := (maxBlockSigOps / redeemScriptSigOps)
 		for i := 0; i < txnsNeeded; i++ {
 			spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
@@ -1414,7 +1414,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	//   ... -> b43(13)
 	//                 \-> b44(14)
-	g.nextBlock("b44", nil, func(b *wire.MsgBlock) {
+	g.nextBlock("b44", nil, func(b wire.MsgBlock) {
 		nonCoinbaseTx := createSpendTx(outs[14], lowFee)
 		b.Transactions[0] = nonCoinbaseTx
 	})
@@ -1425,7 +1425,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b43(13)
 	//                 \-> b45(_)
 	g.setTip("b43")
-	g.nextBlock("b45", nil, func(b *wire.MsgBlock) {
+	g.nextBlock("b45", nil, func(b wire.MsgBlock) {
 		b.Transactions = nil
 	})
 	rejected(blockchain.ErrNoTransactions)
@@ -1460,7 +1460,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b43(13)
 	//                 \-> b47(14)
 	g.setTip("b43")
-	g.nextBlock("b47", outs[14], func(b *wire.MsgBlock) {
+	g.nextBlock("b47", outs[14], func(b wire.MsgBlock) {
 		// 3 hours in the future clamped to 1 second precision.
 		nowPlus3Hours := time.Now().Add(time.Hour * 3)
 		b.Header.Timestamp = time.Unix(nowPlus3Hours.Unix(), 0)
@@ -1472,7 +1472,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b43(13)
 	//                 \-> b48(14)
 	g.setTip("b43")
-	g.nextBlock("b48", outs[14], func(b *wire.MsgBlock) {
+	g.nextBlock("b48", outs[14], func(b wire.MsgBlock) {
 		b.Header.MerkleRoot = chainhash.Hash{}
 	})
 	rejected(blockchain.ErrBadMerkleRoot)
@@ -1482,7 +1482,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b43(13)
 	//                 \-> b49(14)
 	g.setTip("b43")
-	g.nextBlock("b49", outs[14], func(b *wire.MsgBlock) {
+	g.nextBlock("b49", outs[14], func(b wire.MsgBlock) {
 		b.Header.Bits--
 	})
 	rejected(blockchain.ErrUnexpectedDifficulty)
@@ -1520,7 +1520,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b43(13)
 	//                 \-> b51(14)
 	g.setTip("b43")
-	g.nextBlock("b51", outs[14], func(b *wire.MsgBlock) {
+	g.nextBlock("b51", outs[14], func(b wire.MsgBlock) {
 		b.AddTransaction(b.Transactions[1])
 	})
 	g.assertTipBlockNumTxns(3)
@@ -1531,7 +1531,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b43(13)
 	//                 \-> b52(14)
 	g.setTip("b43")
-	g.nextBlock("b52", outs[14], func(b *wire.MsgBlock) {
+	g.nextBlock("b52", outs[14], func(b wire.MsgBlock) {
 		hash := newHashFromStr("00000000000000000000000000000000" +
 			"00000000000000000123456789abcdef")
 		b.Transactions[1].TxIn[0].PreviousOutPoint.Hash = *hash
@@ -1555,7 +1555,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	//   ... -> b33(9) -> b35(10) -> b39(11) -> b42(12) -> b43(13) -> b53(14)
 	//                                                                       \-> b54(15)
-	g.nextBlock("b54", outs[15], func(b *wire.MsgBlock) {
+	g.nextBlock("b54", outs[15], func(b wire.MsgBlock) {
 		medianBlock := g.blocks[b.Header.PrevBlock]
 		for i := 0; i < medianTimeBlocks/2; i++ {
 			medianBlock = g.blocks[medianBlock.Header.PrevBlock]
@@ -1569,7 +1569,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	//   ... -> b33(9) -> b35(10) -> b39(11) -> b42(12) -> b43(13) -> b53(14) -> b55(15)
 	g.setTip("b53")
-	g.nextBlock("b55", outs[15], func(b *wire.MsgBlock) {
+	g.nextBlock("b55", outs[15], func(b wire.MsgBlock) {
 		medianBlock := g.blocks[b.Header.PrevBlock]
 		for i := 0; i < medianTimeBlocks/2; i++ {
 			medianBlock = g.blocks[medianBlock.Header.PrevBlock]
@@ -1618,7 +1618,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b55(15) -> b57(16)
 	//                 \-> b56(16)
 	g.setTip("b55")
-	b57 := g.nextBlock("b57", outs[16], func(b *wire.MsgBlock) {
+	b57 := g.nextBlock("b57", outs[16], func(b wire.MsgBlock) {
 		tx2 := b.Transactions[1]
 		tx3 := createSpendTxForTx(tx2, lowFee)
 		b.AddTransaction(tx3)
@@ -1626,7 +1626,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	g.assertTipBlockNumTxns(3)
 
 	g.setTip("b55")
-	b56 := g.nextBlock("b56", nil, func(b *wire.MsgBlock) {
+	b56 := g.nextBlock("b56", nil, func(b wire.MsgBlock) {
 		*b = cloneBlock(b57)
 		b.AddTransaction(b.Transactions[2])
 	})
@@ -1660,7 +1660,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b55(15) -> b57(16)
 	//                 \-> b56p2(16)
 	g.setTip("b55")
-	g.nextBlock("b56p2", outs[16], func(b *wire.MsgBlock) {
+	g.nextBlock("b56p2", outs[16], func(b wire.MsgBlock) {
 		// Create 4 transactions that each spend from the previous tx
 		// in the block.
 		spendTx := b.Transactions[1]
@@ -1686,7 +1686,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b57(16)
 	//                 \-> b58(17)
 	g.setTip("b57")
-	g.nextBlock("b58", outs[17], func(b *wire.MsgBlock) {
+	g.nextBlock("b58", outs[17], func(b wire.MsgBlock) {
 		b.Transactions[1].TxIn[0].PreviousOutPoint.Index = 42
 	})
 	rejected(blockchain.ErrMissingTxOut)
@@ -1696,7 +1696,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b57(16)
 	//                 \-> b59(17)
 	g.setTip("b57")
-	g.nextBlock("b59", outs[17], func(b *wire.MsgBlock) {
+	g.nextBlock("b59", outs[17], func(b wire.MsgBlock) {
 		b.Transactions[1].TxOut[0].Value = int64(outs[17].amount) + 1
 	})
 	rejected(blockchain.ErrSpendTooHigh)
@@ -1717,7 +1717,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	//   ... -> b60(17)
 	//                 \-> b61(18)
-	g.nextBlock("b61", outs[18], func(b *wire.MsgBlock) {
+	g.nextBlock("b61", outs[18], func(b wire.MsgBlock) {
 		// Duplicate the coinbase of the parent block to force the
 		// condition.
 		parent := g.blocks[b.Header.PrevBlock]
@@ -1734,7 +1734,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b60(17)
 	//                 \-> b62(18)
 	g.setTip("b60")
-	g.nextBlock("b62", outs[18], func(b *wire.MsgBlock) {
+	g.nextBlock("b62", outs[18], func(b wire.MsgBlock) {
 		// A non-final transaction must have at least one input with a
 		// non-final sequence number in addition to a non-final lock
 		// time.
@@ -1748,7 +1748,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b60(17)
 	//                 \-> b63(18)
 	g.setTip("b60")
-	g.nextBlock("b63", outs[18], func(b *wire.MsgBlock) {
+	g.nextBlock("b63", outs[18], func(b wire.MsgBlock) {
 		// A non-final transaction must have at least one input with a
 		// non-final sequence number in addition to a non-final lock
 		// time.
@@ -1772,7 +1772,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b60(17) -> b64(18)
 	//                 \-> b64a(18)
 	g.setTip("b60")
-	b64a := g.nextBlock("b64a", outs[18], func(b *wire.MsgBlock) {
+	b64a := g.nextBlock("b64a", outs[18], func(b wire.MsgBlock) {
 		bytesToMaxSize := maxBlockSize - b.SerializeSize() - 3
 		sizePadScript := repeatOpcode(0x00, bytesToMaxSize)
 		replaceSpendScript(sizePadScript)(b)
@@ -1781,7 +1781,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	rejectedNonCanonical()
 
 	g.setTip("b60")
-	b64 := g.nextBlock("b64", outs[18], func(b *wire.MsgBlock) {
+	b64 := g.nextBlock("b64", outs[18], func(b wire.MsgBlock) {
 		*b = cloneBlock(b64a)
 	})
 	// Since the two blocks have the same hash and the generator state now
@@ -1801,7 +1801,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	//   ... b64(18) -> b65(19)
 	g.setTip("b64")
-	g.nextBlock("b65", outs[19], func(b *wire.MsgBlock) {
+	g.nextBlock("b65", outs[19], func(b wire.MsgBlock) {
 		tx3 := createSpendTxForTx(b.Transactions[1], lowFee)
 		b.AddTransaction(tx3)
 	})
@@ -1811,7 +1811,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//
 	//   ... -> b65(19)
 	//                 \-> b66(20)
-	g.nextBlock("b66", nil, func(b *wire.MsgBlock) {
+	g.nextBlock("b66", nil, func(b wire.MsgBlock) {
 		tx2 := createSpendTx(outs[20], lowFee)
 		tx3 := createSpendTxForTx(tx2, lowFee)
 		b.AddTransaction(tx3)
@@ -1825,7 +1825,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b65(19)
 	//                 \-> b67(20)
 	g.setTip("b65")
-	g.nextBlock("b67", outs[20], func(b *wire.MsgBlock) {
+	g.nextBlock("b67", outs[20], func(b wire.MsgBlock) {
 		tx2 := b.Transactions[1]
 		tx3 := createSpendTxForTx(tx2, lowFee)
 		tx4 := createSpendTxForTx(tx2, lowFee)
@@ -1950,7 +1950,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b73(22) -> b74(23)
 	script := []byte{txscript.OP_IF, txscript.OP_INVALIDOPCODE,
 		txscript.OP_ELSE, txscript.OP_TRUE, txscript.OP_ENDIF}
-	g.nextBlock("b74", outs[23], replaceSpendScript(script), func(b *wire.MsgBlock) {
+	g.nextBlock("b74", outs[23], replaceSpendScript(script), func(b wire.MsgBlock) {
 		tx2 := b.Transactions[1]
 		tx3 := createSpendTxForTx(tx2, lowFee)
 		tx3.TxIn[0].SignatureScript = []byte{txscript.OP_FALSE}
@@ -1966,7 +1966,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	// OP_RETURN output.
 	//
 	//   ... -> b74(23) -> b75(24)
-	g.nextBlock("b75", outs[24], func(b *wire.MsgBlock) {
+	g.nextBlock("b75", outs[24], func(b wire.MsgBlock) {
 		// Add 4 outputs to the spending transaction that are spent
 		// below.
 		const numAdditionalOutputs = 4
@@ -2033,7 +2033,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   ... -> b79(26) -> b81(27)
 	//
 	g.setTip("b79")
-	g.nextBlock("b81", outs[27], func(b *wire.MsgBlock) {
+	g.nextBlock("b81", outs[27], func(b wire.MsgBlock) {
 		const numAdditionalOutputs = 4
 		const zeroCoin = int64(0)
 		spendTx := b.Transactions[1]
@@ -2074,7 +2074,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	chain1TipName := g.tipName
 	for i := int32(0); i < numLargeReorgBlocks; i++ {
 		chain1TipName = fmt.Sprintf("br%d", i)
-		g.nextBlock(chain1TipName, &reorgSpend, func(b *wire.MsgBlock) {
+		g.nextBlock(chain1TipName, &reorgSpend, func(b wire.MsgBlock) {
 			bytesToMaxSize := maxBlockSize - b.SerializeSize() - 3
 			sizePadScript := repeatOpcode(0x00, bytesToMaxSize)
 			replaceSpendScript(sizePadScript)(b)
@@ -2190,25 +2190,25 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	// expectTipBlock creates a test instance that expects the provided
 	// block to be the current tip of the block chain.
-	acceptBlock := func(blockName string, block *wire.MsgBlock, isMainChain, isOrphan bool) TestInstance {
+	acceptBlock := func(blockName string, block wire.MsgBlock, isMainChain, isOrphan bool) TestInstance {
 		blockHeight := g.blockHeights[blockName]
 		return AcceptedBlock{blockName, block, blockHeight, isMainChain,
 			isOrphan}
 	}
-	//rejectBlock := func(blockName string, block *wire.MsgBlock, code blockchain.ErrorCode) TestInstance {
+	//rejectBlock := func(blockName string, block wire.MsgBlock, code blockchain.ErrorCode) TestInstance {
 	//	blockHeight := g.blockHeights[blockName]
 	//	return RejectedBlock{blockName, block, blockHeight, code}
 	//}
-	//rejectNonCanonicalBlock := func(blockName string, block *wire.MsgBlock) TestInstance {
+	//rejectNonCanonicalBlock := func(blockName string, block wire.MsgBlock) TestInstance {
 	//	blockHeight := g.blockHeights[blockName]
 	//	encoded := encodeNonCanonicalBlock(block)
 	//	return RejectedNonCanonicalBlock{blockName, encoded, blockHeight}
 	//}
-	//orphanOrRejectBlock := func(blockName string, block *wire.MsgBlock) TestInstance {
+	//orphanOrRejectBlock := func(blockName string, block wire.MsgBlock) TestInstance {
 	//	blockHeight := g.blockHeights[blockName]
 	//	return OrphanOrRejectedBlock{blockName, block, blockHeight}
 	//}
-	//expectTipBlock := func(blockName string, block *wire.MsgBlock) TestInstance {
+	//expectTipBlock := func(blockName string, block wire.MsgBlock) TestInstance {
 	//	blockHeight := g.blockHeights[blockName]
 	//	return ExpectedTip{blockName, block, blockHeight}
 	//}
@@ -2312,7 +2312,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	accepted()
 
 	// Test with more than 2 transactions
-	g.nextBlock("b3", outs[2], func(b *wire.MsgBlock) {
+	g.nextBlock("b3", outs[2], func(b wire.MsgBlock) {
 		fee := btcutil.Amount(1)
 		b.AddTransaction(createSpendTx(outs[3], fee))
 	})
@@ -2329,7 +2329,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//   ... -> b57(16)
 	//                 \-> b59(17)
 	//txToSpend4:= []*spendableOut{outs[7]}
-	//g.nextBlockMultiTX("b5", txToSpend4, func(b *wire.MsgBlock) {
+	//g.nextBlockMultiTX("b5", txToSpend4, func(b wire.MsgBlock) {
 	//	b.Transactions[1].TxOut[0].Value = int64(outs[7].amount) + 1
 	//})
 	// TODO: Create a reject block function so all can be tested
@@ -2343,7 +2343,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//   ... -> b43(13)
 	//                 \-> b52(14)
 	//txToSpend4 := []*spendableOut{outs[7]}
-	//g.nextBlockMultiTX("b6", txToSpend4, func(b *wire.MsgBlock) {
+	//g.nextBlockMultiTX("b6", txToSpend4, func(b wire.MsgBlock) {
 	//	hash := newHashFromStr("00000000000000000000000000000000" +
 	//		"00000000000000000123456789abcdef")
 	//	b.Transactions[1].TxIn[0].PreviousOutPoint.Hash = *hash
@@ -2360,7 +2360,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	//   ... -> b43(13)
 	//                 \-> b51(14)
-	//g.nextBlock("b51", outs[14], func(b *wire.MsgBlock) {
+	//g.nextBlock("b51", outs[14], func(b wire.MsgBlock) {
 	//	b.AddTransaction(b.Transactions[1])
 	//})
 	//g.assertTipBlockNumTxns(3)
@@ -2373,7 +2373,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// co gets: TX0
 	// s0 gets: TX2(out7)
 	// s1 gets: TX1(out6), TX3(spendTx(6))
-	g.nextBlock("b6p2", outs[6], func(b *wire.MsgBlock) {
+	g.nextBlock("b6p2", outs[6], func(b wire.MsgBlock) {
 		// Create 4 transactions that each spend from the previous tx
 		// in the block.
 		fee := btcutil.Amount(1)
@@ -2392,7 +2392,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// co gets: TX0
 	// s0 gets: TX2(out8)
 	// s1 gets: TX1(out9), TX3(spendTx(out8))
-	g.nextBlock("b7p2", outs[8], func(b *wire.MsgBlock) {
+	g.nextBlock("b7p2", outs[8], func(b wire.MsgBlock) {
 		// Create 4 transactions that each spend from the previous tx
 		// in the block.
 		fee := btcutil.Amount(1)
@@ -2411,7 +2411,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	//   ... -> b65(19)
 	//                 \-> b67(20)
-	g.nextBlock("b67", outs[9], func(b *wire.MsgBlock) {
+	g.nextBlock("b67", outs[9], func(b wire.MsgBlock) {
 		tx2 := b.Transactions[1]
 		tx3 := createSpendTxForTx(tx2, lowFee)
 		tx4 := createSpendTxForTx(tx2, lowFee)

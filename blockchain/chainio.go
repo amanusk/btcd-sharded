@@ -1431,7 +1431,7 @@ func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (btcutil.Block, error) {
 // relevant indexes
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) BlockShardByHash(hash *chainhash.Hash) (*wire.MsgBlockShard, error) {
+func (b *BlockChain) BlockShardByHash(hash *chainhash.Hash) (wire.MsgBlockShard, error) {
 	// Lookup the block hash in block index and ensure it is in the best
 	// chain.
 	node := b.index.LookupNode(hash)

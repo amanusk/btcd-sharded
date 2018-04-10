@@ -22,7 +22,7 @@ type SqlBlockDB struct {
 }
 
 // Adds a block header to the headers table in the blockchain database
-func (db *SqlBlockDB) AddBlock(block *wire.MsgBlock) {
+func (db *SqlBlockDB) AddBlock(block wire.MsgBlock) {
 	db.AddBlockHeader(block.Header)
 	blockHash := block.BlockHash()
 	for idx, val := range block.Transactions {
@@ -85,7 +85,7 @@ func (db *SqlBlockDB) StoreUTXO(txHash chainhash.Hash, serialized []byte) {
 }
 
 // Fetch all transactions associated with the received block hash
-func (db *SqlBlockDB) FetchTXs(hash chainhash.Hash) *wire.MsgBlockShard {
+func (db *SqlBlockDB) FetchTXs(hash chainhash.Hash) wire.MsgBlockShard {
 	reallog.Println("Fetching txs for block", hash)
 	// Query all txs from databse
 	rows, err := db.db.Query("SELECT * FROM txs WHERE blockHash=$1", hash[:])

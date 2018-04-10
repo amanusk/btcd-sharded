@@ -158,7 +158,7 @@ func initDB() *sql.DB {
 }
 
 // Adds a block header to the headers table in the blockchain database
-func addBlock(db *sql.DB, block *wire.MsgBlock) {
+func addBlock(db *sql.DB, block wire.MsgBlock) {
 	addBlockHeader(db, block.Header)
 	blockHash := block.BlockHash()
 	for idx, val := range block.Transactions {
