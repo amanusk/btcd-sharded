@@ -867,7 +867,7 @@ func (b *BlockChain) checkBIP0030(node *BlockNode, block btcutil.Block, view Utx
 // amount, and verifying the signatures to prove the spender was the owner of
 // the bitcoins and therefore allowed to spend them.  As it checks the inputs,
 // it also calculates the total fees for the transaction and returns that value.
-//
+// TODO:
 // NOTE: The transaction MUST have already been sanity checked with the
 // CheckTransactionSanity function prior to calling this function.
 func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, chainParams *chaincfg.Params) (int64, error) {
@@ -1030,7 +1030,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// expands the count to include a precise count of pay-to-script-hash
 	// signature operations in each of the input transaction public key
 	// scripts.
-	transactions := block.Transactions()
+	transactions := block.TransactionsMap()
 	totalSigOpCost := 0
 	for i, tx := range transactions {
 		// Since the first (and only the first) transaction has
