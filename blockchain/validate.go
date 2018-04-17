@@ -1071,6 +1071,10 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// TODO: pass block height to shard.
 	// TODO TODO TODO: CheckTransactionInpus only works with tx containing correct Index!
 	// Only relevant for checking if TX is older than CoinBase
+	reallog.Println("Transactions in blockShard:")
+	for txIdx, tx := range transactions {
+		reallog.Println("Tx id ", txIdx, " TX ", tx)
+	}
 	for txIdx, tx := range transactions {
 		reallog.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
 		txFee, err := CheckTransactionInputs(tx, node.height, view,

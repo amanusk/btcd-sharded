@@ -12,7 +12,6 @@ import (
 	_ "sync"
 
 	_ "github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	_ "github.com/davecgh/go-spew/spew"
 )
@@ -152,9 +151,7 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 
 	// Process the transactions
 	// Create a new block node for the block and add it to the in-memory
-	// TODO this creates a new block with mostly the same informtion,
-	// TODO: Go over the transactions and save them accroding to the Index in msgBlockShard
-	block := btcutil.NewFullBlock(wire.NewMsgBlockFromShard(msgBlockShard))
+	block := btcutil.NewBlockShard(msgBlockShard)
 
 	// Store the txs in database, this could be postponed until after validation
 	StoreBlockShard(shard.SqlDB, msgBlockShard)

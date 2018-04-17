@@ -658,9 +658,10 @@ func main() {
 			// Split transactions between blocks
 			// Do not include coinbase, the coordinator will handle it
 			for idx, tx := range block.Transactions[1:] {
-				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
+				// idx starts from 0, but 0 is coinbase
+				newTx := wire.NewTxIndexFromTx(tx, int32(idx+1))
 				// NOTE: This should be a DHT
-				bShards[idx%numShards].AddTransaction(newTx)
+				bShards[(idx+1)%numShards].AddTransaction(newTx)
 			}
 			reallog.Println("Sending shards")
 
