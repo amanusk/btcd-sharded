@@ -130,7 +130,7 @@ func TestCheckConnectBlockTemplate(t *testing.T) {
 	}
 
 	// Block 4 should connect even if proof of work is invalid.
-	invalidPowBlock := *blocks[4].MsgBlock()
+	invalidPowBlock := *blocks[4].MsgBlock().(*wire.MsgBlock)
 	invalidPowBlock.Header.Nonce++
 	err = chain.CheckConnectBlockTemplate(btcutil.NewFullBlock(&invalidPowBlock))
 	if err != nil {
@@ -139,7 +139,7 @@ func TestCheckConnectBlockTemplate(t *testing.T) {
 	}
 
 	// Invalid block building on chain tip should fail to connect.
-	invalidBlock := *blocks[4].MsgBlock()
+	invalidBlock := *blocks[4].MsgBlock().(*wire.MsgBlock)
 	invalidBlock.Header.Bits--
 	err = chain.CheckConnectBlockTemplate(btcutil.NewFullBlock(&invalidBlock))
 	if err == nil {

@@ -234,7 +234,6 @@ func (shard *Shard) StartShard() {
 			}
 		}
 	}
-	<-shard.terminate
 }
 
 // Recored a connection to another shard

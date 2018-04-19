@@ -187,8 +187,7 @@ func newUtxoEntry(version int32, isCoinBase bool, blockHeight int32) *UtxoEntry 
 	}
 }
 
-// Define an interface for UtxoView
-
+// UtxoView Define an interface for UtxoView
 type UtxoView interface {
 	BestHash() *chainhash.Hash
 	PrintToLog()
@@ -201,10 +200,10 @@ type UtxoView interface {
 	Entries() map[chainhash.Hash]*UtxoEntry
 	Commit()
 	FetchUtxosMain(db database.DB, txSet map[chainhash.Hash]struct{}) error
-	SqlFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error
+	SQLFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error
 	FetchUtxos(db database.DB, txSet map[chainhash.Hash]struct{}) error
 	FetchInputUtxos(db database.DB, block btcutil.Block) error
-	SqlFetchInputUtxos(db *SqlBlockDB, block btcutil.Block) error
+	SQLFetchInputUtxos(db *SqlBlockDB, block btcutil.Block) error
 }
 
 // Force UtxoViewpoint to implement the interface
@@ -228,7 +227,7 @@ func (view *UtxoViewpoint) BestHash() *chainhash.Hash {
 	return &view.bestHash
 }
 
-// Print utxos in view to log
+// PrintToLog utxos in view to log
 func (view *UtxoViewpoint) PrintToLog() {
 	for idx, utxo := range view.entries {
 		reallog.Println("Utxo id,", idx, "Val: ", utxo)
@@ -372,7 +371,7 @@ func (view *UtxoViewpoint) ConnectTransactions(block btcutil.Block, stxos *[]spe
 
 		//reallog.Printf("Connected tx", tx)
 		if err != nil {
-			reallog.Printf("Error connecting", tx)
+			reallog.Print("Error connecting", tx)
 			return err
 		}
 	}
@@ -528,14 +527,14 @@ func (view *UtxoViewpoint) FetchUtxosMain(db database.DB, txSet map[chainhash.Ha
 	})
 }
 
-// FetchUtxosMain fetches unspent transaction output data about the provided
+// SQLFetchUtxosMain fetches unspent transaction output data about the provided
 // set of transactions from the point of view of the end of the main chain at
 // the time of the call.
 //
 // Upon completion of this function, the view will contain an entry for each
 // requested transaction.  Fully spent transactions, or those which otherwise
 // don't exist, will result in a nil entry in the view.
-func (view *UtxoViewpoint) SqlFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error {
+func (view *UtxoViewpoint) SQLFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error {
 	// Nothing to do if there are no requested hashes.
 	if len(txSet) == 0 {
 		return nil
@@ -641,11 +640,11 @@ func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) 
 	return view.FetchUtxosMain(db, txNeededSet)
 }
 
-// FetchInputUtxos loads utxo details about the input transactions referenced
+// SQLFetchInputUtxos loads utxo details about the input transactions referenced
 // by the transactions in the given block into the view from the database as
 // needed.  In particular, referenced entries that are earlier in the block are
 // added to the view and entries that are already in the view are not modified.
-func (view *UtxoViewpoint) SqlFetchInputUtxos(db *SqlBlockDB, block btcutil.Block) error {
+func (view *UtxoViewpoint) SQLFetchInputUtxos(db *SqlBlockDB, block btcutil.Block) error {
 	// Build a map of in-flight transactions because some of the inputs in
 	// this block could be referencing other transactions earlier in this
 	// block which are not yet in the chain.
@@ -695,7 +694,7 @@ func (view *UtxoViewpoint) SqlFetchInputUtxos(db *SqlBlockDB, block btcutil.Bloc
 	}
 
 	// Request the input utxos from the database.
-	return view.SqlFetchUtxosMain(db, txNeededSet)
+	return view.SQLFetchUtxosMain(db, txNeededSet)
 }
 
 // NewUtxoViewpoint returns a new empty unspent transaction output view.
@@ -762,7 +761,7 @@ func (b *BlockChain) FetchUtxoEntry(txHash *chainhash.Hash) (*UtxoEntry, error) 
 }
 
 // -----------------------------------------------------------//
-// -----------------------SqlUtxoViewpoint--------------------//
+// -----------------------SQLUtxoViewpoint--------------------//
 
 // UtxoViewpoint represents a view into the set of unspent transaction outputs
 // from a specific point of view in the chain.  For example, it could be for
@@ -771,18 +770,18 @@ func (b *BlockChain) FetchUtxoEntry(txHash *chainhash.Hash) (*UtxoEntry, error) 
 //
 // The unspent outputs are needed by other transactions for things such as
 // script validation and double spend prevention.
-type SqlUtxoViewpoint struct {
+type SQLUtxoViewpoint struct {
 	db       *SqlBlockDB
 	bestHash chainhash.Hash
 }
 
 // Force UtxoViewpoint to implement the interface
-var _ UtxoView = (*SqlUtxoViewpoint)(nil)
+var _ UtxoView = (*SQLUtxoViewpoint)(nil)
 
 // NewUtxoViewpoint returns a new empty unspent transaction output view.
-func NewSqlUtxoViewpoint(indb *SqlBlockDB) *SqlUtxoViewpoint {
+func NewSqlUtxoViewpoint(indb *SqlBlockDB) *SQLUtxoViewpoint {
 
-	newview := SqlUtxoViewpoint{
+	newview := SQLUtxoViewpoint{
 		db: indb,
 	}
 	newview.db.NewUtoxView()
@@ -792,18 +791,18 @@ func NewSqlUtxoViewpoint(indb *SqlBlockDB) *SqlUtxoViewpoint {
 
 // BestHash returns the hash of the best block in the chain the view currently
 // respresents.
-func (view *SqlUtxoViewpoint) BestHash() *chainhash.Hash {
+func (view *SQLUtxoViewpoint) BestHash() *chainhash.Hash {
 	return &view.bestHash
 }
 
 // SetBestHash sets the hash of the best block in the chain the view currently
 // respresents.
-func (view *SqlUtxoViewpoint) SetBestHash(hash *chainhash.Hash) {
+func (view *SQLUtxoViewpoint) SetBestHash(hash *chainhash.Hash) {
 	view.bestHash = *hash
 }
 
 // Prints all the information in the UtxoView to the log
-func (view *SqlUtxoViewpoint) PrintToLog() {
+func (view *SQLUtxoViewpoint) PrintToLog() {
 	//TODO
 }
 
@@ -811,7 +810,7 @@ func (view *SqlUtxoViewpoint) PrintToLog() {
 // current state of the view.  It will return nil if the passed transaction
 // hash does not exist in the view or is otherwise not available such as when
 // it has been disconnected during a reorg.
-func (view *SqlUtxoViewpoint) LookupEntry(txHash *chainhash.Hash) *UtxoEntry {
+func (view *SQLUtxoViewpoint) LookupEntry(txHash *chainhash.Hash) *UtxoEntry {
 	entry, err := view.db.FetchUtxoEntry(txHash)
 	if err != nil {
 		return nil
@@ -823,7 +822,7 @@ func (view *SqlUtxoViewpoint) LookupEntry(txHash *chainhash.Hash) *UtxoEntry {
 // unspendable to the view.  When the view already has entries for any of the
 // outputs, they are simply marked unspent.  All fields will be updated for
 // existing entries since it's possible it has changed during a reorg.
-func (view *SqlUtxoViewpoint) AddTxOuts(tx *btcutil.Tx, blockHeight int32) {
+func (view *SQLUtxoViewpoint) AddTxOuts(tx *btcutil.Tx, blockHeight int32) {
 	// When there are not already any utxos associated with the transaction,
 	// add a new entry for it to the view.
 	entry := view.LookupEntry(tx.Hash())
@@ -865,7 +864,7 @@ func (view *SqlUtxoViewpoint) AddTxOuts(tx *btcutil.Tx, blockHeight int32) {
 // spent.  In addition, when the 'stxos' argument is not nil, it will be updated
 // to append an entry for each spent txout.  An error will be returned if the
 // view does not contain the required utxos.
-func (view *SqlUtxoViewpoint) ConnectTransaction(tx *btcutil.Tx, blockHeight int32, stxos *[]spentTxOut) error {
+func (view *SQLUtxoViewpoint) ConnectTransaction(tx *btcutil.Tx, blockHeight int32, stxos *[]spentTxOut) error {
 	// Coinbase transactions don't have any inputs to spend.
 	if IsCoinBase(tx) {
 		// Add the transaction's outputs as available utxos.
@@ -929,19 +928,19 @@ func (view *SqlUtxoViewpoint) ConnectTransaction(tx *btcutil.Tx, blockHeight int
 // spend as spent, and setting the best hash for the view to the passed block.
 // In addition, when the 'stxos' argument is not nil, it will be updated to
 // append an entry for each spent txout.
-func (view *SqlUtxoViewpoint) ConnectTransactions(block btcutil.Block, stxos *[]spentTxOut) error {
+func (view *SQLUtxoViewpoint) ConnectTransactions(block btcutil.Block, stxos *[]spentTxOut) error {
 	// NOTE: debug information for stxos
-	reallog.Printf("stxos Before", stxos)
+	reallog.Print("stxos Before", stxos)
 	for _, tx := range block.Transactions() {
 		err := view.ConnectTransaction(tx, block.Height(), stxos)
 
-		reallog.Printf("Connected tx", tx)
+		reallog.Print("Connected tx", tx)
 		if err != nil {
-			reallog.Printf("Error connecting", tx)
+			reallog.Print("Error connecting", tx)
 			return err
 		}
 	}
-	reallog.Printf("stxos After", stxos)
+	reallog.Print("stxos After", stxos)
 
 	// Update the best hash for view to include this block since all of its
 	// transactions have been connected.
@@ -953,20 +952,20 @@ func (view *SqlUtxoViewpoint) ConnectTransactions(block btcutil.Block, stxos *[]
 // created by the passed block, restoring all utxos the transactions spent by
 // using the provided spent txo information, and setting the best hash for the
 // view to the block before the passed block.
-func (view *SqlUtxoViewpoint) DisconnectTransactions(block btcutil.Block, stxos []spentTxOut) error {
+func (view *SQLUtxoViewpoint) DisconnectTransactions(block btcutil.Block, stxos []spentTxOut) error {
 	// TODO TODO TODO
 	return nil
 }
 
 // Entries returns a map of all the entries, fetched from the DB
-func (view *SqlUtxoViewpoint) Entries() map[chainhash.Hash]*UtxoEntry {
+func (view *SQLUtxoViewpoint) Entries() map[chainhash.Hash]*UtxoEntry {
 	return view.db.FetchAllUtxoEntries()
 }
 
 // Commit prunes all entries marked modified that are now fully spent and marks
 // all entries as unmodified.
 // TODO: Move all utxos to UtxoSet and drop table of ViewPoint
-func (view *SqlUtxoViewpoint) Commit() {
+func (view *SQLUtxoViewpoint) Commit() {
 	//for txHash, entry := range view.entries {
 	//	if entry == nil || (entry.modified && entry.IsFullySpent()) {
 	//		delete(view.entries, txHash)
@@ -979,7 +978,7 @@ func (view *SqlUtxoViewpoint) Commit() {
 }
 
 // currently place holder
-func (view *SqlUtxoViewpoint) FetchUtxosMain(db database.DB, txSet map[chainhash.Hash]struct{}) error {
+func (view *SQLUtxoViewpoint) FetchUtxosMain(db database.DB, txSet map[chainhash.Hash]struct{}) error {
 	return nil
 }
 
@@ -990,7 +989,7 @@ func (view *SqlUtxoViewpoint) FetchUtxosMain(db database.DB, txSet map[chainhash
 // Upon completion of this function, the view will contain an entry for each
 // requested transaction.  Fully spent transactions, or those which otherwise
 // don't exist, will result in a nil entry in the view.
-func (view *SqlUtxoViewpoint) SqlFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error {
+func (view *SQLUtxoViewpoint) SQLFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error {
 	// Nothing to do if there are no requested hashes.
 	if len(txSet) == 0 {
 		return nil
@@ -1023,12 +1022,12 @@ func (view *SqlUtxoViewpoint) SqlFetchUtxosMain(db *SqlBlockDB, txSet map[chainh
 }
 
 // Place holder
-func (view *SqlUtxoViewpoint) FetchUtxos(db database.DB, txSet map[chainhash.Hash]struct{}) error {
+func (view *SQLUtxoViewpoint) FetchUtxos(db database.DB, txSet map[chainhash.Hash]struct{}) error {
 	return nil
 }
 
 // Place holder
-func (view *SqlUtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) error {
+func (view *SQLUtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) error {
 	return nil
 }
 
@@ -1036,7 +1035,7 @@ func (view *SqlUtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Bloc
 // by the transactions in the given block into the view from the database as
 // needed.  In particular, referenced entries that are earlier in the block are
 // added to the view and entries that are already in the view are not modified.
-func (view *SqlUtxoViewpoint) SqlFetchInputUtxos(db *SqlBlockDB, block btcutil.Block) error {
+func (view *SQLUtxoViewpoint) SQLFetchInputUtxos(db *SqlBlockDB, block btcutil.Block) error {
 	// Build a map of in-flight transactions because some of the inputs in
 	// this block could be referencing other transactions earlier in this
 	// block which are not yet in the chain.
@@ -1086,5 +1085,5 @@ func (view *SqlUtxoViewpoint) SqlFetchInputUtxos(db *SqlBlockDB, block btcutil.B
 	}
 
 	// Request the input utxos from the database.
-	return view.SqlFetchUtxosMain(db, txNeededSet)
+	return view.SQLFetchUtxosMain(db, txNeededSet)
 }

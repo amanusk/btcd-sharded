@@ -1300,7 +1300,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 		reallog.Println("Connecting block", block.Hash())
 		err := sqlConnectBlock(b.SqlDB, block, view, stxos)
 		if err != nil {
-			reallog.Printf("Failed to connect block: ", err)
+			reallog.Print("Failed to connect block: ", err)
 			return false, err
 		}
 
@@ -1381,7 +1381,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 
 		// TODO see what is the fastAdd difference
 		//if fastAdd {
-		//	err := view.SqlFetchInputUtxos(shard.SqlDB, block)
+		//	err := view.SQLFetchInputUtxos(shard.SqlDB, block)
 		//	if err != nil {
 		//		reallog.Fatal("Unable to fetch Input Utxos")
 		//		return false, err
@@ -1400,7 +1400,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 		reallog.Println("Connecting block", block.Hash())
 		err = sqlConnectBlock(shard.SqlDB, block, view, stxos)
 		if err != nil {
-			reallog.Printf("Failed to connect block: ", err)
+			reallog.Print("Failed to connect block: ", err)
 			return false, err
 		}
 

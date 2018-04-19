@@ -101,7 +101,7 @@ func (bi *blockImporter) processBlock(serializedBlock []byte) (bool, error) {
 
 	// update progress statistics
 	bi.lastBlockTime = block.Header().Timestamp
-	bi.receivedLogTx += int64(len(block.MsgBlock().Transactions))
+	bi.receivedLogTx += int64(len(block.MsgBlock().(*wire.MsgBlock).Transactions))
 
 	// Skip blocks that already exist.
 	blockHash := block.Hash()

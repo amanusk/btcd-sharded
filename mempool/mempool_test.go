@@ -37,7 +37,7 @@ type fakeChain struct {
 // returned view can be examined for duplicate unspent transaction outputs.
 //
 // This function is safe for concurrent access however the returned view is NOT.
-func (s *fakeChain) FetchUtxoView(tx *btcutil.Tx) (*blockchain.UtxoViewpoint, error) {
+func (s *fakeChain) FetchUtxoView(tx *btcutil.Tx) (blockchain.UtxoView, error) {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -95,7 +95,7 @@ func (s *fakeChain) SetMedianTimePast(mtp time.Time) {
 // CalcSequenceLock returns the current sequence lock for the passed
 // transaction associated with the fake chain instance.
 func (s *fakeChain) CalcSequenceLock(tx *btcutil.Tx,
-	view *blockchain.UtxoViewpoint) (*blockchain.SequenceLock, error) {
+	view blockchain.UtxoView) (*blockchain.SequenceLock, error) {
 
 	return &blockchain.SequenceLock{
 		Seconds:     -1,

@@ -195,7 +195,7 @@ func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
 				Addresses: addressList,
 			},
 		}
-		reallog.Printf("Shards gob", msg.Data)
+		reallog.Print("Shards gob", msg.Data)
 		//Actually write the GOB on the socket
 		err := enc.Encode(msg)
 		if err != nil {
@@ -243,13 +243,13 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 	// TODO TODO TODO Change this to work with messages like evrything else
 	shardConnections := coord.GetShardsConnections()
 
-	reallog.Printf("Shards to send", shardConnections)
+	reallog.Print("Shards to send", shardConnections)
 
 	// All data is sent in gobs
 	shardsToSend := AddressesGob{
 		Addresses: shardConnections,
 	}
-	reallog.Printf("Shards gob", shardsToSend.Addresses[0])
+	reallog.Print("Shards gob", shardsToSend.Addresses[0])
 
 	//Actually write the GOB on the socket
 	enc := gob.NewEncoder(conn)
@@ -318,10 +318,10 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 
 		coordEnc := gob.NewEncoder(conn)
 		// Generate a header gob to send to coordinator
-		msg := Message {
+		msg := Message{
 			Cmd: "PROCBLOCK",
-			Data:RawBlockGob{
-				Block: headerBlock,
+			Data: RawBlockGob{
+				Block:  headerBlock,
 				Flags:  BFNone,
 				Height: int32(i),
 			},
@@ -371,9 +371,9 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	for shard, _ := range coord.shards {
 		enc := gob.NewEncoder(shard.Socket)
 		// Generate a header gob to send to coordinator
-		msg := Message {
+		msg := Message{
 			Cmd: "REQBLOCK",
-			Data:HeaderGob{
+			Data: HeaderGob{
 				Header: &header,
 				Flags:  BFNone,
 				Height: height, // optionally this will be done after the coord accept block is performed

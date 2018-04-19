@@ -24,6 +24,7 @@ import (
 
 	"encoding/gob"
 	"encoding/json"
+
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/blockchain/fullblocktests"
 	"github.com/btcsuite/btcd/blockchain/indexers"
