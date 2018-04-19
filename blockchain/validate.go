@@ -1015,7 +1015,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	////
 	//// These utxo entries are needed for verification of things such as
 	//// transaction inputs, counting pay-to-script-hashes, and scripts.
-	err := view.SQLFetchInputUtxos(shard.SqlDB, block)
+	err := view.SQLFetchInputUtxos(shard.SQLDB, block)
 	if err != nil {
 		return err
 	}

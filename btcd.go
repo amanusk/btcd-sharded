@@ -38,22 +38,24 @@ import (
 	_ "github.com/davecgh/go-spew/spew"
 )
 
+// Config is used for to save values from json config file
 type Config struct {
 	Server struct {
-		ServerLog            string `json:"serverlog"`
-		Server_shards_port   string `json:"server_shards_port"`
-		Server_coords_port   string `json:"server_coords_port"`
-		Server_target_server string `json:"server_target_server"`
-		Server_target_shard  string `json:"server_target_shard_port"`
-		Server_db            string `json:"server_db"`
+		ServerLog             string `json:"server_log"`
+		ServerShardsPort      string `json:"server_shards_port"`
+		ServerCoordsPort      string `json:"server_coords_port"`
+		ServerTargetServer    string `json:"server_target_server"`
+		ServerTargetShardPort string `json:"server_target_shard_port"`
+		ServerDb              string `json:"server_db"`
 	} `json:"server"`
 	Shard struct {
-		ShardLog          string `json:"shardlog"`
-		Shard_shards_port string `json:"shard_shards_port"`
-		Shard_db          string `json:"shard_db"`
+		ShardLog        string `json:"shard_log"`
+		ShardShardsPort string `json:"shard_shards_port"`
+		ShardDb         string `json:"shard_db"`
 	} `json:"shard"`
 }
 
+// LoadConfig loads the passed json file and returns a config struct
 func LoadConfig(filename string) (Config, error) {
 	var config Config
 	fmt.Println("Config filename: ", filename)
@@ -377,9 +379,9 @@ func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockch
 
 	// Handle memory database specially since it doesn't need the disk
 	// specific handling.
-	reallog.Println("Trying to open db", config.Server.Server_db)
+	reallog.Println("Trying to open db", config.Server.ServerDb)
 	var teardown func()
-	sqlDB := blockchain.OpenDB(config.Server.Server_db)
+	sqlDB := blockchain.OpenDB(config.Server.ServerDb)
 
 	// Setup a teardown function for cleaning up.  This function is
 	// returned to the caller to be invoked when it is done testing.
@@ -452,12 +454,12 @@ func main() {
 
 		// Start listener on port 12345 for coordinator
 		fmt.Println("Starting server...")
-		shardListener, error := net.Listen("tcp", config.Server.Server_shards_port)
+		shardListener, error := net.Listen("tcp", config.Server.ServerShardsPort)
 		if error != nil {
 			fmt.Println(error)
 		}
 		// Listner for other coordinators (peers)
-		coordListener, error := net.Listen("tcp", config.Server.Server_coords_port)
+		coordListener, error := net.Listen("tcp", config.Server.ServerCoordsPort)
 		if error != nil {
 			fmt.Println(error)
 		}
@@ -468,7 +470,7 @@ func main() {
 		// Wait for all the shards to get connected
 		for manager.GetNumShardes() < numShards {
 			connection, _ := manager.ShardListener.Accept()
-			port, _ := strconv.Atoi(config.Shard.Shard_shards_port[1:])
+			port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
 			shard := blockchain.NewShardConnection(connection, int(port))
 			manager.RegisterShard(shard)
 			// Start receiving from shard
@@ -481,7 +483,7 @@ func main() {
 
 		if !(*flagBoot) {
 			// connect to the already running server
-			coordConn, err := net.Dial("tcp", config.Server.Server_target_server)
+			coordConn, err := net.Dial("tcp", config.Server.ServerTargetServer)
 			if err != nil {
 				fmt.Println(err)
 			}
@@ -573,8 +575,6 @@ func main() {
 		if err != nil {
 			reallog.Println("Error decoding GOB data:", err)
 			return
-		} else {
-			reallog.Println("Got shardsGOB")
 		}
 		shardConn := make([]net.Conn, numShards)
 
@@ -652,7 +652,7 @@ func main() {
 			bShards := make([]*wire.MsgBlockShard, numShards)
 
 			// Create a block shard to send to shards
-			for idx, _ := range bShards {
+			for idx := range bShards {
 				bShards[idx] = wire.NewMsgBlockShard(&block.Header)
 			}
 
@@ -760,19 +760,19 @@ func main() {
 
 		fmt.Print("Shard mode\n")
 		index := blockchain.MyNewBlockIndex(&chaincfg.RegressionNetParams)
-		sqlDB := blockchain.OpenDB(config.Shard.Shard_db)
+		sqlDB := blockchain.OpenDB(config.Shard.ShardDb)
 
-		reallog.Printf("Index is", index)
-		reallog.Printf("DB is", sqlDB)
+		reallog.Print("Index is", index)
+		reallog.Print("DB is", sqlDB)
 
 		fmt.Println("Starting shard...")
-		connection, err := net.Dial("tcp", "localhost"+config.Server.Server_shards_port)
+		connection, err := net.Dial("tcp", "localhost"+config.Server.ServerShardsPort)
 		if err != nil {
 			fmt.Println(err)
 		}
 
 		// Listner for other shards to connect
-		shardListener, error := net.Listen("tcp", config.Shard.Shard_shards_port)
+		shardListener, error := net.Listen("tcp", config.Shard.ShardShardsPort)
 		if error != nil {
 			fmt.Println(error)
 		}
@@ -784,7 +784,7 @@ func main() {
 		fmt.Println("Waiting for shards to connect")
 		for {
 			connection, _ := s.ShardListener.Accept()
-			port, _ := strconv.Atoi(config.Shard.Shard_shards_port[1:])
+			port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
 			shardConn := blockchain.NewShardConnection(connection, int(port))
 			s.RegisterShard(shardConn)
 			go s.ReceiveShard(shardConn)
@@ -803,7 +803,7 @@ func main() {
 		reallog.SetFlags(reallog.Lshortfile)
 
 		fmt.Printf("Openning DB\n")
-		sqlDB := blockchain.OpenDB(config.Shard.Shard_db)
+		sqlDB := blockchain.OpenDB(config.Shard.ShardDb)
 		//hash, err := chainhash.NewHash([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
 		//if err != nil {
 		//	fmt.Printf("Failed to create hash", err)
@@ -812,7 +812,7 @@ func main() {
 
 		tx := btcutil.NewTx(multiTx)
 
-		view := blockchain.NewSqlUtxoViewpoint(sqlDB)
+		view := blockchain.NewSQLUtxoViewpoint(sqlDB)
 
 		view.AddTxOuts(tx, 1)
 

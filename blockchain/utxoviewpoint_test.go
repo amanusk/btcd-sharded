@@ -26,7 +26,7 @@ import (
 func BenchmarkSqlViewPoint(b *testing.B) {
 
 	sqlDB := OpenDB("postgresql://amanusk@localhost:26257/blockchain?sslmode=disable")
-	view := NewSqlUtxoViewpoint(sqlDB)
+	view := NewSQLUtxoViewpoint(sqlDB)
 	//b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {

@@ -1270,7 +1270,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 		// Perform several checks to verify the block can be connected
 		// to the main chain without violating any rules and without
 		// actually connecting the block.
-		//view := NewSqlUtxoViewpoint(b.SqlDB)
+		//view := NewSQLUtxoViewpoint(b.SqlDB)
 		view := NewUtxoViewpoint()
 		view.SetBestHash(parentHash)
 		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
@@ -1360,7 +1360,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 		// Perform several checks to verify the block can be connected
 		// to the main chain without violating any rules and without
 		// actually connecting the block.
-		//globalView := NewSqlUtxoViewpoint(shard.SqlDB)
+		//globalView := NewSQLUtxoViewpoint(shard.SqlDB)
 		view := NewUtxoViewpoint()
 		//view.SetBestHash(parentHash)
 		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
@@ -1398,7 +1398,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 		// Connect the block to the main chain.
 		// NOTE: This writes all the updated databases to the DB
 		reallog.Println("Connecting block", block.Hash())
-		err = sqlConnectBlock(shard.SqlDB, block, view, stxos)
+		err = sqlConnectBlock(shard.SQLDB, block, view, stxos)
 		if err != nil {
 			reallog.Print("Failed to connect block: ", err)
 			return false, err

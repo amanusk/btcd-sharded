@@ -763,7 +763,7 @@ func (b *BlockChain) FetchUtxoEntry(txHash *chainhash.Hash) (*UtxoEntry, error) 
 // -----------------------------------------------------------//
 // -----------------------SQLUtxoViewpoint--------------------//
 
-// UtxoViewpoint represents a view into the set of unspent transaction outputs
+// SQLUtxoViewpoint represents a view into the set of unspent transaction outputs
 // from a specific point of view in the chain.  For example, it could be for
 // the end of the main chain, some point in the history of the main chain, or
 // down a side chain.
@@ -778,8 +778,8 @@ type SQLUtxoViewpoint struct {
 // Force UtxoViewpoint to implement the interface
 var _ UtxoView = (*SQLUtxoViewpoint)(nil)
 
-// NewUtxoViewpoint returns a new empty unspent transaction output view.
-func NewSqlUtxoViewpoint(indb *SqlBlockDB) *SQLUtxoViewpoint {
+// NewSQLUtxoViewpoint returns a new empty unspent transaction output view.
+func NewSQLUtxoViewpoint(indb *SqlBlockDB) *SQLUtxoViewpoint {
 
 	newview := SQLUtxoViewpoint{
 		db: indb,
@@ -801,7 +801,7 @@ func (view *SQLUtxoViewpoint) SetBestHash(hash *chainhash.Hash) {
 	view.bestHash = *hash
 }
 
-// Prints all the information in the UtxoView to the log
+// PrintToLog Prints all the information in the UtxoView to the log
 func (view *SQLUtxoViewpoint) PrintToLog() {
 	//TODO
 }
@@ -977,12 +977,12 @@ func (view *SQLUtxoViewpoint) Commit() {
 	return
 }
 
-// currently place holder
+// FetchUtxosMain currently place holder
 func (view *SQLUtxoViewpoint) FetchUtxosMain(db database.DB, txSet map[chainhash.Hash]struct{}) error {
 	return nil
 }
 
-// FetchUtxosMain fetches unspent transaction output data about the provided
+// SQLFetchUtxosMain fetches unspent transaction output data about the provided
 // set of transactions from the point of view of the end of the main chain at
 // the time of the call.
 //
@@ -1021,17 +1021,17 @@ func (view *SQLUtxoViewpoint) SQLFetchUtxosMain(db *SqlBlockDB, txSet map[chainh
 	return nil
 }
 
-// Place holder
+// FetchUtxos Place holder
 func (view *SQLUtxoViewpoint) FetchUtxos(db database.DB, txSet map[chainhash.Hash]struct{}) error {
 	return nil
 }
 
-// Place holder
+// FetchInputUtxos Place holder
 func (view *SQLUtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) error {
 	return nil
 }
 
-// FetchInputUtxos loads utxo details about the input transactions referenced
+// SQLFetchInputUtxos loads utxo details about the input transactions referenced
 // by the transactions in the given block into the view from the database as
 // needed.  In particular, referenced entries that are earlier in the block are
 // added to the view and entries that are already in the view are not modified.

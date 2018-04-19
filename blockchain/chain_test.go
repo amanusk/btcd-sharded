@@ -146,7 +146,7 @@ func TestCalcSequenceLock(t *testing.T) {
 		}},
 	})
 	//sqlDB := OpenDB("postgresql://amanusk@localhost:26257/blockchain?sslmode=disable")
-	//utxoView := NewSqlUtxoViewpoint(sqlDB)
+	//utxoView := NewSQLUtxoViewpoint(sqlDB)
 	utxoView := NewUtxoViewpoint()
 	utxoView.AddTxOuts(targetTx, int32(numBlocksToActivate)-4)
 	utxoView.SetBestHash(&node.hash)

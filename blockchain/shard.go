@@ -1,21 +1,15 @@
 package blockchain
 
 import (
-	_ "bufio"
 	"encoding/gob"
 	"fmt"
-	_ "io"
 	reallog "log"
 	"net"
-	_ "os"
-	_ "strings"
-	_ "sync"
 
-	_ "github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
-	_ "github.com/davecgh/go-spew/spew"
 )
 
+// Shard is a single node in a sharded bitcoin client cluster
 type Shard struct {
 	Socket          net.Conn
 	shards          map[*Shard]bool // A map of shards connected to this shard
@@ -24,11 +18,11 @@ type Shard struct {
 	unregisterShard chan *Shard
 	Port            int // Saves the port the shard is listening to other shards
 	Index           *BlockIndex
-	SqlDB           *SqlBlockDB
+	SQLDB           *SqlBlockDB
 	ShardListener   net.Listener
 }
 
-// Creates a new shard connection for a coordintor to use.
+// NewShardConnection Creates a new shard connection for a coordintor to use.
 // It has a connection and a channel to receive data from the server
 func NewShardConnection(connection net.Conn, shardPort int) *Shard {
 	shard := &Shard{
@@ -38,12 +32,12 @@ func NewShardConnection(connection net.Conn, shardPort int) *Shard {
 	return shard
 }
 
-// Creates a new shard for a coordinator to use.
+// NewShard Creates a new shard for a coordinator to use.
 // It has a connection and a channel to receive data from the server
 func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex, db *SqlBlockDB) *Shard {
 	shard := &Shard{
 		Index:           index,
-		SqlDB:           db,
+		SQLDB:           db,
 		registerShard:   make(chan *Shard),
 		unregisterShard: make(chan *Shard),
 		shards:          make(map[*Shard]bool),
@@ -59,7 +53,7 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob, conn net.Conn) {
 
 	// Send a request for txs from other shards
 	// Thes should have some logic, currently its 1:1
-	for s, _ := range shard.shards {
+	for s := range shard.shards {
 
 		enc := gob.NewEncoder(s.Socket)
 
@@ -81,7 +75,7 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob, conn net.Conn) {
 func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	reallog.Println("Received request to send a block shard")
 
-	msgBlock := shard.SqlDB.FetchTXs(header.Header.BlockHash())
+	msgBlock := shard.SQLDB.FetchTXs(header.Header.BlockHash())
 	msgBlock.Header = *header.Header
 
 	// Create a gob of serialized msgBlock
@@ -154,7 +148,7 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 	block := btcutil.NewBlockShard(msgBlockShard)
 
 	// Store the txs in database, this could be postponed until after validation
-	StoreBlockShard(shard.SqlDB, msgBlockShard)
+	StoreBlockShard(shard.SQLDB, msgBlockShard)
 
 	blockNode := NewBlockNode(&msgBlockShard.Header, receivedBlock.Height)
 
@@ -179,7 +173,6 @@ func (shard *Shard) receive() {
 
 func (shard *Shard) handleSmartMessages(conn net.Conn) {
 
-	gob.Register(Complex{})
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
@@ -218,6 +211,7 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 	}
 }
 
+// StartShard starts the shard, the shard starts receiveing on its listening port
 func (shard *Shard) StartShard() {
 	// Receive messages from coordinator
 	go shard.receive()
@@ -236,12 +230,12 @@ func (shard *Shard) StartShard() {
 	}
 }
 
-// Recored a connection to another shard
+// RegisterShard Recoreds a connection to another shard
 func (shard *Shard) RegisterShard(s *Shard) {
 	shard.registerShard <- s
 }
 
-// Receive messages from other shards
+// ReceiveShard is respoinsible for receiving messages from other shards
 func (shard *Shard) ReceiveShard(s *Shard) {
 	//shard.handleMessages(s.Socket)
 	shard.handleSmartMessages(s.Socket)

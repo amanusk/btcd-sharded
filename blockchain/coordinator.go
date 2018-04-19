@@ -3,44 +3,39 @@ package blockchain
 import (
 	"encoding/gob"
 	"fmt"
-	_ "io"
 	reallog "log"
 	"net"
-	_ "strconv"
-	_ "sync"
-	_ "time"
 
 	"github.com/btcsuite/btcd/wire"
 )
 
-// A struct to send a list of tcp connections
+// AddressesGob is a struct to send a list of tcp connections
 type AddressesGob struct {
 	Addresses []*net.TCPAddr
 }
 
+// HeaderGob is a struct to send headers over tcp connections
 type HeaderGob struct {
 	Header *wire.BlockHeader
 	Flags  BehaviorFlags
 	Height int32
 }
 
+// RawBlockGob is a struct to send full blocks
 type RawBlockGob struct {
 	Block  *wire.MsgBlockShard
 	Flags  BehaviorFlags
 	Height int32
 }
 
-// Just a simple example
-type Complex struct {
-	A int
-	B string
-}
-
+// Message holds the message type and the data as interface
+// The data should be cast accroding to the message
 type Message struct {
 	Cmd  string
 	Data interface{}
 }
 
+// Coordinator is the coordinator in a sharded bitcoin cluster
 type Coordinator struct {
 	Socket          net.Conn              // Receive information from other coordinators
 	shards          map[*Shard]bool       // A map of shards connected to this coordinator
@@ -59,7 +54,7 @@ type Coordinator struct {
 	Chain           *BlockChain
 }
 
-// Creates a new shard connection for a coordintor to use.
+// NewCoordConnection creates a new shard connection for a coordintor to use.
 // It has a connection and a channel to receive data from the server
 func NewCoordConnection(connection net.Conn) *Coordinator {
 	coord := &Coordinator{
@@ -68,7 +63,7 @@ func NewCoordConnection(connection net.Conn) *Coordinator {
 	return coord
 }
 
-// Cerates and returns a new coordinator
+// NewCoordinator Cerates and returns a new coordinator
 func NewCoordinator(shardListener net.Listener, coordListener net.Listener, blockchain *BlockChain) *Coordinator {
 	coord := Coordinator{
 		shards:          make(map[*Shard]bool),
@@ -88,20 +83,22 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 	return &coord
 }
 
-type HandleFunc func(conn net.Conn, coord *Coordinator)
-
+// GetNumShardes returns the number of shards connected to the coordinator
 func (coord *Coordinator) GetNumShardes() int {
 	return len(coord.shards)
 }
 
+// RegisterShard saves the connection to a shard of the cluster
 func (coord *Coordinator) RegisterShard(shard *Shard) {
 	coord.registerShard <- shard
 }
 
+// RegisterCoord registers a coordinator(peer) to the map of other peers
 func (coord *Coordinator) RegisterCoord(c *Coordinator) {
 	coord.registerCoord <- c
 }
 
+// Start the coordintor, listening begins here
 func (coord *Coordinator) Start() {
 	for {
 		select {
@@ -125,17 +122,10 @@ func (coord *Coordinator) Start() {
 	}
 }
 
-// This function receives a connection. The connection expects to get a message
-// with inoformation on what is the request from the server. The server will
-// handle the message according to the type of request it receives
-func (coord *Coordinator) HandleMessages(conn net.Conn) {
-}
-
-// Decode received messages with command and data
+// HandleSmartMessages decodes received messages with command and data
 func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 	// Register the special types for decode to work
 
-	gob.Register(Complex{})
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
@@ -176,16 +166,15 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 
 }
 
-// Receive a shard and handle messages from shard
+// ReceiveShard receives a shard and handle messages from shard
 func (coord *Coordinator) ReceiveShard(shard *Shard) {
-	//coord.HandleMessages(shard.Socket)
 	coord.HandleSmartMessages(shard.Socket)
 }
 
-// This function sends a message to each of the shards connected to the coordinator
+// NotifyShards function sends a message to each of the shards connected to the coordinator
 // informing it of the connections to other shards it needs to establish
 func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
-	for shard, _ := range coord.shards {
+	for shard := range coord.shards {
 		enc := gob.NewEncoder(shard.Socket)
 
 		// TODO here there should be some logic to sort which shard gets what
@@ -205,10 +194,9 @@ func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
 	}
 }
 
-// Receive messates from a coordinator
+// ReceiveCoord receives messages from a coordinator
 // TODO: possiblly make shard/coordinator fit an interface
 func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
-	//coord.HandleMessages(c.Socket)
 	coord.HandleSmartMessages(c.Socket)
 }
 
@@ -217,11 +205,6 @@ func (coord *Coordinator) handleShardDone(conn net.Conn) {
 	reallog.Print("Receive Block Confirmation from shard")
 	coord.allShardsDone <- true
 
-}
-
-// Once a shards finishes processing a block this message is received
-func (coord *Coordinator) handleThis(c Complex) {
-	fmt.Println("Complex data", c)
 }
 
 // Receive a conformation a shard is sucessfuly connected
@@ -340,11 +323,11 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 
 }
 
-// Returns all the shards in the coordinator shards maps
+// GetShardsConnections returns all the shards in the coordinator shards maps
 func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
 	connections := make([]*net.TCPAddr, 0, len(coord.shards))
 
-	for key, _ := range coord.shards {
+	for key := range coord.shards {
 		conn := key.Socket.RemoteAddr().(*net.TCPAddr)
 		conn.Port = key.Port // The port the shard is listening to other shards
 		connections = append(connections, conn)
@@ -353,7 +336,7 @@ func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
 
 }
 
-// Process block will make a sanity check on the block header and will wait for confirmations from all the shards
+// ProcessBlock will make a sanity check on the block header and will wait for confirmations from all the shards
 // that the block has been processed
 func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags BehaviorFlags, height int32) error {
 
@@ -368,7 +351,7 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	}
 
 	// Send block header to request to all shards
-	for shard, _ := range coord.shards {
+	for shard := range coord.shards {
 		enc := gob.NewEncoder(shard.Socket)
 		// Generate a header gob to send to coordinator
 		msg := Message{
@@ -395,7 +378,7 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	return nil
 }
 
-// A go routine to listen for other coordinator (peers) to connect
+// ListenToCoordinators is go routine to listen for other coordinator (peers) to connect
 func (coord *Coordinator) ListenToCoordinators() error {
 	// Wait for connections from other coordinators
 	fmt.Println("Waiting for coordinators to connect")
@@ -408,11 +391,11 @@ func (coord *Coordinator) ListenToCoordinators() error {
 	}
 }
 
-// Send a request to a peer to get all the blocks in its database
+// SendBlocksRequest sends a request for a block to a peer to get all the blocks in its database
 // This only needs to request the blocks, and ProcessBlock should handle receiving them
 func (coord *Coordinator) SendBlocksRequest() {
 	reallog.Println("Sending blocks request")
-	for c, _ := range coord.coords {
+	for c := range coord.coords {
 		reallog.Println("Sending request to ", c.Socket)
 		enc := gob.NewEncoder(c.Socket)
 
