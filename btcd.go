@@ -394,8 +394,8 @@ func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockch
 	paramsCopy := *params
 
 	// Create the main chain instance.
-	chain, err := blockchain.SqlNew(&blockchain.Config{
-		SqlDB:       sqlDB,
+	chain, err := blockchain.SQLNew(&blockchain.Config{
+		SQLDB:       sqlDB,
 		ChainParams: &paramsCopy,
 		Checkpoints: nil,
 		TimeSource:  blockchain.NewMedianTime(),
@@ -552,7 +552,6 @@ func main() {
 			fmt.Printf("failed to generate tests: %v", err)
 		}
 
-		gob.Register(blockchain.Complex{})
 		gob.Register(blockchain.HeaderGob{})
 		gob.Register(blockchain.RawBlockGob{})
 		gob.Register(blockchain.AddressesGob{})

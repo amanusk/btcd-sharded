@@ -91,6 +91,8 @@ func (b *BlockChain) maybeAcceptBlock(block btcutil.Block, flags BehaviorFlags) 
 	return isMainChain, nil
 }
 
+// CoordMaybeAcceptBlock performs sanity checks on the block header, inserts
+// the coinbase transaction, and updates the hash of the latest block
 func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flags BehaviorFlags) (bool, error) {
 	// The height of this block is one more than the referenced previous
 	// block.
@@ -128,9 +130,9 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 	// expensive connection logic.  It also has some other nice properties
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
-	b.SqlDB.AddBlockHeader(header)
+	b.SQLDB.AddBlockHeader(header)
 	// Store the coinbase tx in txs
-	StoreBlockShard(b.SqlDB, headerBlock)
+	StoreBlockShard(b.SQLDB, headerBlock)
 
 	// Create a new block node for the block and add it to the in-memory
 	// block chain (could be either a side chain or the main chain).

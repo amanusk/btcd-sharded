@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/bloom"
 )
 
 const (
@@ -859,6 +860,118 @@ func (b *BlockChain) checkBIP0030(node *BlockNode, block btcutil.Block, view Utx
 	return nil
 }
 
+// CheckShardedTransactionInputs performs a series of checks on the inputs to a
+// transaction to ensure they are valid.  An example of some of the checks
+// include verifying all inputs exist, ensuring the coinbase seasoning
+// requirements are met, detecting double spends, validating all values and fees
+// are in the legal range and the total output amount doesn't exceed the input
+// amount, and verifying the signatures to prove the spender was the owner of
+// the bitcoins and therefore allowed to spend them.  As it checks the inputs,
+// it also calculates the total fees for the transaction and returns that value.
+// TODO TODO TODO: The transaction MUST have already been sanity checked with the
+// CheckTransactionSanity function prior to calling this function.
+func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, chainParams *chaincfg.Params) (int64, error) {
+	// The shard should not have coinbase transactions
+
+	txHash := tx.Hash()
+	var totalSatoshiIn int64
+	// Number of elements should be a paramenter passed
+	localTxFilter := bloom.NewFilter(1000, 0, 0.0001, wire.BloomUpdateNone)
+	for txInIndex, txIn := range tx.MsgTx().TxIn {
+		// Ensure the referenced input transaction is available
+		originTxHash := &txIn.PreviousOutPoint.Hash
+		originTxIndex := txIn.PreviousOutPoint.Index
+		utxoEntry := utxoView.LookupEntry(originTxHash)
+		if utxoEntry.IsOutputSpent(originTxIndex) {
+			str := fmt.Sprintf("output %v referenced from "+
+				"transaction %s:%d "+
+				"has already been spent", txIn.PreviousOutPoint,
+				tx.Hash(), txInIndex)
+			return 0, ruleError(ErrMissingTxOut, str)
+		}
+		// Add the outpoint to local filter
+		localTxFilter.AddOutPoint(&txIn.PreviousOutPoint)
+		//if utxoEntry == nil {
+		// TODO: This needs to be different, need to wait for cross-shard txs
+		//}
+
+		// Ensure the transaction is not spending coins which have not
+		// yet reached the required coinbase maturity.
+		if utxoEntry.IsCoinBase() {
+			originHeight := utxoEntry.BlockHeight()
+			blocksSincePrev := txHeight - originHeight
+			coinbaseMaturity := int32(chainParams.CoinbaseMaturity)
+			if blocksSincePrev < coinbaseMaturity {
+				str := fmt.Sprintf("tried to spend coinbase "+
+					"transaction %v from height %v at "+
+					"height %v before required maturity "+
+					"of %v blocks", originTxHash,
+					originHeight, txHeight,
+					coinbaseMaturity)
+				return 0, ruleError(ErrImmatureSpend, str)
+			}
+		}
+
+		// Ensure the transaction amounts are in range.  Each of the
+		// output values of the input transactions must not be negative
+		// or more than the max allowed per transaction.  All amounts in
+		// a transaction are in a unit value known as a satoshi.  One
+		// bitcoin is a quantity of satoshi as defined by the
+		// SatoshiPerBitcoin constant.
+		originTxSatoshi := utxoEntry.AmountByIndex(originTxIndex)
+		if originTxSatoshi < 0 {
+			str := fmt.Sprintf("transaction output has negative "+
+				"value of %v", btcutil.Amount(originTxSatoshi))
+			return 0, ruleError(ErrBadTxOutValue, str)
+		}
+		if originTxSatoshi > btcutil.MaxSatoshi {
+			str := fmt.Sprintf("transaction output value of %v is "+
+				"higher than max allowed value of %v",
+				btcutil.Amount(originTxSatoshi),
+				btcutil.MaxSatoshi)
+			return 0, ruleError(ErrBadTxOutValue, str)
+		}
+
+		// The total of all outputs must not be more than the max
+		// allowed per transaction.  Also, we could potentially overflow
+		// the accumulator so check for overflow.
+		lastSatoshiIn := totalSatoshiIn
+		totalSatoshiIn += originTxSatoshi
+		if totalSatoshiIn < lastSatoshiIn ||
+			totalSatoshiIn > btcutil.MaxSatoshi {
+			str := fmt.Sprintf("total value of all transaction "+
+				"inputs is %v which is higher than max "+
+				"allowed value of %v", totalSatoshiIn,
+				btcutil.MaxSatoshi)
+			return 0, ruleError(ErrBadTxOutValue, str)
+		}
+	}
+
+	shard.SendInputBloomFilter(localTxFilter)
+
+	// Calculate the total output amount for this transaction.  It is safe
+	// to ignore overflow and out of range errors here because those error
+	// conditions would have already been caught by checkTransactionSanity.
+	var totalSatoshiOut int64
+	for _, txOut := range tx.MsgTx().TxOut {
+		totalSatoshiOut += txOut.Value
+	}
+
+	// Ensure the transaction does not spend more than its inputs.
+	if totalSatoshiIn < totalSatoshiOut {
+		str := fmt.Sprintf("total value of all transaction inputs for "+
+			"transaction %v is %v which is less than the amount "+
+			"spent of %v", txHash, totalSatoshiIn, totalSatoshiOut)
+		return 0, ruleError(ErrSpendTooHigh, str)
+	}
+
+	// NOTE: bitcoind checks if the transaction fees are < 0 here, but that
+	// is an impossible condition because of the check above that ensures
+	// the inputs are >= the outputs.
+	txFeeInSatoshi := totalSatoshiIn - totalSatoshiOut
+	return txFeeInSatoshi, nil
+}
+
 // CheckTransactionInputs performs a series of checks on the inputs to a
 // transaction to ensure they are valid.  An example of some of the checks
 // include verifying all inputs exist, ensuring the coinbase seasoning
@@ -1077,7 +1190,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	}
 	for txIdx, tx := range transactions {
 		reallog.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
-		txFee, err := CheckTransactionInputs(tx, node.height, view,
+		txFee, err := shard.CheckShardedTransactionInputs(tx, node.height, view,
 			params)
 		if err != nil {
 			return err
@@ -1102,6 +1215,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		if err != nil {
 			return err
 		}
+
 	}
 
 	// TODO: Perhaps move the coinbase the the coordinator for validation
@@ -1540,13 +1654,13 @@ func (b *BlockChain) CheckConnectBlockTemplate(block btcutil.Block) error {
 	return b.checkConnectBlock(newNode, block, view, nil)
 }
 
-// checkBlockSanity performs some preliminary checks on a block to ensure it is
+// SQLCheckBlockSanity performs some preliminary checks on a block to ensure it is
 // sane before continuing with block processing.  These checks are context free.
 //
 // The flags do not modify the behavior of this function directly, however they
 // are needed to pass along to CheckBlockHeaderSanity.
 // TODO TODO TODO: use this to check merkle tree etc
-func SqlCheckBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
+func SQLCheckBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
 	msgBlock := block.MsgBlock()
 	header := block.Header()
 	err := CheckBlockHeaderSanity(header, powLimit, timeSource, flags)

@@ -200,10 +200,10 @@ type UtxoView interface {
 	Entries() map[chainhash.Hash]*UtxoEntry
 	Commit()
 	FetchUtxosMain(db database.DB, txSet map[chainhash.Hash]struct{}) error
-	SQLFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error
+	SQLFetchUtxosMain(db *SQLBlockDB, txSet map[chainhash.Hash]struct{}) error
 	FetchUtxos(db database.DB, txSet map[chainhash.Hash]struct{}) error
 	FetchInputUtxos(db database.DB, block btcutil.Block) error
-	SQLFetchInputUtxos(db *SqlBlockDB, block btcutil.Block) error
+	SQLFetchInputUtxos(db *SQLBlockDB, block btcutil.Block) error
 }
 
 // Force UtxoViewpoint to implement the interface
@@ -534,7 +534,7 @@ func (view *UtxoViewpoint) FetchUtxosMain(db database.DB, txSet map[chainhash.Ha
 // Upon completion of this function, the view will contain an entry for each
 // requested transaction.  Fully spent transactions, or those which otherwise
 // don't exist, will result in a nil entry in the view.
-func (view *UtxoViewpoint) SQLFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error {
+func (view *UtxoViewpoint) SQLFetchUtxosMain(db *SQLBlockDB, txSet map[chainhash.Hash]struct{}) error {
 	// Nothing to do if there are no requested hashes.
 	if len(txSet) == 0 {
 		return nil
@@ -552,7 +552,7 @@ func (view *UtxoViewpoint) SQLFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash
 	for hash := range txSet {
 		hashCopy := hash
 		reallog.Println("Going to db for ", hash)
-		entry, err := db.SqlDbFetchUtxoEntry(&hashCopy)
+		entry, err := db.SQLDbFetchUtxoEntry(&hashCopy)
 		if err != nil {
 			return err
 		}
@@ -644,7 +644,7 @@ func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) 
 // by the transactions in the given block into the view from the database as
 // needed.  In particular, referenced entries that are earlier in the block are
 // added to the view and entries that are already in the view are not modified.
-func (view *UtxoViewpoint) SQLFetchInputUtxos(db *SqlBlockDB, block btcutil.Block) error {
+func (view *UtxoViewpoint) SQLFetchInputUtxos(db *SQLBlockDB, block btcutil.Block) error {
 	// Build a map of in-flight transactions because some of the inputs in
 	// this block could be referencing other transactions earlier in this
 	// block which are not yet in the chain.
@@ -771,7 +771,7 @@ func (b *BlockChain) FetchUtxoEntry(txHash *chainhash.Hash) (*UtxoEntry, error) 
 // The unspent outputs are needed by other transactions for things such as
 // script validation and double spend prevention.
 type SQLUtxoViewpoint struct {
-	db       *SqlBlockDB
+	db       *SQLBlockDB
 	bestHash chainhash.Hash
 }
 
@@ -779,7 +779,7 @@ type SQLUtxoViewpoint struct {
 var _ UtxoView = (*SQLUtxoViewpoint)(nil)
 
 // NewSQLUtxoViewpoint returns a new empty unspent transaction output view.
-func NewSQLUtxoViewpoint(indb *SqlBlockDB) *SQLUtxoViewpoint {
+func NewSQLUtxoViewpoint(indb *SQLBlockDB) *SQLUtxoViewpoint {
 
 	newview := SQLUtxoViewpoint{
 		db: indb,
@@ -989,7 +989,7 @@ func (view *SQLUtxoViewpoint) FetchUtxosMain(db database.DB, txSet map[chainhash
 // Upon completion of this function, the view will contain an entry for each
 // requested transaction.  Fully spent transactions, or those which otherwise
 // don't exist, will result in a nil entry in the view.
-func (view *SQLUtxoViewpoint) SQLFetchUtxosMain(db *SqlBlockDB, txSet map[chainhash.Hash]struct{}) error {
+func (view *SQLUtxoViewpoint) SQLFetchUtxosMain(db *SQLBlockDB, txSet map[chainhash.Hash]struct{}) error {
 	// Nothing to do if there are no requested hashes.
 	if len(txSet) == 0 {
 		return nil
@@ -1007,7 +1007,7 @@ func (view *SQLUtxoViewpoint) SQLFetchUtxosMain(db *SqlBlockDB, txSet map[chainh
 	for hash := range txSet {
 		hashCopy := hash
 		reallog.Println("Going to db for ", hash)
-		entry, err := db.SqlDbFetchUtxoEntry(&hashCopy)
+		entry, err := db.SQLDbFetchUtxoEntry(&hashCopy)
 		if err != nil {
 			return err
 		}
@@ -1035,7 +1035,7 @@ func (view *SQLUtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Bloc
 // by the transactions in the given block into the view from the database as
 // needed.  In particular, referenced entries that are earlier in the block are
 // added to the view and entries that are already in the view are not modified.
-func (view *SQLUtxoViewpoint) SQLFetchInputUtxos(db *SqlBlockDB, block btcutil.Block) error {
+func (view *SQLUtxoViewpoint) SQLFetchInputUtxos(db *SQLBlockDB, block btcutil.Block) error {
 	// Build a map of in-flight transactions because some of the inputs in
 	// this block could be referencing other transactions earlier in this
 	// block which are not yet in the chain.

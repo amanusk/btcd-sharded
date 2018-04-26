@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil/bloom"
 )
 
 // AddressesGob is a struct to send a list of tcp connections
@@ -129,6 +130,7 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
+	gob.Register(bloom.Filter{})
 
 	for {
 		dec := gob.NewDecoder(conn)
@@ -250,7 +252,10 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.Conn) {
 	reallog.Print("Receivd process block request")
 
-	coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
+	err := coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
+	if err != nil {
+		reallog.Fatal("Coordinator unable to process block")
+	}
 	reallog.Println("Sending BLOCKDONE")
 
 	enc := gob.NewEncoder(conn)
@@ -259,7 +264,7 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 	msg := Message{
 		Cmd: "BLOCKDONE",
 	}
-	err := enc.Encode(msg)
+	err = enc.Encode(msg)
 	if err != nil {
 		reallog.Println("Error encoding addresses GOB data:", err)
 		return
@@ -288,10 +293,10 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 			reallog.Println("Unable to fetch hash of block ", i)
 		}
 		// TODO change to fetch header + coinbase
-		header, err := coord.Chain.SqlFetchHeader(blockHash)
+		header, err := coord.Chain.SQLFetchHeader(blockHash)
 
 		headerBlock := wire.NewMsgBlockShard(&header)
-		coinbase := coord.Chain.SqlDB.FetchCoinbase(blockHash)
+		coinbase := coord.Chain.SQLDB.FetchCoinbase(blockHash)
 		headerBlock.AddTransaction(coinbase)
 
 		reallog.Println("sending block hash ", header.BlockHash())
@@ -396,7 +401,6 @@ func (coord *Coordinator) ListenToCoordinators() error {
 func (coord *Coordinator) SendBlocksRequest() {
 	reallog.Println("Sending blocks request")
 	for c := range coord.coords {
-		reallog.Println("Sending request to ", c.Socket)
 		enc := gob.NewEncoder(c.Socket)
 
 		msg := Message{

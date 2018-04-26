@@ -131,7 +131,7 @@ func newBlockNode(blockHeader *wire.BlockHeader, height int32) *BlockNode {
 	return &node
 }
 
-// Same as above but public
+// NewBlockNode is same as newBlockNode but public
 func NewBlockNode(blockHeader *wire.BlockHeader, height int32) *BlockNode {
 	var node BlockNode
 	initBlockNode(&node, blockHeader, height)
@@ -176,17 +176,17 @@ func (node *BlockNode) Ancestor(height int32) *BlockNode {
 	return n
 }
 
-// Sets the parent of the node to the received node
+// SetParent sets the parent of the node to the received node
 func (node *BlockNode) SetParent(pNode *BlockNode) {
 	node.parent = pNode
 }
 
-// Sets height to the passed int
+// SetHeight sets the height to the passed int
 func (node *BlockNode) SetHeight(height int32) {
 	node.height = height
 }
 
-// Sets height to the passed int
+// GetHeight geth the height to the passed int
 func (node *BlockNode) GetHeight() int32 {
 	return node.height
 }
@@ -266,7 +266,7 @@ func newBlockIndex(db database.DB, chainParams *chaincfg.Params) *BlockIndex {
 	}
 }
 
-// newBlockIndex returns a new empty instance of a block index.  The index will
+// MyNewBlockIndex returns a new empty instance of a block index.  The index will
 // be dynamically populated as block nodes are loaded from the database and
 // manually added.
 func MyNewBlockIndex(chainParams *chaincfg.Params) *BlockIndex {
@@ -308,7 +308,6 @@ func (bi *BlockIndex) AddNode(node *BlockNode) {
 }
 
 // NodeStatus provides concurrent-safe access to the status field of a node.
-//
 // This function is safe for concurrent access.
 func (bi *BlockIndex) NodeStatus(node *BlockNode) blockStatus {
 	bi.RLock()

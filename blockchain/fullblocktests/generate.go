@@ -1832,8 +1832,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 		b.AddTransaction(tx3)
 		b.AddTransaction(tx4)
 	})
-	//rejected(blockchain.ErrMissingTxOut)
-	accepted()
+	rejected(blockchain.ErrMissingTxOut)
 
 	// ---------------------------------------------------------------------
 	// Extra subsidy tests.

@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/bloom"
 )
 
 // Shard is a single node in a sharded bitcoin client cluster
@@ -18,11 +19,12 @@ type Shard struct {
 	unregisterShard chan *Shard
 	Port            int // Saves the port the shard is listening to other shards
 	Index           *BlockIndex
-	SQLDB           *SqlBlockDB
+	SQLDB           *SQLBlockDB
 	ShardListener   net.Listener
+	intersectFilter chan *bloom.Filter
 }
 
-// NewShardConnection Creates a new shard connection for a coordintor to use.
+// NewShardConnection Creates a new shard connection for a coordinator to use.
 // It has a connection and a channel to receive data from the server
 func NewShardConnection(connection net.Conn, shardPort int) *Shard {
 	shard := &Shard{
@@ -34,7 +36,7 @@ func NewShardConnection(connection net.Conn, shardPort int) *Shard {
 
 // NewShard Creates a new shard for a coordinator to use.
 // It has a connection and a channel to receive data from the server
-func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex, db *SqlBlockDB) *Shard {
+func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex, db *SQLBlockDB) *Shard {
 	shard := &Shard{
 		Index:           index,
 		SQLDB:           db,
@@ -138,7 +140,7 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 	if len(msgBlockShard.Transactions) == 0 {
 		err := coordEnc.Encode(msg)
 		if err != nil {
-			reallog.Println(err, "Encode failed for struct: %#v", msg)
+			reallog.Fatal(err, "Encode failed for struct: %#v", msg)
 		}
 		return
 	}
@@ -152,12 +154,15 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 
 	blockNode := NewBlockNode(&msgBlockShard.Header, receivedBlock.Height)
 
-	shard.ShardConnectBestChain(blockNode, block)
+	_, err := shard.ShardConnectBestChain(blockNode, block)
+	if err != nil {
+		reallog.Fatal(err)
+	}
 
 	reallog.Println("Done processing block, sending SHARDDONE")
 
 	// Send conformation to coordinator!
-	err := coordEnc.Encode(msg)
+	err = coordEnc.Encode(msg)
 	if err != nil {
 		reallog.Println(err, "Encode failed for struct: %#v", msg)
 	}
@@ -176,6 +181,7 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
+	gob.Register(bloom.Filter{})
 
 	for {
 		dec := gob.NewDecoder(conn)
@@ -239,4 +245,22 @@ func (shard *Shard) RegisterShard(s *Shard) {
 func (shard *Shard) ReceiveShard(s *Shard) {
 	//shard.handleMessages(s.Socket)
 	shard.handleSmartMessages(s.Socket)
+}
+
+// SendInputBloomFilter sends a bloom filter of transaction inputs to the
+// coordinator and waits for either conformation for that no intersection is
+// possible or request for additional information
+func (shard *Shard) SendInputBloomFilter(filter *bloom.Filter) {
+	enc := gob.NewEncoder(shard.Socket)
+
+	err := enc.Encode(
+		Message{
+			Cmd:  "BLOOMFLT",
+			Data: filter,
+		})
+	if err != nil {
+		reallog.Println(err, "Encode failed for struct: %#v", filter)
+	}
+	<-shard.intersectFilter
+
 }

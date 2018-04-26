@@ -96,7 +96,7 @@ type BlockChain struct {
 	checkpoints         []chaincfg.Checkpoint
 	checkpointsByHeight map[int32]*chaincfg.Checkpoint
 	db                  database.DB
-	SqlDB               *SqlBlockDB
+	SQLDB               *SQLBlockDB
 	chainParams         *chaincfg.Params
 	timeSource          MedianTimeSource
 	sigCache            *txscript.SigCache
@@ -187,10 +187,12 @@ type BlockChain struct {
 	notifications     []NotificationCallback
 }
 
+// GetTimeSource return the timeSource of the blockchain
 func (b *BlockChain) GetTimeSource() MedianTimeSource {
 	return b.timeSource
 }
 
+// GetChainParams returns the Prams of the blockchain
 func (b *BlockChain) GetChainParams() *chaincfg.Params {
 	return b.chainParams
 }
@@ -703,7 +705,7 @@ func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view Utx
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func sqlConnectBlock(db *SqlBlockDB, block btcutil.Block, view UtxoView, stxos []spentTxOut) error {
+func sqlConnectBlock(db *SQLBlockDB, block btcutil.Block, view UtxoView, stxos []spentTxOut) error {
 	// TODO: Lots of work in this function
 	// TODO: Locking updating DB to interface etc
 	// Make sure it's extending the end of the best chain.
@@ -1298,7 +1300,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 		}
 
 		reallog.Println("Connecting block", block.Hash())
-		err := sqlConnectBlock(b.SqlDB, block, view, stxos)
+		err := sqlConnectBlock(b.SQLDB, block, view, stxos)
 		if err != nil {
 			reallog.Print("Failed to connect block: ", err)
 			return false, err
@@ -1348,7 +1350,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 	return true, nil
 }
 
-// A function to use by  a shard connecting TXs to the blockchain
+// ShardConnectBestChain is to be used by a shard connecting TXs to the blockchain
 // This is similar to ConnectBestChain but performed by each shard
 func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) (bool, error) {
 	//fastAdd := true
@@ -1409,9 +1411,8 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 	return true, nil
 }
 
-// A function to use by  a shard connecting TXs to the blockchain
-// This is similar to ConnectBestChain but much simplified
-func StoreBlockShard(db *SqlBlockDB, block *wire.MsgBlockShard) {
+// StoreBlockShard stores the blockshard passed in the SQL database
+func StoreBlockShard(db *SQLBlockDB, block *wire.MsgBlockShard) {
 	for _, tx := range block.Transactions {
 		bhash := block.BlockHash()
 		db.AddTX(bhash[:], tx.TxIndex, &tx.MsgTx)
@@ -1489,16 +1490,16 @@ func (b *BlockChain) FetchHeader(hash *chainhash.Hash) (wire.BlockHeader, error)
 	return *header, nil
 }
 
-// FetchHeader returns the block header identified by the given hash or an error
+// SQLFetchHeader returns the block header identified by the given hash or an error
 // if it doesn't exist.
-func (b *BlockChain) SqlFetchHeader(hash *chainhash.Hash) (wire.BlockHeader, error) {
+func (b *BlockChain) SQLFetchHeader(hash *chainhash.Hash) (wire.BlockHeader, error) {
 	// Reconstruct the header from the block index if possible.
 	if node := b.index.LookupNode(hash); node != nil {
 		return node.Header(), nil
 	}
 
 	// Fall back to loading it from the database.
-	header, err := sqlDbFetchHeaderByHash(b.SqlDB, hash)
+	header, err := sqlDbFetchHeaderByHash(b.SQLDB, hash)
 	if err != nil {
 		reallog.Fatalln("Unable to fetch block")
 	}
@@ -1800,7 +1801,7 @@ type Config struct {
 	DB database.DB
 
 	// sqlDB for my simplified blockchain
-	SqlDB *SqlBlockDB
+	SQLDB *SQLBlockDB
 
 	// Interrupt specifies a channel the caller can close to signal that
 	// long running operations, such as catching up indexes or performing
@@ -1942,10 +1943,10 @@ func New(config *Config) (*BlockChain, error) {
 	return &b, nil
 }
 
-// New returns a BlockChain instance using the provided configuration details.
-func SqlNew(config *Config) (*BlockChain, error) {
+// SQLNew returns a BlockChain instance using the provided configuration details.
+func SQLNew(config *Config) (*BlockChain, error) {
 	// Enforce required config fields.
-	if config.SqlDB == nil {
+	if config.SQLDB == nil {
 		return nil, AssertError("blockchain.New database is nil")
 	}
 	if config.ChainParams == nil {
@@ -1980,7 +1981,7 @@ func SqlNew(config *Config) (*BlockChain, error) {
 	b := BlockChain{
 		checkpoints:         config.Checkpoints,
 		checkpointsByHeight: checkpointsByHeight,
-		SqlDB:               config.SqlDB,
+		SQLDB:               config.SQLDB,
 		chainParams:         params,
 		timeSource:          config.TimeSource,
 		sigCache:            config.SigCache,
@@ -2029,8 +2030,7 @@ func SqlNew(config *Config) (*BlockChain, error) {
 	return &b, nil
 }
 
-// return the length of the current best view, to be used by REQBLOCKS
-//
+// BestChainLength returns the length of the current best view, to be used by REQBLOCKS
 func (b *BlockChain) BestChainLength() int {
 	return b.bestChain.NumBlocks()
 }

@@ -869,7 +869,7 @@ func dbPutUtxoView(dbTx database.Tx, view UtxoView) error {
 // in the database based on the provided utxo view contents and state.  In
 // particular, only the entries that have been marked as modified are written
 // to the database.
-func sqlDbPutUtxoView(db *SqlBlockDB, view UtxoView) error {
+func sqlDbPutUtxoView(db *SQLBlockDB, view UtxoView) error {
 	reallog.Println("Storing view", view)
 	for txHashIter, entry := range view.Entries() {
 		// No need to update the database if the entry was not modified.
@@ -1196,9 +1196,9 @@ func (b *BlockChain) sqlCreateChainState() error {
 	//return dbTx.StoreBlock(genesisBlock)
 
 	// Create headers table
-	err := b.SqlDB.InitTables()
+	err := b.SQLDB.InitTables()
 
-	b.SqlDB.AddBlock(genesisBlock.MsgBlock().(*wire.MsgBlock))
+	b.SQLDB.AddBlock(genesisBlock.MsgBlock().(*wire.MsgBlock))
 
 	return err
 }
@@ -1332,7 +1332,7 @@ func dbFetchHeaderByHash(dbTx database.Tx, hash *chainhash.Hash) (*wire.BlockHea
 
 // dbFetchHeaderByHash uses an existing database transaction to retrieve the
 // block header for the provided hash.
-func sqlDbFetchHeaderByHash(db *SqlBlockDB, hash *chainhash.Hash) (*wire.BlockHeader, error) {
+func sqlDbFetchHeaderByHash(db *SQLBlockDB, hash *chainhash.Hash) (*wire.BlockHeader, error) {
 	header := db.FetchHeader(*hash)
 
 	return header, nil
@@ -1426,7 +1426,7 @@ func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (btcutil.Block, error) {
 	return block, err
 }
 
-// BlockByHash returns the block shard from the main chain with the given hash with
+// BlockShardByHash returns the block shard from the main chain with the given hash with
 // the appropriate chain height. i.e, all transactions that refer to the block hash and
 // relevant indexes
 //
@@ -1441,7 +1441,7 @@ func (b *BlockChain) BlockShardByHash(hash *chainhash.Hash) (*wire.MsgBlockShard
 		return nil, errNotInMainChain(str)
 	}
 
-	blockShard := b.SqlDB.FetchTXs(*hash)
+	blockShard := b.SQLDB.FetchTXs(*hash)
 	return blockShard, nil
 
 }
