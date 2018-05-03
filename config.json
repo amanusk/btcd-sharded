@@ -7,7 +7,7 @@
     },
     "shard": {
         "shard_log": "stestlog1.log",
-        "shard_shards_port": ":12347",
+        "shard_shards_port": ":12349",
         "shard_db": "postgresql://amanusk@localhost:26257/blockchain?sslmode=disable"
     }
 }

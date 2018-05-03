@@ -870,19 +870,18 @@ func (b *BlockChain) checkBIP0030(node *BlockNode, block btcutil.Block, view Utx
 // it also calculates the total fees for the transaction and returns that value.
 // TODO TODO TODO: The transaction MUST have already been sanity checked with the
 // CheckTransactionSanity function prior to calling this function.
-func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, chainParams *chaincfg.Params) (int64, error) {
+func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, chainParams *chaincfg.Params, localTxFilter *bloom.Filter) (int64, error) {
 	// The shard should not have coinbase transactions
 
 	txHash := tx.Hash()
 	var totalSatoshiIn int64
-	// Number of elements should be a paramenter passed
-	localTxFilter := bloom.NewFilter(1000, 0, 0.0001, wire.BloomUpdateNone)
 	for txInIndex, txIn := range tx.MsgTx().TxIn {
 		// Ensure the referenced input transaction is available
 		originTxHash := &txIn.PreviousOutPoint.Hash
 		originTxIndex := txIn.PreviousOutPoint.Index
 		utxoEntry := utxoView.LookupEntry(originTxHash)
-		if utxoEntry.IsOutputSpent(originTxIndex) {
+		// TODO: Don not return this error on nil, it could be in another shard
+		if utxoEntry == nil || utxoEntry.IsOutputSpent(originTxIndex) {
 			str := fmt.Sprintf("output %v referenced from "+
 				"transaction %s:%d "+
 				"has already been spent", txIn.PreviousOutPoint,
@@ -947,8 +946,6 @@ func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32
 		}
 	}
 
-	shard.SendInputBloomFilter(localTxFilter)
-
 	// Calculate the total output amount for this transaction.  It is safe
 	// to ignore overflow and out of range errors here because those error
 	// conditions would have already been caught by checkTransactionSanity.
@@ -993,7 +990,6 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 	var totalSatoshiIn int64
 	for txInIndex, txIn := range tx.MsgTx().TxIn {
 		// Ensure the referenced input transaction is available.
-		// TODO: Make sure the indexes are referenced correctly in the shard!
 		originTxHash := &txIn.PreviousOutPoint.Hash
 		originTxIndex := txIn.PreviousOutPoint.Index
 		utxoEntry := utxoView.LookupEntry(originTxHash)
@@ -1188,10 +1184,11 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	for txIdx, tx := range transactions {
 		reallog.Println("Tx id ", txIdx, " TX ", tx)
 	}
+	localTxFilter := bloom.NewFilter(10, 0, 0.1, wire.BloomUpdateNone)
 	for txIdx, tx := range transactions {
 		reallog.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
 		txFee, err := shard.CheckShardedTransactionInputs(tx, node.height, view,
-			params)
+			params, localTxFilter)
 		if err != nil {
 			return err
 		}
@@ -1217,6 +1214,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		}
 
 	}
+
+	// We have checked before that blockshard has at least one transaction
+	shard.SendInputBloomFilter(localTxFilter)
 
 	// TODO: Perhaps move the coinbase the the coordinator for validation
 	//// The total output values of the coinbase transaction must not exceed

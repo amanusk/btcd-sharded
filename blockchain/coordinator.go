@@ -22,6 +22,11 @@ type HeaderGob struct {
 	Height int32
 }
 
+// FilterGob struct to send bloomFilters. The regular does not register
+type FilterGob struct {
+	Filter *wire.MsgFilterLoad
+}
+
 // RawBlockGob is a struct to send full blocks
 type RawBlockGob struct {
 	Block  *wire.MsgBlockShard
@@ -36,26 +41,35 @@ type Message struct {
 	Data interface{}
 }
 
-// Coordinator is the coordinator in a sharded bitcoin cluster
-type Coordinator struct {
-	Socket          net.Conn              // Receive information from other coordinators
-	shards          map[*Shard]bool       // A map of shards connected to this coordinator
-	coords          map[*Coordinator]bool // A map of coords connected to this coordinator
-	registerShard   chan *Shard
-	unregisterShard chan *Shard
-	registerCoord   chan *Coordinator
-	unregisterCoord chan *Coordinator
-	allShardsDone   chan bool
-	Connected       chan bool // Sends a sigal that a shard connection completed
-	ConnectedOut    chan bool // Sends shards finished connecting to shards
-	BlockDone       chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
-	KeepAlive       chan interface{}
-	ShardListener   net.Listener
-	CoordListener   net.Listener
-	Chain           *BlockChain
+// ConnAndFilter is used to pass the connection and the filter, the coordinator
+// Creates a map between connections and filters received
+type ConnAndFilter struct {
+	Conn   net.Conn
+	Filter *wire.MsgFilterLoad
 }
 
-// NewCoordConnection creates a new shard connection for a coordintor to use.
+// Coordinator is the coordinator in a sharded bitcoin cluster
+type Coordinator struct {
+	Socket              net.Conn              // Connection to the shard you connected to
+	shards              map[net.Conn]*Shard   // A map of shards connected to this coordinator
+	coords              map[*Coordinator]bool // A map of coords connected to this coordinator
+	registerShard       chan *Shard
+	unregisterShard     chan *Shard
+	registerCoord       chan *Coordinator
+	unregisterCoord     chan *Coordinator
+	registerBloomFilter chan *ConnAndFilter // A channel to receive bloom filters on
+	shardDone           chan bool
+	allShardsDone       chan bool
+	Connected           chan bool // Sends a sigal that a shard connection completed
+	ConnectedOut        chan bool // Sends shards finished connecting to shards
+	BlockDone           chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
+	KeepAlive           chan interface{}
+	ShardListener       net.Listener
+	CoordListener       net.Listener
+	Chain               *BlockChain
+}
+
+// NewCoordConnection creates a new coordinator connection for a coordintor to use.
 // It has a connection and a channel to receive data from the server
 func NewCoordConnection(connection net.Conn) *Coordinator {
 	coord := &Coordinator{
@@ -67,19 +81,20 @@ func NewCoordConnection(connection net.Conn) *Coordinator {
 // NewCoordinator Cerates and returns a new coordinator
 func NewCoordinator(shardListener net.Listener, coordListener net.Listener, blockchain *BlockChain) *Coordinator {
 	coord := Coordinator{
-		shards:          make(map[*Shard]bool),
-		coords:          make(map[*Coordinator]bool),
-		registerShard:   make(chan *Shard),
-		unregisterShard: make(chan *Shard),
-		registerCoord:   make(chan *Coordinator),
-		unregisterCoord: make(chan *Coordinator),
-		allShardsDone:   make(chan bool),
-		Connected:       make(chan bool),
-		ConnectedOut:    make(chan bool),
-		BlockDone:       make(chan bool),
-		Chain:           blockchain,
-		ShardListener:   shardListener,
-		CoordListener:   coordListener,
+		shards:              make(map[net.Conn]*Shard),
+		coords:              make(map[*Coordinator]bool),
+		registerShard:       make(chan *Shard),
+		unregisterShard:     make(chan *Shard),
+		registerCoord:       make(chan *Coordinator),
+		unregisterCoord:     make(chan *Coordinator),
+		registerBloomFilter: make(chan *ConnAndFilter),
+		allShardsDone:       make(chan bool),
+		Connected:           make(chan bool),
+		ConnectedOut:        make(chan bool),
+		BlockDone:           make(chan bool),
+		Chain:               blockchain,
+		ShardListener:       shardListener,
+		CoordListener:       coordListener,
 	}
 	return &coord
 }
@@ -104,13 +119,13 @@ func (coord *Coordinator) Start() {
 	for {
 		select {
 		// Handle shard connect/disconnect
-		case connection := <-coord.registerShard:
-			coord.shards[connection] = true
+		case shard := <-coord.registerShard:
+			coord.shards[shard.Socket] = shard
 			fmt.Println("Added new shard!")
 			coord.Connected <- true
-		case connection := <-coord.unregisterShard:
-			if _, ok := coord.shards[connection]; ok {
-				delete(coord.shards, connection)
+		case shard := <-coord.unregisterShard:
+			if _, ok := coord.shards[shard.Socket]; ok {
+				delete(coord.shards, shard.Socket)
 				fmt.Println("A connection has terminated!")
 			}
 
@@ -130,7 +145,7 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
-	gob.Register(bloom.Filter{})
+	gob.Register(FilterGob{})
 
 	for {
 		dec := gob.NewDecoder(conn)
@@ -159,7 +174,11 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 		case "CONCTDONE":
 			coord.handleConnectDone(conn)
 		case "BLOCKDONE":
+			reallog.Println("Message BLOCKDONE")
 			coord.handleBlockDone(conn)
+		case "BLOOMFLT":
+			filter := msg.Data.(FilterGob)
+			coord.handleBloomFilter(conn, filter.Filter)
 
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
@@ -176,8 +195,8 @@ func (coord *Coordinator) ReceiveShard(shard *Shard) {
 // NotifyShards function sends a message to each of the shards connected to the coordinator
 // informing it of the connections to other shards it needs to establish
 func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
-	for shard := range coord.shards {
-		enc := gob.NewEncoder(shard.Socket)
+	for cons := range coord.shards {
+		enc := gob.NewEncoder(cons)
 
 		// TODO here there should be some logic to sort which shard gets what
 		msg := Message{
@@ -205,7 +224,7 @@ func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
 // Once a shards finishes processing a block this message is received
 func (coord *Coordinator) handleShardDone(conn net.Conn) {
 	reallog.Print("Receive Block Confirmation from shard")
-	coord.allShardsDone <- true
+	coord.shardDone <- true
 
 }
 
@@ -215,7 +234,7 @@ func (coord *Coordinator) handleConnectDone(conn net.Conn) {
 	coord.ConnectedOut <- true
 }
 
-// Receive a conformation a shard is sucessfuly connected
+// Receive a conformation a block was processed by the other peer
 func (coord *Coordinator) handleBlockDone(conn net.Conn) {
 	reallog.Print("Receive conformation block finised processing")
 	coord.BlockDone <- true
@@ -332,9 +351,9 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
 	connections := make([]*net.TCPAddr, 0, len(coord.shards))
 
-	for key := range coord.shards {
-		conn := key.Socket.RemoteAddr().(*net.TCPAddr)
-		conn.Port = key.Port // The port the shard is listening to other shards
+	for con, shard := range coord.shards {
+		conn := con.RemoteAddr().(*net.TCPAddr)
+		conn.Port = shard.Port // The port the shard is listening to other shards
 		connections = append(connections, conn)
 	}
 	return connections
@@ -356,8 +375,8 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	}
 
 	// Send block header to request to all shards
-	for shard := range coord.shards {
-		enc := gob.NewEncoder(shard.Socket)
+	for con := range coord.shards {
+		enc := gob.NewEncoder(con)
 		// Generate a header gob to send to coordinator
 		msg := Message{
 			Cmd: "REQBLOCK",
@@ -373,14 +392,94 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 		}
 	}
 
-	// Wait for all the shards to send finish report
-	for i := 0; i < len(coord.shards); i++ {
-		<-coord.allShardsDone
-	}
+	go coord.waitForShardsDone()
+
+	// Handle bloom filters
+	coord.waitForBloomFilters()
+
+	// All shards must be done to unlock this channel
+	<-coord.allShardsDone
 	reallog.Println("Done processing block")
 
 	coord.Chain.CoordMaybeAcceptBlock(headerBlock, flags)
 	return nil
+}
+
+func (coord *Coordinator) waitForShardsDone() {
+	coord.shardDone = make(chan bool, len(coord.shards))
+	// Wait for all the shards to send finish report
+	for i := 0; i < len(coord.shards); i++ {
+		<-coord.shardDone
+	}
+	coord.allShardsDone <- true
+}
+
+// waitForBloomFilters waits for bloom filters according the number of shards
+// Then process the union of the bloom filters and send them back to the shards
+func (coord *Coordinator) waitForBloomFilters() {
+	filters := make(map[net.Conn]*wire.MsgFilterLoad)
+	for i := 0; i < len(coord.shards); i++ {
+		conAndFilter := <-coord.registerBloomFilter
+		filters[conAndFilter.Conn] = conAndFilter.Filter
+		checkFilter := bloom.LoadFilter(conAndFilter.Filter)
+		if checkFilter.FilterIsEmpty() {
+			reallog.Println("Filter is empty, shardDone")
+			coord.shardDone <- true
+			continue
+		}
+		reallog.Println("Logged new filter ", conAndFilter.Filter)
+	}
+	reallog.Println("Done Receiving filters")
+
+	coord.sendCombinedFilters(filters)
+}
+
+// sendCombinedFilters sends to each shard, the union of all other bloom filters
+// The shard will then calculate the intersection of his own with the union of
+// all the rest
+func (coord *Coordinator) sendCombinedFilters(filters map[net.Conn]*wire.MsgFilterLoad) {
+	combinedFilters := make(map[net.Conn]*wire.MsgFilterLoad)
+	// Here we create he combined union filters
+	for con := range filters {
+		emptyFilter := bloom.NewFilter(10, 0, 0.1, wire.BloomUpdateNone)
+		// The empty filter load will be used to create the union with
+		emptyFilterLoad := emptyFilter.MsgFilterLoad()
+		combinedFilters[con] = emptyFilterLoad
+		for conC, filterC := range filters {
+			if conC == con {
+				continue // We want to union all but the the filter itself
+			}
+			combinedFilter, err := bloom.FilterUnion(combinedFilters[con], filterC)
+			if err != nil {
+				fmt.Printf("%v\n", err)
+			}
+			combinedFilters[con] = combinedFilter.MsgFilterLoad()
+		}
+	}
+
+	// Once the filters are created, send a message to each shard with its combination,
+	// unless the original filter is empty, then the shard will not be waiting for
+	// a reply
+
+	for con, filter := range combinedFilters {
+		// No need to send if the original bloom filter is empty, i.e. no TXs
+		testFilter := bloom.LoadFilter(filters[con])
+		if testFilter.FilterIsEmpty() {
+			continue
+		}
+		reallog.Println("Sending combined bloom filter back to shard")
+		enc := gob.NewEncoder(con)
+		err := enc.Encode(
+			Message{
+				Cmd: "BLOOMCOM",
+				Data: FilterGob{
+					Filter: filter,
+				},
+			})
+		if err != nil {
+			reallog.Println(err, "Encode failed for struct: %#v", filter)
+		}
+	}
 }
 
 // ListenToCoordinators is go routine to listen for other coordinator (peers) to connect
@@ -412,4 +511,11 @@ func (coord *Coordinator) SendBlocksRequest() {
 			return
 		}
 	}
+}
+
+// Receive bloom filters from shards
+func (coord *Coordinator) handleBloomFilter(conn net.Conn, filterLoad *wire.MsgFilterLoad) {
+	reallog.Print("Received bloom filter to process")
+
+	coord.registerBloomFilter <- &ConnAndFilter{conn, filterLoad}
 }

@@ -2135,7 +2135,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	return tests, nil
 }
 
-// Generate returns a slice of tests that can be used to exercise the consensus
+// SimpleGenerate returns a slice of tests that can be used to exercise the consensus
 // validation rules.  The tests are intended to be flexible enough to allow both
 // unit-style tests directly against the blockchain code as well as integration
 // style tests over the peer-to-peer network.  To achieve that goal, each test
@@ -2304,14 +2304,14 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// is which output is spent):
 	//
 	//   ... -> b1(0) -> b2(1)
-	g.nextBlock("b1", outs[0])
+	g.nextBlock("b106", outs[0])
 	accepted()
 
-	g.nextBlock("b2", outs[1])
+	g.nextBlock("b107", outs[1])
 	accepted()
 
 	// Test with more than 2 transactions
-	g.nextBlock("b3", outs[2], func(b *wire.MsgBlock) {
+	g.nextBlock("b108", outs[2], func(b *wire.MsgBlock) {
 		fee := btcutil.Amount(1)
 		b.AddTransaction(createSpendTx(outs[3], fee))
 	})
@@ -2372,7 +2372,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// co gets: TX0
 	// s0 gets: TX2(out7)
 	// s1 gets: TX1(out6), TX3(spendTx(6))
-	g.nextBlock("b6p2", outs[6], func(b *wire.MsgBlock) {
+	g.nextBlock("b109", outs[6], func(b *wire.MsgBlock) {
 		// Create 4 transactions that each spend from the previous tx
 		// in the block.
 		fee := btcutil.Amount(1)
@@ -2391,7 +2391,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// co gets: TX0
 	// s0 gets: TX2(out8)
 	// s1 gets: TX1(out9), TX3(spendTx(out8))
-	g.nextBlock("b7p2", outs[8], func(b *wire.MsgBlock) {
+	g.nextBlock("b110", outs[8], func(b *wire.MsgBlock) {
 		// Create 4 transactions that each spend from the previous tx
 		// in the block.
 		fee := btcutil.Amount(1)
@@ -2410,7 +2410,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	//   ... -> b65(19)
 	//                 \-> b67(20)
-	g.nextBlock("b67", outs[9], func(b *wire.MsgBlock) {
+	g.nextBlock("b111", outs[10], func(b *wire.MsgBlock) {
 		tx2 := b.Transactions[1]
 		tx3 := createSpendTxForTx(tx2, lowFee)
 		tx4 := createSpendTxForTx(tx2, lowFee)

@@ -6,6 +6,7 @@ import (
 	reallog "log"
 	"net"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
 )
@@ -43,6 +44,7 @@ func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex
 		registerShard:   make(chan *Shard),
 		unregisterShard: make(chan *Shard),
 		shards:          make(map[*Shard]bool),
+		intersectFilter: make(chan *bloom.Filter),
 		Socket:          connection,
 		ShardListener:   shardListener,
 	}
@@ -70,6 +72,15 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob, conn net.Conn) {
 		}
 
 	}
+
+}
+
+// Handle the received combined filter from coordinator
+func (shard *Shard) handleFilterCombined(filterData *wire.MsgFilterLoad, conn net.Conn) {
+	reallog.Println("Received combined filter from coordinator")
+	receivedFilter := bloom.LoadFilter(filterData)
+	reallog.Println("Recived filter", receivedFilter)
+	shard.intersectFilter <- receivedFilter
 
 }
 
@@ -132,16 +143,13 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 
 	coordEnc := gob.NewEncoder(shard.Socket)
 
-	msg := Message{
+	doneMsg := Message{
 		Cmd: "SHARDDONE",
 	}
 
 	// If blockShard is empty (could happen), just send SHARDDONE
 	if len(msgBlockShard.Transactions) == 0 {
-		err := coordEnc.Encode(msg)
-		if err != nil {
-			reallog.Fatal(err, "Encode failed for struct: %#v", msg)
-		}
+		shard.SendEmptyBloomFilter()
 		return
 	}
 
@@ -162,9 +170,9 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 	reallog.Println("Done processing block, sending SHARDDONE")
 
 	// Send conformation to coordinator!
-	err = coordEnc.Encode(msg)
+	err = coordEnc.Encode(doneMsg)
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct: %#v", msg)
+		reallog.Println(err, "Encode failed for struct: %#v", doneMsg)
 	}
 
 }
@@ -181,7 +189,7 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
-	gob.Register(bloom.Filter{})
+	gob.Register(FilterGob{})
 
 	for {
 		dec := gob.NewDecoder(conn)
@@ -210,6 +218,10 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 		case "SNDBLOCK":
 			header := msg.Data.(HeaderGob)
 			shard.handleSendBlock(&header, conn)
+		// Receive a combined bloom filter from coordinator
+		case "BLOOMCOM":
+			filter := msg.Data.(FilterGob)
+			shard.handleFilterCombined(filter.Filter, conn)
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
 		}
@@ -247,20 +259,46 @@ func (shard *Shard) ReceiveShard(s *Shard) {
 	shard.handleSmartMessages(s.Socket)
 }
 
-// SendInputBloomFilter sends a bloom filter of transaction inputs to the
-// coordinator and waits for either conformation for that no intersection is
-// possible or request for additional information
-func (shard *Shard) SendInputBloomFilter(filter *bloom.Filter) {
+// SendEmptyBloomFilter sends an empty bloomfilter to the coordintor. This
+// is an indication that the shard has no transactions to process, and
+// is the same as SHARDDONE
+func (shard *Shard) SendEmptyBloomFilter() {
+	filter := bloom.NewFilter(10, 0, 0.1, wire.BloomUpdateNone)
+	reallog.Println("Sending Empty bloomfilter to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
 
 	err := enc.Encode(
 		Message{
-			Cmd:  "BLOOMFLT",
-			Data: filter,
+			Cmd: "BLOOMFLT",
+			Data: FilterGob{
+				Filter: filter.MsgFilterLoad(),
+			},
 		})
 	if err != nil {
 		reallog.Println(err, "Encode failed for struct: %#v", filter)
 	}
-	<-shard.intersectFilter
+}
 
+// SendInputBloomFilter sends a bloom filter of transaction inputs to the
+// coordinator and waits for either conformation for that no intersection is
+// possible or request for additional information
+func (shard *Shard) SendInputBloomFilter(filter *bloom.Filter) {
+	reallog.Println("Sending bloom filter of transactions to coordinator")
+	enc := gob.NewEncoder(shard.Socket)
+
+	err := enc.Encode(
+		Message{
+			Cmd: "BLOOMFLT",
+			Data: FilterGob{
+				Filter: filter.MsgFilterLoad(),
+			},
+		})
+	if err != nil {
+		reallog.Println(err, "Encode failed for struct: %#v", filter)
+	}
+
+	// Wait for intersectFilter from coordinator
+	receivedCombinedFilter := <-shard.intersectFilter
+	reallog.Println("Received combined filter", receivedCombinedFilter)
+	return
 }

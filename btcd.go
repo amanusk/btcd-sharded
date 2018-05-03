@@ -577,7 +577,7 @@ func main() {
 		}
 		shardConn := make([]net.Conn, numShards)
 
-		shardDial := receivedShards.Addresses[0].IP.String() + ":12347"
+		shardDial := receivedShards.Addresses[0].IP.String() + ":12349"
 		shardConn[0], err = net.Dial("tcp", shardDial)
 
 		// NOTE: change if running on multiple machines
