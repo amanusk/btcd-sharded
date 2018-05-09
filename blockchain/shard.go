@@ -13,16 +13,17 @@ import (
 
 // Shard is a single node in a sharded bitcoin client cluster
 type Shard struct {
-	Socket          net.Conn
-	shards          map[*Shard]bool // A map of shards connected to this shard
-	terminate       chan bool
-	registerShard   chan *Shard
-	unregisterShard chan *Shard
-	Port            int // Saves the port the shard is listening to other shards
-	Index           *BlockIndex
-	SQLDB           *SQLBlockDB
-	ShardListener   net.Listener
-	intersectFilter chan *bloom.Filter
+	Socket                 net.Conn
+	shards                 map[*Shard]bool // A map of shards connected to this shard
+	terminate              chan bool
+	registerShard          chan *Shard
+	unregisterShard        chan *Shard
+	Port                   int // Saves the port the shard is listening to other shards
+	Index                  *BlockIndex
+	SQLDB                  *SQLBlockDB
+	ShardListener          net.Listener
+	intersectFilter        chan *bloom.Filter
+	ReceivedCombinedFilter *bloom.Filter
 }
 
 // NewShardConnection Creates a new shard connection for a coordinator to use.
@@ -164,7 +165,10 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 
 	_, err := shard.ShardConnectBestChain(blockNode, block)
 	if err != nil {
-		reallog.Fatal(err)
+		reallog.Println(err)
+		shard.NotifyOfBadBlock()
+		// return!
+		return
 	}
 
 	reallog.Println("Done processing block, sending SHARDDONE")
@@ -190,6 +194,7 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
 	gob.Register(FilterGob{})
+	gob.Register(MatchingTxsGob{})
 
 	for {
 		dec := gob.NewDecoder(conn)
@@ -222,6 +227,10 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 		case "BLOOMCOM":
 			filter := msg.Data.(FilterGob)
 			shard.handleFilterCombined(filter.Filter, conn)
+		// Get a message from coordinator that block is bad, drop process
+		// of current block
+		case "BADBLOCK":
+			shard.handleBadBlock(conn)
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
 		}
@@ -298,7 +307,54 @@ func (shard *Shard) SendInputBloomFilter(filter *bloom.Filter) {
 	}
 
 	// Wait for intersectFilter from coordinator
-	receivedCombinedFilter := <-shard.intersectFilter
-	reallog.Println("Received combined filter", receivedCombinedFilter)
+	shard.ReceivedCombinedFilter = <-shard.intersectFilter
+	reallog.Println("Received combined filter", shard.ReceivedCombinedFilter.MsgFilterLoad())
 	return
+}
+
+// SendMatchingTxs sends a list of matching transaction inputs to the coordinator
+// This list could be empty,
+func (shard *Shard) SendMatchingTxs(txs []*wire.OutPoint) {
+	reallog.Println("Sending bloom filter of transactions to coordinator")
+	enc := gob.NewEncoder(shard.Socket)
+
+	err := enc.Encode(
+		Message{
+			Cmd: "MATCHTXS",
+			Data: MatchingTxsGob{
+				MatchingTxs: txs,
+			},
+		})
+	if err != nil {
+		reallog.Println(err, "Encode failed for struct: %#v", txs)
+	}
+
+	// TODO: Wait for OK message from coordinator
+	// shard.ReceivedCombinedFilter = <-shard.intersectFilter
+	// reallog.Println("Received combined filter", shard.ReceivedCombinedFilter.MsgFilterLoad())
+	// return
+}
+
+// NotifyOfBadBlock sends a message to the coordinator that the block is illegal
+// for some reason, the block will not be connected
+func (shard *Shard) NotifyOfBadBlock() {
+	reallog.Println("Illegal block, send BADBLOCK to coordinator")
+	enc := gob.NewEncoder(shard.Socket)
+
+	err := enc.Encode(
+		Message{
+			Cmd: "BADBLOCK",
+		})
+	if err != nil {
+		reallog.Println(err, "Encode failed for struct BADBLOCK")
+	}
+
+}
+
+// handleBadBlock receives a notice of a bad block, needs to stop processing
+// the current block
+func (shard *Shard) handleBadBlock(conn net.Conn) {
+	reallog.Println("Received bad block indication form coordinator")
+	// TODO: we need to add some rules, in case this is received after,
+	// we need to revert the changes made by this shard
 }

@@ -881,7 +881,7 @@ func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32
 		originTxIndex := txIn.PreviousOutPoint.Index
 		utxoEntry := utxoView.LookupEntry(originTxHash)
 		// TODO: Don not return this error on nil, it could be in another shard
-		if utxoEntry == nil || utxoEntry.IsOutputSpent(originTxIndex) {
+		if utxoEntry.IsOutputSpent(originTxIndex) {
 			str := fmt.Sprintf("output %v referenced from "+
 				"transaction %s:%d "+
 				"has already been spent", txIn.PreviousOutPoint,
@@ -890,9 +890,14 @@ func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32
 		}
 		// Add the outpoint to local filter
 		localTxFilter.AddOutPoint(&txIn.PreviousOutPoint)
-		//if utxoEntry == nil {
-		// TODO: This needs to be different, need to wait for cross-shard txs
-		//}
+		if utxoEntry == nil {
+			//TODO: This needs to be different, need to wait for cross-shard txs
+			str := fmt.Sprintf("output %v referenced from "+
+				"transaction %s:%d "+
+				"does not exist", txIn.PreviousOutPoint,
+				tx.Hash(), txInIndex)
+			return 0, ruleError(ErrMissingTxOut, str)
+		}
 
 		// Ensure the transaction is not spending coins which have not
 		// yet reached the required coinbase maturity.
@@ -1076,6 +1081,22 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 	return txFeeInSatoshi, nil
 }
 
+// CalculateFilterIntersection returns a list of transactions that might be
+// included in the passed filter
+func CalculateFilterIntersection(filter *bloom.Filter, transactions map[int]*btcutil.Tx) []*wire.OutPoint {
+	var matchingTxs []*wire.OutPoint
+	for _, tx := range transactions {
+		for _, txIn := range tx.MsgTx().TxIn {
+			if filter.MatchesOutPoint(&txIn.PreviousOutPoint) {
+				matchingTxs = append(matchingTxs, &txIn.PreviousOutPoint)
+				reallog.Println("Transaction input ", &txIn.PreviousOutPoint, " could be a double spend")
+
+			}
+		}
+	}
+	return matchingTxs
+}
+
 // ShardCheckConnectBlock performs several checks to confirm connecting the passed
 // block to the chain represented by the passed view does not violate any rules.
 // In addition, the passed view is updated to spend all of the referenced
@@ -1217,6 +1238,11 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 
 	// We have checked before that blockshard has at least one transaction
 	shard.SendInputBloomFilter(localTxFilter)
+
+	matchingTxs := CalculateFilterIntersection(shard.ReceivedCombinedFilter, transactions)
+	//if len(matchingTxs) != 0 {
+	shard.SendMatchingTxs(matchingTxs)
+	//}
 
 	// TODO: Perhaps move the coinbase the the coordinator for validation
 	//// The total output values of the coinbase transaction must not exceed

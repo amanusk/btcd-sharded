@@ -1374,7 +1374,8 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 		err := shard.ShardCheckConnectBlock(node, block, view, &stxos) // This is what we need to replace
 		if err != nil {
 			if _, ok := err.(RuleError); ok {
-				reallog.Fatal("Block validation failed ", err)
+				reallog.Println("Block validation failed ", err)
+				// TODO: reenalbe
 				// b.index.SetStatusFlags(node, statusValidateFailed)
 			}
 			return false, err

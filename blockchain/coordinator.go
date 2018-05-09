@@ -15,6 +15,12 @@ type AddressesGob struct {
 	Addresses []*net.TCPAddr
 }
 
+// MatchingTxsGob  is a struct to send a list of tx inputs, the coordinator
+// needs to validate that no 2 tx of 2 different shards match
+type MatchingTxsGob struct {
+	MatchingTxs []*wire.OutPoint
+}
+
 // HeaderGob is a struct to send headers over tcp connections
 type HeaderGob struct {
 	Header *wire.BlockHeader
@@ -48,6 +54,13 @@ type ConnAndFilter struct {
 	Filter *wire.MsgFilterLoad
 }
 
+// ConnAndMatchingTxs is used to pass the connection and the matching transactions
+// Creates a map between connections and transactions list
+type ConnAndMatchingTxs struct {
+	Conn net.Conn
+	Txs  []*wire.OutPoint
+}
+
 // Coordinator is the coordinator in a sharded bitcoin cluster
 type Coordinator struct {
 	Socket              net.Conn              // Connection to the shard you connected to
@@ -57,7 +70,8 @@ type Coordinator struct {
 	unregisterShard     chan *Shard
 	registerCoord       chan *Coordinator
 	unregisterCoord     chan *Coordinator
-	registerBloomFilter chan *ConnAndFilter // A channel to receive bloom filters on
+	registerBloomFilter chan *ConnAndFilter      // A channel to receive bloom filters on
+	registerMatchingTxs chan *ConnAndMatchingTxs // A channel to receive lists of matching transactions
 	shardDone           chan bool
 	allShardsDone       chan bool
 	Connected           chan bool // Sends a sigal that a shard connection completed
@@ -67,6 +81,7 @@ type Coordinator struct {
 	ShardListener       net.Listener
 	CoordListener       net.Listener
 	Chain               *BlockChain
+	shardsToWaitFor     int // The number of shards that received empty bloom filters
 }
 
 // NewCoordConnection creates a new coordinator connection for a coordintor to use.
@@ -88,6 +103,7 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 		registerCoord:       make(chan *Coordinator),
 		unregisterCoord:     make(chan *Coordinator),
 		registerBloomFilter: make(chan *ConnAndFilter),
+		registerMatchingTxs: make(chan *ConnAndMatchingTxs),
 		allShardsDone:       make(chan bool),
 		Connected:           make(chan bool),
 		ConnectedOut:        make(chan bool),
@@ -146,6 +162,7 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
 	gob.Register(FilterGob{})
+	gob.Register(MatchingTxsGob{})
 
 	for {
 		dec := gob.NewDecoder(conn)
@@ -168,17 +185,22 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 			block := msg.Data.(RawBlockGob)
 			coord.handleProcessBlock(&block, conn)
 		case "REQBLOCKS":
-			go coord.handleRequestBlocks(conn)
+			coord.handleRequestBlocks(conn)
 		case "DEADBEAFS":
 			coord.handleDeadBeaf(conn)
 		case "CONCTDONE":
 			coord.handleConnectDone(conn)
+		case "BADBLOCK":
+			coord.handleBadBlock(conn)
 		case "BLOCKDONE":
 			reallog.Println("Message BLOCKDONE")
 			coord.handleBlockDone(conn)
 		case "BLOOMFLT":
 			filter := msg.Data.(FilterGob)
 			coord.handleBloomFilter(conn, filter.Filter)
+		case "MATCHTXS":
+			matchingTxs := msg.Data.([]*wire.OutPoint)
+			coord.handleMatcingTxs(conn, matchingTxs)
 
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
@@ -213,6 +235,39 @@ func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
 			return
 		}
 	}
+}
+
+func (coord *Coordinator) handleBadBlock(conn net.Conn) {
+	for con := range coord.shards {
+		enc := gob.NewEncoder(con)
+
+		msg := Message{
+			Cmd: "BADBLOCK",
+		}
+		reallog.Println("Sending bad block to all shards")
+
+		err := enc.Encode(msg)
+		if err != nil {
+			reallog.Println(err, "Encode failed for struct: BADBLOCK")
+		}
+	}
+	// TODO: fix this to revert any changes made by the last block
+	coord.shardDone <- true
+
+	// TODO: Only send to the relevant coord
+	for c := range coord.coords {
+		enc := gob.NewEncoder(c.Socket)
+
+		msg := Message{
+			Cmd: "BADBLOCK",
+		}
+		err := enc.Encode(msg)
+		if err != nil {
+			reallog.Println("Error encoding addresses GOB data:", err)
+			return
+		}
+	}
+	return
 }
 
 // ReceiveCoord receives messages from a coordinator
@@ -275,15 +330,19 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 	if err != nil {
 		reallog.Fatal("Coordinator unable to process block")
 	}
-	reallog.Println("Sending BLOCKDONE")
+	coord.sendBlockDone(conn)
+}
 
+func (coord *Coordinator) sendBlockDone(conn net.Conn) {
+	reallog.Println("Sending BLOCKDONE")
+	// TODO: This should be sent to a specific coordinator
 	enc := gob.NewEncoder(conn)
 
 	// TODO here there should be some logic to sort which shard gets what
 	msg := Message{
 		Cmd: "BLOCKDONE",
 	}
-	err = enc.Encode(msg)
+	err := enc.Encode(msg)
 	if err != nil {
 		reallog.Println("Error encoding addresses GOB data:", err)
 		return
@@ -397,6 +456,9 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	// Handle bloom filters
 	coord.waitForBloomFilters()
 
+	// Wait for matching TXs in bloom filters
+	coord.waitForMatchingTxs()
+
 	// All shards must be done to unlock this channel
 	<-coord.allShardsDone
 	reallog.Println("Done processing block")
@@ -418,6 +480,7 @@ func (coord *Coordinator) waitForShardsDone() {
 // Then process the union of the bloom filters and send them back to the shards
 func (coord *Coordinator) waitForBloomFilters() {
 	filters := make(map[net.Conn]*wire.MsgFilterLoad)
+	coord.shardsToWaitFor = len(coord.shards) // initially we wait for all
 	for i := 0; i < len(coord.shards); i++ {
 		conAndFilter := <-coord.registerBloomFilter
 		filters[conAndFilter.Conn] = conAndFilter.Filter
@@ -425,6 +488,7 @@ func (coord *Coordinator) waitForBloomFilters() {
 		if checkFilter.FilterIsEmpty() {
 			reallog.Println("Filter is empty, shardDone")
 			coord.shardDone <- true
+			coord.shardsToWaitFor-- // do not wait for this shard
 			continue
 		}
 		reallog.Println("Logged new filter ", conAndFilter.Filter)
@@ -432,6 +496,41 @@ func (coord *Coordinator) waitForBloomFilters() {
 	reallog.Println("Done Receiving filters")
 
 	coord.sendCombinedFilters(filters)
+}
+
+// waitForMatchingTxs waits for each shard to send then tx inputs that have
+// matched the bloom filter it received. Am empty list means no transactions
+// are in possible violation
+func (coord *Coordinator) waitForMatchingTxs() {
+	matchingTxsMap := make(map[net.Conn][]*wire.OutPoint)
+	for i := 0; i < coord.shardsToWaitFor; i++ {
+		connAndTxs := <-coord.registerMatchingTxs
+		matchingTxsMap[connAndTxs.Conn] = connAndTxs.Txs
+	}
+	// Once all the shards have sent the transactions that collide,
+	// Go over the colliding list and see if these are actually the same transaction
+	for name, list := range matchingTxsMap {
+		// Create a combined list of all the rest
+		var combinedColliding []*wire.OutPoint
+		for n, l := range matchingTxsMap {
+			// Do not include the txs of the the current name being checked
+			if name == n {
+				continue
+			}
+			combinedColliding = append(combinedColliding, l...)
+		}
+		// Search the combined list for transactions of each shard
+		for _, tx := range list {
+			for _, comparedTx := range combinedColliding {
+				if tx == comparedTx {
+					fmt.Println("Comapred ", comparedTx)
+					fmt.Println("tx", tx)
+					fmt.Println("Tx,", tx, "Is double spending")
+				}
+			}
+		}
+	}
+
 }
 
 // sendCombinedFilters sends to each shard, the union of all other bloom filters
@@ -518,4 +617,11 @@ func (coord *Coordinator) handleBloomFilter(conn net.Conn, filterLoad *wire.MsgF
 	reallog.Print("Received bloom filter to process")
 
 	coord.registerBloomFilter <- &ConnAndFilter{conn, filterLoad}
+}
+
+// Receive bloom filters from shards
+func (coord *Coordinator) handleMatcingTxs(conn net.Conn, matchingTxs []*wire.OutPoint) {
+	reallog.Print("Received bloom filter to process")
+
+	coord.registerMatchingTxs <- &ConnAndMatchingTxs{conn, matchingTxs}
 }

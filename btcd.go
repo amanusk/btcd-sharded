@@ -700,6 +700,9 @@ func main() {
 				case "BLOCKDONE":
 					reallog.Println("Received BLOCKDONE")
 					break // Quit the switch case
+				case "BADBLOCK":
+					reallog.Println("Received BADBLOCK")
+					break // Quit the switch case
 				default:
 					reallog.Println("Command '", cmd, "' is not registered.")
 				}
