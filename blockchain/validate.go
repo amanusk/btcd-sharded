@@ -870,7 +870,7 @@ func (b *BlockChain) checkBIP0030(node *BlockNode, block btcutil.Block, view Utx
 // it also calculates the total fees for the transaction and returns that value.
 // TODO TODO TODO: The transaction MUST have already been sanity checked with the
 // CheckTransactionSanity function prior to calling this function.
-func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, chainParams *chaincfg.Params, localTxFilter *bloom.Filter) (int64, error) {
+func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, chainParams *chaincfg.Params, localTxFilter *bloom.Filter, localMissingTxList []*wire.OutPoint) (int64, error) {
 	// The shard should not have coinbase transactions
 
 	txHash := tx.Hash()
@@ -880,7 +880,20 @@ func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32
 		originTxHash := &txIn.PreviousOutPoint.Hash
 		originTxIndex := txIn.PreviousOutPoint.Index
 		utxoEntry := utxoView.LookupEntry(originTxHash)
-		// TODO: Don not return this error on nil, it could be in another shard
+
+		if utxoEntry == nil {
+			//TODO: This needs to be different, need to wait for cross-shard txs
+			str := fmt.Sprintf("output %v referenced from "+
+				"transaction %s:%d "+
+				"does not exist", txIn.PreviousOutPoint,
+				tx.Hash(), txInIndex)
+			localMissingTxList = append(localMissingTxList, &txIn.PreviousOutPoint)
+			reallog.Println(str)
+			continue
+			// return 0, ruleError(ErrMissingTxOut, str)
+		}
+
+		// TODO: Do not return this error on nil, it could be in another shard
 		if utxoEntry.IsOutputSpent(originTxIndex) {
 			str := fmt.Sprintf("output %v referenced from "+
 				"transaction %s:%d "+
@@ -890,14 +903,6 @@ func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32
 		}
 		// Add the outpoint to local filter
 		localTxFilter.AddOutPoint(&txIn.PreviousOutPoint)
-		if utxoEntry == nil {
-			//TODO: This needs to be different, need to wait for cross-shard txs
-			str := fmt.Sprintf("output %v referenced from "+
-				"transaction %s:%d "+
-				"does not exist", txIn.PreviousOutPoint,
-				tx.Hash(), txInIndex)
-			return 0, ruleError(ErrMissingTxOut, str)
-		}
 
 		// Ensure the transaction is not spending coins which have not
 		// yet reached the required coinbase maturity.
@@ -998,9 +1003,16 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 		originTxHash := &txIn.PreviousOutPoint.Hash
 		originTxIndex := txIn.PreviousOutPoint.Index
 		utxoEntry := utxoView.LookupEntry(originTxHash)
-		if utxoEntry == nil || utxoEntry.IsOutputSpent(originTxIndex) {
+		if utxoEntry == nil {
 			str := fmt.Sprintf("output %v referenced from "+
-				"transaction %s:%d either does not exist or "+
+				"transaction %s:%d does not exist", txIn.PreviousOutPoint,
+				tx.Hash(), txInIndex)
+			return 0, ruleError(ErrMissingTxOut, str)
+		}
+
+		if utxoEntry.IsOutputSpent(originTxIndex) {
+			str := fmt.Sprintf("output %v referenced from "+
+				"transaction %s:%d "+
 				"has already been spent", txIn.PreviousOutPoint,
 				tx.Hash(), txInIndex)
 			return 0, ruleError(ErrMissingTxOut, str)
@@ -1083,8 +1095,10 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 
 // CalculateFilterIntersection returns a list of transactions that might be
 // included in the passed filter
-func CalculateFilterIntersection(filter *bloom.Filter, transactions map[int]*btcutil.Tx) []*wire.OutPoint {
+func CalculateFilterIntersection(filters *FilterGob, transactions map[int]*btcutil.Tx) []*wire.OutPoint {
+	// Find the possible double spending transactions
 	var matchingTxs []*wire.OutPoint
+	filter := bloom.LoadFilter(filters.InputFilter)
 	for _, tx := range transactions {
 		for _, txIn := range tx.MsgTx().TxIn {
 			if filter.MatchesOutPoint(&txIn.PreviousOutPoint) {
@@ -1094,7 +1108,35 @@ func CalculateFilterIntersection(filter *bloom.Filter, transactions map[int]*btc
 			}
 		}
 	}
+
+	// Create a list of the missing transactions
 	return matchingTxs
+}
+
+// GetRequestedMissingTxOuptuts goes over the list of missing inputs of other shards passed by
+// the coordinator and return a slice containing these outputs
+// included in the passed filter
+func GetRequestedMissingTxOuptuts(filters *FilterGob, transactions map[int]*btcutil.Tx) []*wire.OutPoint {
+	// Find the possible double spending transactions
+	requestedTxs := filters.MissingTx
+	var txsToSend []*wire.OutPoint
+	for _, reqTx := range requestedTxs {
+		for _, tx := range transactions {
+			for txIdx, txOut := range tx.MsgTx().TxOut {
+				reallog.Println("compared")
+				reallog.Println(*tx.Hash(), txIdx)
+				reallog.Println(reqTx.Hash, reqTx.Index)
+				if *tx.Hash() == reqTx.Hash && uint32(txIdx) == reqTx.Index {
+					//txsToSend = append(txsToSend, txOut)
+					reallog.Println("Adding output", txOut, "to list of requested Txs")
+
+				}
+			}
+		}
+	}
+
+	// Create a list of the missing transactions
+	return txsToSend
 }
 
 // ShardCheckConnectBlock performs several checks to confirm connecting the passed
@@ -1199,17 +1241,54 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	params := &chaincfg.RegressionNetParams
 
 	// TODO: pass block height to shard.
-	// TODO TODO TODO: CheckTransactionInpus only works with tx containing correct Index!
 	// Only relevant for checking if TX is older than CoinBase
 	reallog.Println("Transactions in blockShard:")
 	for txIdx, tx := range transactions {
 		reallog.Println("Tx id ", txIdx, " TX ", tx)
 	}
-	localTxFilter := bloom.NewFilter(10, 0, 0.1, wire.BloomUpdateNone)
+	localTxInputFilter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
+	localTxFilter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
+	var localMissingTxList []*wire.OutPoint
+
+	for _, tx := range transactions {
+		localTxFilter.Add(tx.Hash()[:])
+		for txInIndex, txIn := range tx.MsgTx().TxIn {
+			// Ensure the referenced input transaction is available
+			originTxHash := &txIn.PreviousOutPoint.Hash
+			utxoEntry := view.LookupEntry(originTxHash)
+
+			if utxoEntry == nil {
+				//TODO: This needs to be different, need to wait for cross-shard txs
+				str := fmt.Sprintf("output %v referenced from "+
+					"transaction %s:%d "+
+					"does not exist", txIn.PreviousOutPoint,
+					tx.Hash(), txInIndex)
+				localMissingTxList = append(localMissingTxList, &txIn.PreviousOutPoint)
+				reallog.Println(str)
+				reallog.Println("Append", &txIn.PreviousOutPoint, "to missing")
+				continue
+			}
+			// Add the outpoint to input filters
+			localTxInputFilter.AddOutPoint(&txIn.PreviousOutPoint)
+		}
+	}
+
+	// We have checked before that blockshard has at least one transaction
+	shard.SendInputBloomFilter(localTxInputFilter, localTxFilter, &localMissingTxList)
+
+	matchingTxs := CalculateFilterIntersection(shard.ReceivedCombinedFilter, transactions)
+
+	missingTxs := GetRequestedMissingTxOuptuts(shard.ReceivedCombinedFilter, transactions)
+
+	reallog.Println(missingTxs)
+	//if len(matchingTxs) != 0 {
+	shard.SendMatchingTxs(matchingTxs)
+	//}
+
 	for txIdx, tx := range transactions {
 		reallog.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
-		txFee, err := shard.CheckShardedTransactionInputs(tx, node.height, view,
-			params, localTxFilter)
+		txFee, err := CheckTransactionInputs(tx, node.height, view,
+			params)
 		if err != nil {
 			return err
 		}
@@ -1235,14 +1314,6 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		}
 
 	}
-
-	// We have checked before that blockshard has at least one transaction
-	shard.SendInputBloomFilter(localTxFilter)
-
-	matchingTxs := CalculateFilterIntersection(shard.ReceivedCombinedFilter, transactions)
-	//if len(matchingTxs) != 0 {
-	shard.SendMatchingTxs(matchingTxs)
-	//}
 
 	// TODO: Perhaps move the coinbase the the coordinator for validation
 	//// The total output values of the coinbase transaction must not exceed

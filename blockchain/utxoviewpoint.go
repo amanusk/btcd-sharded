@@ -246,7 +246,9 @@ func (view *UtxoViewpoint) SetBestHash(hash *chainhash.Hash) {
 // it has been disconnected during a reorg.
 func (view *UtxoViewpoint) LookupEntry(txHash *chainhash.Hash) *UtxoEntry {
 	entry, ok := view.entries[*txHash]
+	reallog.Println("LookupEntry", *txHash)
 	if !ok {
+		reallog.Println("Entry not found")
 		return nil
 	}
 

@@ -20,7 +20,7 @@ import (
 	"runtime/pprof"
 	"strconv"
 	"strings"
-	_ "time"
+	"time"
 
 	"encoding/gob"
 	"encoding/json"
@@ -724,7 +724,8 @@ func main() {
 			//		item.IsOrphan)
 			//}
 		}
-		fmt.Printf("Started testing blocks")
+		fmt.Println("Started testing blocks")
+		startTime := time.Now()
 		for testNum, test := range tests {
 			for itemNum, item := range test {
 				switch item := item.(type) {
@@ -745,6 +746,9 @@ func main() {
 				}
 			}
 		}
+		endTime := time.Since(startTime)
+		fmt.Println("Run took ", endTime)
+		fmt.Println(endTime)
 
 		// Start a shard
 	} else if strings.ToLower(*flagMode) == "shard" {

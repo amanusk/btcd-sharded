@@ -54,7 +54,7 @@ func (db *SQLBlockDB) AddTX(blockHash []byte, idx int32, tx *wire.MsgTx) {
 		reallog.Fatal(err)
 	}
 	buf := bb.Bytes()
-
+	// TODO: Instead, save a block with its txs for shorter search
 	_, err = db.db.Exec(
 		"INSERT INTO txs (txhash, blockHash, txindex, txData)"+
 			"VALUES ($1, $2, $3, $4) ", txHash[:], blockHash, idx, buf)
@@ -142,9 +142,10 @@ func (db *SQLBlockDB) SQLDbFetchUtxoEntry(hash *chainhash.Hash) (*UtxoEntry, err
 		"SELECT utxodata FROM utxos WHERE txhash = $1", hash[:]).Scan(&serializedUtxo)
 	if err != nil {
 		reallog.Print("Err ", err)
-	} else {
-		reallog.Print("Fetched Serialized UTXO", serializedUtxo)
+		// If a TX is not found, it might be somewhere else
+		return nil, nil
 	}
+	reallog.Print("Fetched Serialized UTXO", serializedUtxo)
 	if serializedUtxo == nil {
 		return nil, nil
 	}

@@ -30,7 +30,9 @@ type HeaderGob struct {
 
 // FilterGob struct to send bloomFilters. The regular does not register
 type FilterGob struct {
-	Filter *wire.MsgFilterLoad
+	InputFilter *wire.MsgFilterLoad
+	TxFilter    *wire.MsgFilterLoad
+	MissingTx   []*wire.OutPoint
 }
 
 // RawBlockGob is a struct to send full blocks
@@ -50,8 +52,8 @@ type Message struct {
 // ConnAndFilter is used to pass the connection and the filter, the coordinator
 // Creates a map between connections and filters received
 type ConnAndFilter struct {
-	Conn   net.Conn
-	Filter *wire.MsgFilterLoad
+	Conn    net.Conn
+	Filters *FilterGob
 }
 
 // ConnAndMatchingTxs is used to pass the connection and the matching transactions
@@ -197,10 +199,10 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 			coord.handleBlockDone(conn)
 		case "BLOOMFLT":
 			filter := msg.Data.(FilterGob)
-			coord.handleBloomFilter(conn, filter.Filter)
+			coord.handleBloomFilter(conn, &filter)
 		case "MATCHTXS":
-			matchingTxs := msg.Data.([]*wire.OutPoint)
-			coord.handleMatcingTxs(conn, matchingTxs)
+			matchingTxs := msg.Data.(MatchingTxsGob)
+			coord.handleMatcingTxs(conn, matchingTxs.MatchingTxs)
 
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
@@ -237,7 +239,9 @@ func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
 	}
 }
 
-func (coord *Coordinator) handleBadBlock(conn net.Conn) {
+// Sends a BADBLOCK message to all shards, instructing to move on
+func (coord *Coordinator) sendBadBlockToAll() {
+	reallog.Println("Sending BADBLOCK to all")
 	for con := range coord.shards {
 		enc := gob.NewEncoder(con)
 
@@ -268,6 +272,11 @@ func (coord *Coordinator) handleBadBlock(conn net.Conn) {
 		}
 	}
 	return
+
+}
+
+func (coord *Coordinator) handleBadBlock(conn net.Conn) {
+	coord.sendBadBlockToAll()
 }
 
 // ReceiveCoord receives messages from a coordinator
@@ -479,23 +488,30 @@ func (coord *Coordinator) waitForShardsDone() {
 // waitForBloomFilters waits for bloom filters according the number of shards
 // Then process the union of the bloom filters and send them back to the shards
 func (coord *Coordinator) waitForBloomFilters() {
-	filters := make(map[net.Conn]*wire.MsgFilterLoad)
+	inputFilters := make(map[net.Conn]*wire.MsgFilterLoad)
+	txFilters := make(map[net.Conn]*wire.MsgFilterLoad)
+	missingInputs := make(map[net.Conn][]*wire.OutPoint)
+
 	coord.shardsToWaitFor = len(coord.shards) // initially we wait for all
 	for i := 0; i < len(coord.shards); i++ {
-		conAndFilter := <-coord.registerBloomFilter
-		filters[conAndFilter.Conn] = conAndFilter.Filter
-		checkFilter := bloom.LoadFilter(conAndFilter.Filter)
+
+		connAndFilters := <-coord.registerBloomFilter
+		inputFilters[connAndFilters.Conn] = connAndFilters.Filters.InputFilter
+		txFilters[connAndFilters.Conn] = connAndFilters.Filters.TxFilter
+		missingInputs[connAndFilters.Conn] = connAndFilters.Filters.MissingTx
+
+		checkFilter := bloom.LoadFilter(connAndFilters.Filters.InputFilter)
 		if checkFilter.FilterIsEmpty() {
 			reallog.Println("Filter is empty, shardDone")
 			coord.shardDone <- true
 			coord.shardsToWaitFor-- // do not wait for this shard
 			continue
 		}
-		reallog.Println("Logged new filter ", conAndFilter.Filter)
+		reallog.Println("Logged new filter ")
 	}
-	reallog.Println("Done Receiving filters")
+	reallog.Println("Done receiving filters")
 
-	coord.sendCombinedFilters(filters)
+	coord.sendCombinedFilters(inputFilters, txFilters, missingInputs)
 }
 
 // waitForMatchingTxs waits for each shard to send then tx inputs that have
@@ -503,9 +519,11 @@ func (coord *Coordinator) waitForBloomFilters() {
 // are in possible violation
 func (coord *Coordinator) waitForMatchingTxs() {
 	matchingTxsMap := make(map[net.Conn][]*wire.OutPoint)
+	reallog.Println("Waiting for matches from", coord.shardsToWaitFor, " shards")
 	for i := 0; i < coord.shardsToWaitFor; i++ {
 		connAndTxs := <-coord.registerMatchingTxs
 		matchingTxsMap[connAndTxs.Conn] = connAndTxs.Txs
+		reallog.Println("Registered list ", connAndTxs.Txs)
 	}
 	// Once all the shards have sent the transactions that collide,
 	// Go over the colliding list and see if these are actually the same transaction
@@ -522,29 +540,51 @@ func (coord *Coordinator) waitForMatchingTxs() {
 		// Search the combined list for transactions of each shard
 		for _, tx := range list {
 			for _, comparedTx := range combinedColliding {
-				if tx == comparedTx {
-					fmt.Println("Comapred ", comparedTx)
-					fmt.Println("tx", tx)
-					fmt.Println("Tx,", tx, "Is double spending")
+				reallog.Println("Comapred ", comparedTx)
+				reallog.Println("tx", tx)
+				if *tx == *comparedTx {
+					reallog.Println("Tx,", tx, "Is double spending")
+					coord.sendBadBlockToAll()
+					return
 				}
 			}
 		}
 	}
+	coord.sendOkToAll(matchingTxsMap)
 
+}
+
+// sendOkToAll sends OK to all shards, indicating no collisions
+func (coord *Coordinator) sendOkToAll(connections map[net.Conn][]*wire.OutPoint) {
+	for con := range connections {
+		enc := gob.NewEncoder(con)
+
+		msg := Message{
+			Cmd: "NOCOLIDE",
+		}
+		err := enc.Encode(msg)
+		if err != nil {
+			reallog.Println("Error encoding addresses GOB data:", err)
+			return
+		}
+	}
 }
 
 // sendCombinedFilters sends to each shard, the union of all other bloom filters
 // The shard will then calculate the intersection of his own with the union of
 // all the rest
-func (coord *Coordinator) sendCombinedFilters(filters map[net.Conn]*wire.MsgFilterLoad) {
+// For missing TXs: Find which shard is holding which missing TX, construct a
+// list per shard with missing TXs to send
+func (coord *Coordinator) sendCombinedFilters(inputFilters map[net.Conn]*wire.MsgFilterLoad,
+	txFilters map[net.Conn]*wire.MsgFilterLoad, missingInputs map[net.Conn][]*wire.OutPoint) {
 	combinedFilters := make(map[net.Conn]*wire.MsgFilterLoad)
-	// Here we create he combined union filters
-	for con := range filters {
-		emptyFilter := bloom.NewFilter(10, 0, 0.1, wire.BloomUpdateNone)
+	// Here we create he combined union inputFilters
+	for con := range inputFilters {
+		emptyFilter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
 		// The empty filter load will be used to create the union with
 		emptyFilterLoad := emptyFilter.MsgFilterLoad()
 		combinedFilters[con] = emptyFilterLoad
-		for conC, filterC := range filters {
+		for conC, filterC := range inputFilters {
 			if conC == con {
 				continue // We want to union all but the the filter itself
 			}
@@ -555,14 +595,44 @@ func (coord *Coordinator) sendCombinedFilters(filters map[net.Conn]*wire.MsgFilt
 			combinedFilters[con] = combinedFilter.MsgFilterLoad()
 		}
 	}
+	// Print all missing inputs
+	for conn, missing := range missingInputs {
+		reallog.Println("Shard", conn, "is missing:")
+		for _, input := range missing {
+			reallog.Println(input)
+		}
+	}
 
-	// Once the filters are created, send a message to each shard with its combination,
+	missingToSend := make(map[net.Conn][]*wire.OutPoint)
+
+	// Find missing TXs per shard
+	// Iterate over all shards
+	for conn, missing := range missingInputs {
+		// Iterate over list of all missing Txs
+		for _, input := range missing {
+			// Iterate over all the other filters
+			for conC, filterC := range txFilters {
+				// ignore the shard itself
+				if conC == conn {
+					reallog.Println("Not considering", conC)
+					continue
+				}
+				testedFilter := bloom.LoadFilter(filterC)
+				if testedFilter.Matches(input.Hash[:]) {
+					missingToSend[conC] = append(missingToSend[conC], input)
+					reallog.Println("Added", input, "To missing in", conC)
+				}
+			}
+		}
+	}
+
+	// Once the inputFilters are created, send a message to each shard with its combination,
 	// unless the original filter is empty, then the shard will not be waiting for
 	// a reply
 
 	for con, filter := range combinedFilters {
 		// No need to send if the original bloom filter is empty, i.e. no TXs
-		testFilter := bloom.LoadFilter(filters[con])
+		testFilter := bloom.LoadFilter(inputFilters[con])
 		if testFilter.FilterIsEmpty() {
 			continue
 		}
@@ -572,7 +642,8 @@ func (coord *Coordinator) sendCombinedFilters(filters map[net.Conn]*wire.MsgFilt
 			Message{
 				Cmd: "BLOOMCOM",
 				Data: FilterGob{
-					Filter: filter,
+					InputFilter: filter,
+					MissingTx:   missingToSend[con],
 				},
 			})
 		if err != nil {
@@ -613,10 +684,10 @@ func (coord *Coordinator) SendBlocksRequest() {
 }
 
 // Receive bloom filters from shards
-func (coord *Coordinator) handleBloomFilter(conn net.Conn, filterLoad *wire.MsgFilterLoad) {
+func (coord *Coordinator) handleBloomFilter(conn net.Conn, filterGob *FilterGob) {
 	reallog.Print("Received bloom filter to process")
 
-	coord.registerBloomFilter <- &ConnAndFilter{conn, filterLoad}
+	coord.registerBloomFilter <- &ConnAndFilter{conn, filterGob}
 }
 
 // Receive bloom filters from shards

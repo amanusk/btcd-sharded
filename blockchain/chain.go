@@ -1369,7 +1369,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 
 		// Validating signatre and other characteristics block shard
 		// This might require communication with the coordinator
-		reallog.Println("Connecting block ", block.Hash(), " height ", node.height)
+		reallog.Println("Connecting block", block.Hash(), " height", node.height)
 		// TODO, ConnectCheckBlock should contain the write to the the global view
 		err := shard.ShardCheckConnectBlock(node, block, view, &stxos) // This is what we need to replace
 		if err != nil {

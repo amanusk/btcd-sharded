@@ -22,8 +22,9 @@ type Shard struct {
 	Index                  *BlockIndex
 	SQLDB                  *SQLBlockDB
 	ShardListener          net.Listener
-	intersectFilter        chan *bloom.Filter
-	ReceivedCombinedFilter *bloom.Filter
+	intersectFilter        chan *FilterGob
+	nocolide               chan bool
+	ReceivedCombinedFilter *FilterGob
 }
 
 // NewShardConnection Creates a new shard connection for a coordinator to use.
@@ -45,7 +46,8 @@ func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex
 		registerShard:   make(chan *Shard),
 		unregisterShard: make(chan *Shard),
 		shards:          make(map[*Shard]bool),
-		intersectFilter: make(chan *bloom.Filter),
+		intersectFilter: make(chan *FilterGob),
+		nocolide:        make(chan bool),
 		Socket:          connection,
 		ShardListener:   shardListener,
 	}
@@ -76,12 +78,10 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob, conn net.Conn) {
 
 }
 
-// Handle the received combined filter from coordinator
-func (shard *Shard) handleFilterCombined(filterData *wire.MsgFilterLoad, conn net.Conn) {
-	reallog.Println("Received combined filter from coordinator")
-	receivedFilter := bloom.LoadFilter(filterData)
-	reallog.Println("Recived filter", receivedFilter)
-	shard.intersectFilter <- receivedFilter
+// Handle the received combined filter and missing Txs from coordinator
+func (shard *Shard) handleFilterCombined(filterData *FilterGob, conn net.Conn) {
+	reallog.Println("Recived filter", filterData)
+	shard.intersectFilter <- filterData
 
 }
 
@@ -226,11 +226,13 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 		// Receive a combined bloom filter from coordinator
 		case "BLOOMCOM":
 			filter := msg.Data.(FilterGob)
-			shard.handleFilterCombined(filter.Filter, conn)
+			shard.handleFilterCombined(&filter, conn)
 		// Get a message from coordinator that block is bad, drop process
 		// of current block
 		case "BADBLOCK":
 			shard.handleBadBlock(conn)
+		case "NOCOLIDE":
+			shard.handleNoCollide(conn)
 		default:
 			reallog.Println("Command '", cmd, "' is not registered.")
 		}
@@ -272,7 +274,7 @@ func (shard *Shard) ReceiveShard(s *Shard) {
 // is an indication that the shard has no transactions to process, and
 // is the same as SHARDDONE
 func (shard *Shard) SendEmptyBloomFilter() {
-	filter := bloom.NewFilter(10, 0, 0.1, wire.BloomUpdateNone)
+	filter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
 	reallog.Println("Sending Empty bloomfilter to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
 
@@ -280,7 +282,7 @@ func (shard *Shard) SendEmptyBloomFilter() {
 		Message{
 			Cmd: "BLOOMFLT",
 			Data: FilterGob{
-				Filter: filter.MsgFilterLoad(),
+				InputFilter: filter.MsgFilterLoad(),
 			},
 		})
 	if err != nil {
@@ -291,24 +293,33 @@ func (shard *Shard) SendEmptyBloomFilter() {
 // SendInputBloomFilter sends a bloom filter of transaction inputs to the
 // coordinator and waits for either conformation for that no intersection is
 // possible or request for additional information
-func (shard *Shard) SendInputBloomFilter(filter *bloom.Filter) {
+// In addtion, a filter of all transaction hashes is sent
+func (shard *Shard) SendInputBloomFilter(inputFilter *bloom.Filter, txFilter *bloom.Filter, missingTxList *[]*wire.OutPoint) {
 	reallog.Println("Sending bloom filter of transactions to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
+
+	// Print all missing inputs
+	reallog.Println("Sending missing Txs:")
+	for _, input := range *missingTxList {
+		reallog.Println(input)
+	}
 
 	err := enc.Encode(
 		Message{
 			Cmd: "BLOOMFLT",
 			Data: FilterGob{
-				Filter: filter.MsgFilterLoad(),
+				InputFilter: inputFilter.MsgFilterLoad(),
+				TxFilter:    txFilter.MsgFilterLoad(),
+				MissingTx:   *missingTxList,
 			},
 		})
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct: %#v", filter)
+		reallog.Println(err, "Encode failed for struct: %#v", inputFilter)
 	}
 
 	// Wait for intersectFilter from coordinator
 	shard.ReceivedCombinedFilter = <-shard.intersectFilter
-	reallog.Println("Received combined filter", shard.ReceivedCombinedFilter.MsgFilterLoad())
+	reallog.Println("Received combined filter")
 	return
 }
 
@@ -330,9 +341,9 @@ func (shard *Shard) SendMatchingTxs(txs []*wire.OutPoint) {
 	}
 
 	// TODO: Wait for OK message from coordinator
-	// shard.ReceivedCombinedFilter = <-shard.intersectFilter
-	// reallog.Println("Received combined filter", shard.ReceivedCombinedFilter.MsgFilterLoad())
-	// return
+	<-shard.nocolide
+	reallog.Println("Recieved nocolide for coord")
+	return
 }
 
 // NotifyOfBadBlock sends a message to the coordinator that the block is illegal
@@ -357,4 +368,15 @@ func (shard *Shard) handleBadBlock(conn net.Conn) {
 	reallog.Println("Received bad block indication form coordinator")
 	// TODO: we need to add some rules, in case this is received after,
 	// we need to revert the changes made by this shard
+
+	// Release the no colide lock if the block is bad
+	shard.nocolide <- true
+}
+
+// handleNoCollide receives a notice that a block has no double spending TXs
+// TODO: You can send SHARDDONE and not wait for this to come back
+// and revert a bad block if BADBLOCK is received
+func (shard *Shard) handleNoCollide(conn net.Conn) {
+	shard.nocolide <- true
+
 }
