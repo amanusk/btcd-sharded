@@ -65,29 +65,31 @@ func (db *SQLBlockDB) AddTX(blockHash []byte, idx int32, tx *wire.MsgTx) {
 }
 
 // RemoveUTXO deletes the utxo of the passed hash from the long-term UTXO set
-func (db *SQLBlockDB) RemoveUTXO(txHash chainhash.Hash) {
-	_, err := db.db.Exec("DELETE FROM utxos WHERE txhash in ($1);", txHash[:])
+func (db *SQLBlockDB) RemoveUTXO(key []byte) error {
+	_, err := db.db.Exec("DELETE FROM utxos WHERE txhash in ($1);", key)
 	if err != nil {
 		// Should be checked or something, left for debug
 		reallog.Print("SQL Remove Err", err)
+		return err
 	} else {
-		reallog.Print("Removing spent TX ", txHash)
+		reallog.Print("Removing spent TX ", key)
 	}
+	return nil
 }
 
 // StoreUTXO sotres a serialized UTXO as value. The key is the hash of the UTXO
 // This is long term storage in the database
-func (db *SQLBlockDB) StoreUTXO(txHash chainhash.Hash, serialized []byte) {
+func (db *SQLBlockDB) StoreUTXO(key []byte, serialized []byte) {
 	// TODO: consider: upsert instead of insert
 	_, err := db.db.Exec("INSERT INTO utxos (txhash, utxodata)"+
 		"VALUES ($1, $2) ON CONFLICT (txhash) DO "+
-		"UPDATE SET utxodata=$2;", txHash[:], serialized)
-	reallog.Print("Inserting TX", txHash[:], "Serialized: ", serialized)
+		"UPDATE SET utxodata=$2;", key, serialized)
+	reallog.Print("Inserting TX", key, "Serialized: ", serialized)
 	if err != nil {
 		// Should be checked or something, left for debug
 		reallog.Print("SQL Insert Err:", err)
 	} else {
-		reallog.Print("Save tx ", txHash)
+		reallog.Print("Save txout ", key)
 	}
 }
 
@@ -352,161 +354,4 @@ func (db *SQLBlockDB) StoreUtxoEntry(txHash chainhash.Hash, version int32, isCoi
 // Close the SQL database
 func (db *SQLBlockDB) Close() {
 	db.db.Close()
-}
-
-// FetchUtxoEntry fetches the unspent transaction output information for the passed
-// transaction hash.
-// This fetches only the necessary information from the viewpoint
-func (db *SQLBlockDB) FetchUtxoEntry(hash *chainhash.Hash) (*UtxoEntry, error) {
-
-	var txHash []byte
-	var modified bool
-	var version int32
-	var isCoinBase bool
-	var blockHeight int32
-
-	reallog.Println("Trying to fetch", hash[:])
-	err := db.db.QueryRow(
-		"SELECT * FROM viewpoint WHERE txhash = $1", hash[:]).Scan(&txHash, &modified, &version, &isCoinBase, &blockHeight)
-	if err != nil {
-		reallog.Print("Err ", err)
-		return nil, nil
-	}
-
-	entry := newUtxoEntry(version, isCoinBase, blockHeight)
-	entry.modified = modified
-
-	//Fetch all outputs of this UtxoEntry:
-	rows, err := db.db.Query(
-		"SELECT * FROM utxooutputs WHERE txhash = $1", hash[:])
-	if err != nil {
-		reallog.Println("Err ", err)
-		return nil, err
-	}
-
-	for rows.Next() {
-		var txHash []byte
-		var txOutIdx int
-		var spent bool
-		var compressed bool
-		var amount int64
-		var pkScript []byte
-		err = rows.Scan(&txHash, &txOutIdx, &spent, &compressed, &amount, &pkScript)
-		if err != nil {
-			reallog.Println("Unable to scan outputs from query")
-		}
-		// Deserialize the transaction
-		entry.sparseOutputs[uint32(txOutIdx)] = &utxoOutput{
-			spent:      spent,
-			compressed: compressed,
-			amount:     amount,
-			pkScript:   pkScript,
-		}
-	}
-	return entry, nil
-}
-
-// UpdateUtxoEntryBlockHeight updates the blockHeight of a UtxoEntry
-func (db *SQLBlockDB) UpdateUtxoEntryBlockHeight(txHash chainhash.Hash, blockHeight int32) {
-	_, err := db.db.Exec("UPDATE viewpoint SET blockheight=$1 WHERE txhash=$2;", blockHeight, txHash[:])
-	reallog.Print("Update height of ", txHash[:], " to ", blockHeight)
-	if err != nil {
-		reallog.Print("SQL Update Err:", err)
-	} else {
-		reallog.Print("Save tx ", txHash)
-	}
-}
-
-// UpdateUtxoEntryModified updates a UTXO entry to modified
-func (db *SQLBlockDB) UpdateUtxoEntryModified(txHash chainhash.Hash) {
-	_, err := db.db.Exec("UPDATE viewpoint SET modified=TRUE WHERE txhash=$1;", txHash[:])
-	if err != nil {
-		reallog.Print("SQL Update Err:", err)
-	} else {
-		reallog.Print("Update ", txHash[:], " to modified")
-	}
-}
-
-// UpdateUtxoOuptput updates the information of a UTXO entry
-func (db *SQLBlockDB) UpdateUtxoOuptput(txHash chainhash.Hash, txOutIdx int32, amount int64, pkScript []byte) bool {
-	//_, err := db.db.Exec("UPDATE utxooutputs SET "+
-	//	"spend=FALSE, compressed = FALSE, amount=$1, pkScript=$2 WHERE txhash=$3 AND txOutIdx=$4;", amount, pkScript, txHash[:], txOutIdx)
-	_, err := db.db.Exec("UPSERT INTO utxooutputs "+
-		"VALUES ($1, $2, FALSE, FALSE, $3, $4);", txHash[:], txOutIdx, amount, pkScript)
-	if err != nil {
-		// Should be checked or something, left for debug
-		reallog.Print("Cannot update non existing tx", err)
-		return false
-	}
-	reallog.Print("Update pkscript and amount of tx", txHash[:])
-	return true
-}
-
-// UpdateOutputSpent marks output and index as spent.
-// Does nothing if output does not exist
-func (db *SQLBlockDB) UpdateOutputSpent(txHash chainhash.Hash, txOutIdx uint32) {
-	_, err := db.db.Exec("UPDATE utxooutputs SET modified=TRUE, spent=TRUE WHERE txhash=$1 AND txOutIdx=$2;", txHash[:], txOutIdx)
-	if err != nil {
-		reallog.Println("SQL Update Err:", err)
-	} else {
-		reallog.Println("Update ", txHash[:], " output ", txOutIdx, " to spent")
-	}
-}
-
-// FetchUtxoOutput fetches the output with the index txOutIdx from the UTXO
-// with the given hash
-func (db *SQLBlockDB) FetchUtxoOutput(txHash chainhash.Hash, txOutIdx int32) *utxoOutput {
-
-	var spent bool
-	var compressed bool
-	var amount int64
-	var pkScript []byte
-
-	reallog.Println("Trying to fetch", txHash[:], " Index ", txOutIdx)
-	err := db.db.QueryRow(
-		"SELECT spent,compressed,amount,pkScript FROM utxooutputs WHERE txhash = $1 AND txOutIdx=$2", txHash[:], txOutIdx).Scan(&spent, &compressed, &amount, &pkScript)
-	if err != nil {
-		reallog.Print("Err ", err)
-		return nil
-	}
-	reallog.Print("Fetched TxOutput at idx", txOutIdx)
-
-	return &utxoOutput{
-		spent:      spent,
-		compressed: compressed,
-		amount:     amount,
-		pkScript:   pkScript,
-	}
-
-}
-
-// FetchAllUtxoEntries fetches all transactions associated with the received block hash
-func (db *SQLBlockDB) FetchAllUtxoEntries() map[chainhash.Hash]*UtxoEntry {
-	reallog.Println("Fetching all UtxoEntries")
-
-	entries := make(map[chainhash.Hash]*UtxoEntry)
-
-	rows, err := db.db.Query("SELECT txHash FROM viewpoint")
-	// Read the txs from the database after query
-	if err != nil {
-		reallog.Print("Err ", err)
-		return nil
-	}
-
-	for rows.Next() {
-		var txHash []byte
-		err = rows.Scan(&txHash)
-		if err != nil {
-			reallog.Println("Unable to scan txHash")
-		}
-		hash, err := chainhash.NewHash(txHash)
-		if err != nil {
-			reallog.Println("Unable to create Hash from bytes")
-		}
-		entries[*hash], err = db.FetchUtxoEntry(hash)
-		if err != nil {
-			reallog.Fatalf("Unable to fetch txOuts")
-		}
-	}
-	return entries
 }

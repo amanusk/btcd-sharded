@@ -427,7 +427,7 @@ func dbFetchSpendJournalEntry(dbTx database.Tx, block btcutil.Block) ([]spentTxO
 	// Exclude the coinbase transaction since it can't spend anything.
 	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
 	serialized := spendBucket.Get(block.Hash()[:])
-	blockTxns := block.MsgBlock().Transactions[1:]
+	blockTxns := block.MsgBlock().(*wire.MsgBlock).Transactions[1:]
 	stxos, err := deserializeSpendJournalEntry(serialized, blockTxns)
 	if err != nil {
 		// Ensure any deserialization errors are returned as database
@@ -785,33 +785,42 @@ func dbPutUtxoView(dbTx database.Tx, view UtxoView) error {
 // particular, only the entries that have been marked as modified are written
 // to the database.
 func sqlDbPutUtxoView(db *SQLBlockDB, view UtxoView) error {
+
 	reallog.Println("Storing view", view)
-	for txHashIter, entry := range view.Entries() {
+	for outpoint, entry := range view.Entries() {
 		// No need to update the database if the entry was not modified.
-		if entry == nil || !entry.modified {
+		if entry == nil || !entry.isModified() {
 			continue
 		}
 
-		// Serialize the utxo entry without any entries that have been
-		// spent.
+		// Remove the utxo entry if it is spent.
+		if entry.IsSpent() {
+			key := outpointKey(outpoint)
+			err := db.RemoveUTXO(*key)
+			recycleOutpointKey(key)
+			if err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		// Serialize and store the utxo entry.
 		serialized, err := serializeUtxoEntry(entry)
 		if err != nil {
 			return err
 		}
-
-		// Make a copy of the hash because the iterator changes on each
-		// loop iteration and thus slicing it directly would cause the
-		// data to change out from under the put/delete funcs below.
-		txHash := txHashIter
-
-		// Remove the utxo entry if it is now fully spent.
-		if serialized == nil {
-			db.RemoveUTXO(txHash)
-		}
-
 		// At this point the utxo entry is not fully spent, so store its
-		reallog.Println("Storing Utxo ", txHash)
-		db.StoreUTXO(txHash, serialized)
+		key := outpointKey(outpoint)
+		reallog.Println("Storing outPoint ", outpoint)
+		db.StoreUTXO(*key, serialized)
+		// NOTE: The key is intentionally not recycled here since the
+		// database interface contract prohibits modifications.  It will
+		// be garbage collected normally when the database is done with
+		// it.
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

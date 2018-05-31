@@ -161,7 +161,7 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 	// Store the txs in database, this could be postponed until after validation
 	StoreBlockShard(shard.SQLDB, msgBlockShard)
 
-	blockNode := NewBlockNode(&msgBlockShard.Header, receivedBlock.Height)
+	blockNode := NewBlockNode(&msgBlockShard.Header, nil)
 
 	_, err := shard.ShardConnectBestChain(blockNode, block)
 	if err != nil {

@@ -831,7 +831,7 @@ func (b *BlockChain) checkBlockContext(block btcutil.Block, prevNode *BlockNode,
 // http://r6.ca/blog/20120206T005236Z.html.
 //
 // This function MUST be called with the chain state lock held (for reads).
-func (b *BlockChain) checkBIP0030(node *BlockNode, block btcutil.Block, view *UtxoViewpoint) error {
+func (b *BlockChain) checkBIP0030(node *BlockNode, block btcutil.Block, view UtxoView) error {
 	// Fetch utxos for all of the transaction ouputs in this block.
 	// Typically, there will not be any utxos for any of the outputs.
 	fetchSet := make(map[wire.OutPoint]struct{})
@@ -878,25 +878,17 @@ func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32
 	txHash := tx.Hash()
 	var totalSatoshiIn int64
 	for txInIndex, txIn := range tx.MsgTx().TxIn {
-		// Ensure the referenced input transaction is available
-		originTxHash := &txIn.PreviousOutPoint.Hash
-		originTxIndex := txIn.PreviousOutPoint.Index
-		utxoEntry := utxoView.LookupEntry(originTxHash)
+		// Ensure the referenced input transaction is available.
+		utxo := utxoView.LookupEntry(txIn.PreviousOutPoint)
 
-		if utxoEntry == nil {
-			//TODO: This needs to be different, need to wait for cross-shard txs
+		if utxo == nil {
 			str := fmt.Sprintf("output %v referenced from "+
-				"transaction %s:%d "+
-				"does not exist", txIn.PreviousOutPoint,
+				"transaction %s:%d does not exist", txIn.PreviousOutPoint,
 				tx.Hash(), txInIndex)
-			localMissingTxList = append(localMissingTxList, &txIn.PreviousOutPoint)
-			reallog.Println(str)
-			continue
-			// return 0, ruleError(ErrMissingTxOut, str)
+			return 0, ruleError(ErrMissingTxOut, str)
 		}
 
-		// TODO: Do not return this error on nil, it could be in another shard
-		if utxoEntry.IsOutputSpent(originTxIndex) {
+		if utxo.IsSpent() {
 			str := fmt.Sprintf("output %v referenced from "+
 				"transaction %s:%d "+
 				"has already been spent", txIn.PreviousOutPoint,
@@ -908,15 +900,15 @@ func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32
 
 		// Ensure the transaction is not spending coins which have not
 		// yet reached the required coinbase maturity.
-		if utxoEntry.IsCoinBase() {
-			originHeight := utxoEntry.BlockHeight()
+		if utxo.IsCoinBase() {
+			originHeight := utxo.BlockHeight()
 			blocksSincePrev := txHeight - originHeight
 			coinbaseMaturity := int32(chainParams.CoinbaseMaturity)
 			if blocksSincePrev < coinbaseMaturity {
 				str := fmt.Sprintf("tried to spend coinbase "+
-					"transaction %v from height %v at "+
-					"height %v before required maturity "+
-					"of %v blocks", originTxHash,
+					"transaction output %v from height %v "+
+					"at height %v before required maturity "+
+					"of %v blocks", txIn.PreviousOutPoint,
 					originHeight, txHeight,
 					coinbaseMaturity)
 				return 0, ruleError(ErrImmatureSpend, str)
@@ -929,7 +921,7 @@ func (shard *Shard) CheckShardedTransactionInputs(tx *btcutil.Tx, txHeight int32
 		// a transaction are in a unit value known as a satoshi.  One
 		// bitcoin is a quantity of satoshi as defined by the
 		// SatoshiPerBitcoin constant.
-		originTxSatoshi := utxoEntry.AmountByIndex(originTxIndex)
+		originTxSatoshi := utxo.Amount()
 		if originTxSatoshi < 0 {
 			str := fmt.Sprintf("transaction output has negative "+
 				"value of %v", btcutil.Amount(originTxSatoshi))
@@ -1003,14 +995,14 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 	for txInIndex, txIn := range tx.MsgTx().TxIn {
 		// Ensure the referenced input transaction is available.
 		utxo := utxoView.LookupEntry(txIn.PreviousOutPoint)
-		if utxo == nil || utxo.IsSpent() {
+		if utxo == nil {
 			str := fmt.Sprintf("output %v referenced from "+
 				"transaction %s:%d does not exist", txIn.PreviousOutPoint,
 				tx.Hash(), txInIndex)
 			return 0, ruleError(ErrMissingTxOut, str)
 		}
 
-		if utxoEntry.IsOutputSpent(originTxIndex) {
+		if utxo.IsSpent() {
 			str := fmt.Sprintf("output %v referenced from "+
 				"transaction %s:%d "+
 				"has already been spent", txIn.PreviousOutPoint,
@@ -1254,10 +1246,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		localTxFilter.Add(tx.Hash()[:])
 		for txInIndex, txIn := range tx.MsgTx().TxIn {
 			// Ensure the referenced input transaction is available
-			originTxHash := &txIn.PreviousOutPoint.Hash
-			utxoEntry := view.LookupEntry(originTxHash)
+			utxo := view.LookupEntry(txIn.PreviousOutPoint)
 
-			if utxoEntry == nil {
+			if utxo == nil {
 				//TODO: This needs to be different, need to wait for cross-shard txs
 				str := fmt.Sprintf("output %v referenced from "+
 					"transaction %s:%d "+
@@ -1745,7 +1736,7 @@ func (b *BlockChain) CheckConnectBlockTemplate(block btcutil.Block) error {
 	// is not needed and thus extra work can be avoided.
 	view := NewUtxoViewpoint()
 	view.SetBestHash(&tip.hash)
-	newNode := newBlockNode(&header, tip)
+	newNode := NewBlockNode(header, tip)
 	return b.checkConnectBlock(newNode, block, view, nil)
 }
 
