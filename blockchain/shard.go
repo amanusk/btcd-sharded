@@ -161,7 +161,10 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 	// Store the txs in database, this could be postponed until after validation
 	StoreBlockShard(shard.SQLDB, msgBlockShard)
 
+	// shard does not need the parent node
 	blockNode := NewBlockNode(&msgBlockShard.Header, nil)
+	// Set node height to block height according to coordinator
+	blockNode.height = receivedBlock.Height
 
 	_, err := shard.ShardConnectBestChain(blockNode, block)
 	if err != nil {
@@ -294,6 +297,7 @@ func (shard *Shard) SendEmptyBloomFilter() {
 // coordinator and waits for either conformation for that no intersection is
 // possible or request for additional information
 // In addtion, a filter of all transaction hashes is sent
+// TODO: change list to map[]struct{}
 func (shard *Shard) SendInputBloomFilter(inputFilter *bloom.Filter, txFilter *bloom.Filter, missingTxList *[]*wire.OutPoint) {
 	reallog.Println("Sending bloom filter of transactions to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
@@ -323,9 +327,9 @@ func (shard *Shard) SendInputBloomFilter(inputFilter *bloom.Filter, txFilter *bl
 	return
 }
 
-// SendMatchingTxs sends a list of matching transaction inputs to the coordinator
+// SendMatchingAndMissingTxOuts sends a list of matching transaction inputs to the coordinator
 // This list could be empty,
-func (shard *Shard) SendMatchingTxs(txs []*wire.OutPoint) {
+func (shard *Shard) SendMatchingAndMissingTxOuts(txs []*wire.OutPoint) {
 	reallog.Println("Sending bloom filter of transactions to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
 

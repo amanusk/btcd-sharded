@@ -2304,7 +2304,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// is which output is spent):
 	//
 	//   ... -> b1(0) -> b2(1)
-	g.nextBlock("b106", outs[0])
+	g.nextBlock("b106", outs[10])
 	accepted()
 
 	g.nextBlock("b107", outs[1])
@@ -2403,13 +2403,13 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// Create a block with transactions that spend transactions in the block
 	// This should pass with one shard, and might be a problem with 2
 	// co gets: TX0
-	// s0 gets: TX2(out9)
-	// s1 gets: TX1(out10), TX3(spendTx(out9))
-	g.nextBlock("b112", outs[9], func(b *wire.MsgBlock) {
+	// s1 gets: TX2(out9)
+	// s2 gets: TX1(out8), TX3(spendTx(out9))
+	g.nextBlock("b112", outs[8], func(b *wire.MsgBlock) {
 		// Create 4 transactions that each spend from the previous tx
 		// in the block.
 		fee := btcutil.Amount(1)
-		b.AddTransaction(createSpendTx(outs[10], fee))
+		b.AddTransaction(createSpendTx(outs[9], fee))
 		spendTx := b.Transactions[2]
 		for i := 0; i < 1; i++ {
 			spendTx = createSpendTxForTx(spendTx, lowFee)
@@ -2426,11 +2426,11 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//   ... -> b65(19)
 	//                 \-> b67(20)
 	//g.nextBlock("b111", outs[9], func(b *wire.MsgBlock) {
-	//tx2 := b.Transactions[1]
-	//tx3 := createSpendTxForTx(tx2, lowFee)
-	//tx4 := createSpendTxForTx(tx2, lowFee)
-	//b.AddTransaction(tx3)
-	//b.AddTransaction(tx4)
+	//	tx2 := b.Transactions[1]
+	//	tx3 := createSpendTxForTx(tx2, lowFee)
+	//	tx4 := createSpendTxForTx(tx2, lowFee)
+	//	b.AddTransaction(tx3)
+	//	b.AddTransaction(tx4)
 	//})
 	////rejected(blockchain.ErrMissingTxOut)
 	//g.assertTipBlockNumTxns(4)

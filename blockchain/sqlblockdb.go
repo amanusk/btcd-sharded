@@ -6,8 +6,6 @@ package blockchain
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
 	reallog "log"
 
 	"database/sql"
@@ -137,42 +135,18 @@ func (db *SQLBlockDB) FetchTXs(hash chainhash.Hash) *wire.MsgBlockShard {
 
 // SQLDbFetchUtxoEntry fetches the unspent transaction output information for
 //the passed transaction hash.  Return nil when there is no entry.
-func (db *SQLBlockDB) SQLDbFetchUtxoEntry(hash *chainhash.Hash) (*UtxoEntry, error) {
+func (db *SQLBlockDB) fetchUtxoEntry(key []byte) []byte {
 	var serializedUtxo []byte
-	reallog.Println("Trying to fetch", hash[:])
+	reallog.Println("Trying to fetch", key)
 	err := db.db.QueryRow(
-		"SELECT utxodata FROM utxos WHERE txhash = $1", hash[:]).Scan(&serializedUtxo)
+		"SELECT utxodata FROM utxos WHERE txhash = $1", key).Scan(&serializedUtxo)
 	if err != nil {
 		reallog.Print("Err ", err)
 		// If a TX is not found, it might be somewhere else
-		return nil, nil
+		return nil
 	}
 	reallog.Print("Fetched Serialized UTXO", serializedUtxo)
-	if serializedUtxo == nil {
-		return nil, nil
-	}
-
-	// A non-nil zero-length entry means there is an entry in the database
-	// for a fully spent transaction which should never be the case.
-	//if len(serializedUtxo) == 0 {
-	//	return nil, AssertError(fmt.Sprintf("database contains entry "+
-	//		"for fully spent tx %v", hash))
-	//}
-
-	// Deserialize the utxo entry and return it.
-	entry, err := deserializeUtxoEntry(serializedUtxo)
-	if err != nil {
-		// Ensure any deserialization errors are returned as database
-		// corruption errors.
-		if isDeserializeErr(err) {
-			erro := fmt.Sprintf("corrupt utxo entry for %v: %v", hash, err)
-			return nil, errors.New(erro)
-		}
-
-		return nil, err
-	}
-
-	return entry, nil
+	return serializedUtxo
 }
 
 // FetchHeader fetches header of given hash from the database
@@ -285,69 +259,6 @@ func OpenDB(postgres string) *SQLBlockDB {
 
 	return &SQLBlockDB{
 		db: db,
-	}
-}
-
-///
-// ---------------- UTXO view methods --------------//
-////
-
-// NewUtoxView initialized an new view, with an SQL table as the database
-func (db *SQLBlockDB) NewUtoxView() {
-	// TODO: Consider drop tables if exist
-
-	// Create utxos table
-	_, err := db.db.Exec(
-		"CREATE TABLE IF NOT EXISTS viewpoint (txhash BYTES PRIMARY KEY," +
-			"modified BOOL, " +
-			"version INT, " +
-			"isCoinBase BOOL, " +
-			"blockHeight INT)")
-	if err != nil {
-		reallog.Fatal(err)
-	}
-	// Create UtxoEntry table
-	_, err = db.db.Exec(
-		"CREATE TABLE IF NOT EXISTS utxooutputs (txhash BYTES," +
-			"txOutIdx INT, " +
-			"spent BOOL, " +
-			"compressed BOOL, " +
-			"amount INT, " +
-			"pkscript BYTES, " +
-			"PRIMARY KEY (txhash, txOutIdx), " +
-			"CONSTRAINT fk_txhash FOREIGN KEY (txhash) REFERENCES viewpoint" +
-			") INTERLEAVE IN PARENT viewpoint (txhash)")
-	if err != nil {
-		reallog.Fatal(err)
-	}
-	reallog.Printf("Created utxo view")
-
-}
-
-// StoreUtxoOutput adds an output entry to the TxOuts database.
-func (db *SQLBlockDB) StoreUtxoOutput(txHash chainhash.Hash, txOutIdx int32, spent bool, amount int64, pkScript []byte) {
-	_, err := db.db.Exec("INSERT INTO utxooutputs (txhash, txOutIdx, spent, compressed, amount, pkScript)"+
-		"VALUES ($1, $2, $5, FALSE,$3, $4);", txHash[:], txOutIdx, amount, pkScript, spent)
-	reallog.Print("Inserting output to utxo ", txHash[:])
-	if err != nil {
-		// Should be checked or something, left for debug
-		reallog.Print("SQL Insert Err:", err)
-	} else {
-		reallog.Print("Save tx ", txHash[:])
-	}
-}
-
-// StoreUtxoEntry stores a UTXO in a database
-// This is different from StoreUTXO as here the data is not serialized
-func (db *SQLBlockDB) StoreUtxoEntry(txHash chainhash.Hash, version int32, isCoinBase bool, blockHeight int32) {
-	reallog.Print("txHash ", txHash)
-	_, err := db.db.Exec("INSERT INTO viewpoint (txhash, version, iscoinbase, blockheight)"+
-		"VALUES ($1, $2, $3, $4);", txHash[:], version, isCoinBase, blockHeight)
-	reallog.Print("Inserting utxo ", txHash[:])
-	if err != nil {
-		reallog.Print("SQL Insert Err:", err)
-	} else {
-		reallog.Print("Save tx ", txHash)
 	}
 }
 

@@ -1108,23 +1108,25 @@ func CalculateFilterIntersection(filters *FilterGob, transactions map[int]*btcut
 // GetRequestedMissingTxOuptuts goes over the list of missing inputs of other shards passed by
 // the coordinator and return a slice containing these outputs
 // included in the passed filter
-func GetRequestedMissingTxOuptuts(filters *FilterGob, transactions map[int]*btcutil.Tx) []*wire.OutPoint {
+func GetRequestedMissingTxOuptuts(filters *FilterGob, transactions map[int]*btcutil.Tx, view UtxoView, blockHeight int32) map[wire.OutPoint]*UtxoEntry {
 	// Find the possible double spending transactions
-	requestedTxs := filters.MissingTx
-	var txsToSend []*wire.OutPoint
-	for _, reqTx := range requestedTxs {
+	requestedTxOuts := filters.MissingTx
+	txsToSend := make(map[wire.OutPoint]*UtxoEntry)
+	for _, reqTx := range requestedTxOuts {
 		for _, tx := range transactions {
-			for txIdx, txOut := range tx.MsgTx().TxOut {
+			for outIdx := range tx.MsgTx().TxOut {
 				reallog.Println("compared")
-				reallog.Println(*tx.Hash(), txIdx)
+				reallog.Println(*tx.Hash(), outIdx)
 				reallog.Println(reqTx.Hash, reqTx.Index)
-				if *tx.Hash() == reqTx.Hash && uint32(txIdx) == reqTx.Index {
-					//txsToSend = append(txsToSend, txOut)
-					reallog.Println("Adding output", txOut, "to list of requested Txs")
-
+				if *tx.Hash() == reqTx.Hash && uint32(outIdx) == reqTx.Index {
+					view.AddTxOuts(tx, blockHeight)
 				}
 			}
 		}
+	}
+	// Now that they are in the view, add them to the map to send
+	for _, reqTx := range requestedTxOuts {
+		txsToSend[*reqTx] = view.LookupEntry(*reqTx)
 	}
 
 	// Create a list of the missing transactions
@@ -1240,7 +1242,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	}
 	localTxInputFilter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
 	localTxFilter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
-	var localMissingTxList []*wire.OutPoint
+	var localMissingTxOuts []*wire.OutPoint
 
 	for _, tx := range transactions {
 		localTxFilter.Add(tx.Hash()[:])
@@ -1254,7 +1256,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 					"transaction %s:%d "+
 					"does not exist", txIn.PreviousOutPoint,
 					tx.Hash(), txInIndex)
-				localMissingTxList = append(localMissingTxList, &txIn.PreviousOutPoint)
+				localMissingTxOuts = append(localMissingTxOuts, &txIn.PreviousOutPoint)
 				reallog.Println(str)
 				reallog.Println("Append", &txIn.PreviousOutPoint, "to missing")
 				continue
@@ -1265,15 +1267,15 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	}
 
 	// We have checked before that blockshard has at least one transaction
-	shard.SendInputBloomFilter(localTxInputFilter, localTxFilter, &localMissingTxList)
+	shard.SendInputBloomFilter(localTxInputFilter, localTxFilter, &localMissingTxOuts)
 
-	matchingTxs := CalculateFilterIntersection(shard.ReceivedCombinedFilter, transactions)
+	matchingTxOuts := CalculateFilterIntersection(shard.ReceivedCombinedFilter, transactions)
 
-	missingTxs := GetRequestedMissingTxOuptuts(shard.ReceivedCombinedFilter, transactions)
+	missingTxOuts := GetRequestedMissingTxOuptuts(shard.ReceivedCombinedFilter, transactions, view, node.height)
 
-	reallog.Println(missingTxs)
+	reallog.Println(missingTxOuts)
 	//if len(matchingTxs) != 0 {
-	shard.SendMatchingTxs(matchingTxs)
+	shard.SendMatchingAndMissingTxOuts(matchingTxOuts)
 	//}
 
 	for txIdx, tx := range transactions {

@@ -70,7 +70,7 @@ func expectedFeePerKilobyte(t *TxDesc) BtcPerKilobyte {
 func (eft *estimateFeeTester) newBlock(txs []*wire.MsgTx) {
 	eft.height++
 
-	block := btcutil.NewBlock(&wire.MsgBlock{
+	block := btcutil.NewFullBlock(&wire.MsgBlock{
 		Transactions: txs,
 	})
 	block.SetHeight(eft.height)

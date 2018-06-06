@@ -220,7 +220,7 @@ func (ef *FeeEstimator) ObserveTransaction(t *TxDesc) {
 }
 
 // RegisterBlock informs the fee estimator of a new block to take into account.
-func (ef *FeeEstimator) RegisterBlock(block *btcutil.Block) error {
+func (ef *FeeEstimator) RegisterBlock(block btcutil.Block) error {
 	ef.mtx.Lock()
 	defer ef.mtx.Unlock()
 

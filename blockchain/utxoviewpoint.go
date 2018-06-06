@@ -119,6 +119,8 @@ type UtxoView interface {
 	SetBestHash(hash *chainhash.Hash)
 	LookupEntry(outpoint wire.OutPoint) *UtxoEntry
 	AddTxOuts(tx *btcutil.Tx, blockHeight int32)
+	AddTxOut(tx *btcutil.Tx, txOutIdx uint32, blockHeight int32)
+	RemoveEntry(outpoint wire.OutPoint)
 	ConnectTransaction(tx *btcutil.Tx, blockHeight int32, stxos *[]spentTxOut) error
 	ConnectTransactions(block btcutil.Block, stxos *[]spentTxOut) error
 	DisconnectTransactions(db database.DB, block btcutil.Block, stxos []spentTxOut) error
@@ -314,7 +316,7 @@ func (view *UtxoViewpoint) ConnectTransactions(block btcutil.Block, stxos *[]spe
 	return nil
 }
 
-// fetchEntryByHash attempts to find any available utxo for the given hash by
+// FetchEntryByHash attempts to find any available utxo for the given hash by
 // searching the entire set of possible outputs for the given hash.  It checks
 // the view first and then falls back to the database if needed.
 func (view *UtxoViewpoint) FetchEntryByHash(db database.DB, hash *chainhash.Hash) (*UtxoEntry, error) {
@@ -340,7 +342,7 @@ func (view *UtxoViewpoint) FetchEntryByHash(db database.DB, hash *chainhash.Hash
 	return entry, err
 }
 
-// disconnectTransactions updates the view by removing all of the transactions
+// DisconnectTransactions updates the view by removing all of the transactions
 // created by the passed block, restoring all utxos the transactions spent by
 // using the provided spent txo information, and setting the best hash for the
 // view to the block before the passed block.
@@ -545,20 +547,17 @@ func (view *UtxoViewpoint) SQLFetchUtxosMain(db *SQLBlockDB, outpoints map[wire.
 	if len(outpoints) == 0 {
 		return nil
 	}
-
-	// Filter entries that are already in the view.
-	neededSet := make(map[wire.OutPoint]struct{})
+	// TODO TODO TODO: this needs to be performed in a single DB transaction
 	for outpoint := range outpoints {
-		// Already loaded into the current view.
-		if _, ok := view.entries[outpoint]; ok {
-			continue
+		reallog.Println("Going to db for ", outpoint)
+		entry, err := sqlDbFetchUtxoEntry(db, outpoint)
+		if err != nil {
+			// TODO: return or allert
+			entry = nil
 		}
-
-		neededSet[outpoint] = struct{}{}
+		view.entries[outpoint] = entry
 	}
-
-	// Request the input utxos from the database.
-	return view.SQLFetchUtxosMain(db, neededSet)
+	return nil
 }
 
 // FetchUtxos loads the unspent transaction outputs for the provided set of
@@ -585,7 +584,7 @@ func (view *UtxoViewpoint) FetchUtxos(db database.DB, outpoints map[wire.OutPoin
 	return view.FetchUtxosMain(db, neededSet)
 }
 
-// fetchInputUtxos loads the unspent transaction outputs for the inputs
+// FetchInputUtxos loads the unspent transaction outputs for the inputs
 // referenced by the transactions in the given block into the view from the
 // database as needed.  In particular, referenced entries that are earlier in
 // the block are added to the view and entries that are already in the view are
@@ -643,12 +642,13 @@ func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) 
 // by the transactions in the given block into the view from the database as
 // needed.  In particular, referenced entries that are earlier in the block are
 // added to the view and entries that are already in the view are not modified.
+// TODO: Once we move to a normal DB, we can use the general funciton
 func (view *UtxoViewpoint) SQLFetchInputUtxos(db *SQLBlockDB, block btcutil.Block) error {
 	// Build a map of in-flight transactions because some of the inputs in
 	// this block could be referencing other transactions earlier in this
 	// block which are not yet in the chain.
 	txInFlight := map[chainhash.Hash]int{}
-	transactions := block.Transactions()
+	transactions := block.TransactionsMap()
 	for i, tx := range transactions {
 		txInFlight[*tx.Hash()] = i
 	}
@@ -657,7 +657,7 @@ func (view *UtxoViewpoint) SQLFetchInputUtxos(db *SQLBlockDB, block btcutil.Bloc
 	// which has no inputs) collecting them into sets of what is needed and
 	// what is already known (in-flight).
 	neededSet := make(map[wire.OutPoint]struct{})
-	for i, tx := range transactions[1:] {
+	for i, tx := range transactions {
 		for _, txIn := range tx.MsgTx().TxIn {
 			// It is acceptable for a transaction input to reference
 			// the output of another transaction in this block only
@@ -705,7 +705,7 @@ func NewUtxoViewpoint() *UtxoViewpoint {
 // so the returned view can be examined for duplicate transactions.
 //
 // This function is safe for concurrent access however the returned view is NOT.
-func (b *BlockChain) FetchUtxoView(tx *btcutil.Tx) (*UtxoViewpoint, error) {
+func (b *BlockChain) FetchUtxoView(tx *btcutil.Tx) (UtxoView, error) {
 	// Create a set of needed outputs based on those referenced by the
 	// inputs of the passed transaction and the outputs of the transaction
 	// itself.

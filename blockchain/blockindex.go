@@ -261,6 +261,18 @@ func newBlockIndex(db database.DB, chainParams *chaincfg.Params) *BlockIndex {
 	}
 }
 
+// MyNewBlockIndex returns a new empty instance of a block index.  The index will
+// be dynamically populated as block nodes are loaded from the database and
+// manually added.
+func MyNewBlockIndex(db *SQLBlockDB, chainParams *chaincfg.Params) *BlockIndex {
+	return &BlockIndex{
+		//db:          db, // my db does not implement DB yet
+		chainParams: chainParams,
+		index:       make(map[chainhash.Hash]*BlockNode),
+		dirty:       make(map[*BlockNode]struct{}),
+	}
+}
+
 // HaveBlock returns whether or not the block index contains the provided hash.
 //
 // This function is safe for concurrent access.

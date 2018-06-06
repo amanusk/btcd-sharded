@@ -342,3 +342,66 @@ package blockchain
 //// Request the input utxos from the database.
 //return view.SQLFetchUtxosMain(db, txNeededSet)
 //}
+///
+
+// ---------------- UTXO view methods --------------//
+////
+
+// NewUtoxView initialized an new view, with an SQL table as the database
+//func (db *SQLBlockDB) NewUtoxView() {
+//// TODO: Consider drop tables if exist
+
+//// Create utxos table
+//_, err := db.db.Exec(
+//"CREATE TABLE IF NOT EXISTS viewpoint (txhash BYTES PRIMARY KEY," +
+//"modified BOOL, " +
+//"version INT, " +
+//"isCoinBase BOOL, " +
+//"blockHeight INT)")
+//if err != nil {
+//reallog.Fatal(err)
+//}
+//// Create UtxoEntry table
+//_, err = db.db.Exec(
+//"CREATE TABLE IF NOT EXISTS utxooutputs (txhash BYTES," +
+//"txOutIdx INT, " +
+//"spent BOOL, " +
+//"compressed BOOL, " +
+//"amount INT, " +
+//"pkscript BYTES, " +
+//"PRIMARY KEY (txhash, txOutIdx), " +
+//"CONSTRAINT fk_txhash FOREIGN KEY (txhash) REFERENCES viewpoint" +
+//") INTERLEAVE IN PARENT viewpoint (txhash)")
+//if err != nil {
+//reallog.Fatal(err)
+//}
+//reallog.Printf("Created utxo view")
+
+//}
+
+//// StoreUtxoOutput adds an output entry to the TxOuts database.
+//func (db *SQLBlockDB) StoreUtxoOutput(txHash chainhash.Hash, txOutIdx int32, spent bool, amount int64, pkScript []byte) {
+//_, err := db.db.Exec("INSERT INTO utxooutputs (txhash, txOutIdx, spent, compressed, amount, pkScript)"+
+//"VALUES ($1, $2, $5, FALSE,$3, $4);", txHash[:], txOutIdx, amount, pkScript, spent)
+//reallog.Print("Inserting output to utxo ", txHash[:])
+//if err != nil {
+//// Should be checked or something, left for debug
+//reallog.Print("SQL Insert Err:", err)
+//} else {
+//reallog.Print("Save tx ", txHash[:])
+//}
+//}
+
+//// StoreUtxoEntry stores a UTXO in a database
+//// This is different from StoreUTXO as here the data is not serialized
+//func (db *SQLBlockDB) StoreUtxoEntry(txHash chainhash.Hash, version int32, isCoinBase bool, blockHeight int32) {
+//reallog.Print("txHash ", txHash)
+//_, err := db.db.Exec("INSERT INTO viewpoint (txhash, version, iscoinbase, blockheight)"+
+//"VALUES ($1, $2, $3, $4);", txHash[:], version, isCoinBase, blockHeight)
+//reallog.Print("Inserting utxo ", txHash[:])
+//if err != nil {
+//reallog.Print("SQL Insert Err:", err)
+//} else {
+//reallog.Print("Save tx ", txHash)
+//}
+//}

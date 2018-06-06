@@ -18,51 +18,50 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	_ "github.com/davecgh/go-spew/spew"
 )
 
 //func TestViewPoint(b *testing.B) {
 func BenchmarkSqlViewPoint(b *testing.B) {
 
-	sqlDB := OpenDB("postgresql://amanusk@localhost:26257/blockchain?sslmode=disable")
-	view := NewSQLUtxoViewpoint(sqlDB)
+	//sqlDB := OpenDB("postgresql://amanusk@localhost:26257/blockchain?sslmode=disable")
+	//view := UtxoViewpoint(sqlDB)
 	//b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
-		tx := btcutil.NewTx(multiTx)
+	//for i := 0; i < b.N; i++ {
+	//tx := btcutil.NewTx(multiTx)
 
-		//view := NewUtxoViewpoint()
-		view.AddTxOuts(tx, 1)
-		//txHash := tx.Hash()
-		//entry := view.LookupEntry(txHash)
-		//if entry == nil {
-		//	reallog.Println("Could not find tx ", txHash)
-		//}
+	//view := NewUtxoViewpoint()
+	//view.AddTxOuts(tx, 1)
+	//txHash := tx.Hash()
+	//entry := view.LookupEntry(txHash)
+	//if entry == nil {
+	//	reallog.Println("Could not find tx ", txHash)
+	//}
 
-		//e := view.LookupEntry(txHash)
-		//if e == nil {
-		//	b.Error("Could not find tx in view")
-		//}
+	//e := view.LookupEntry(txHash)
+	//if e == nil {
+	//	b.Error("Could not find tx in view")
+	//}
 
-		//entries := view.Entries()
-		//_, ok := entries[*txHash]
-		//if !ok {
-		//	b.Error("Could not find tx in view")
-		//}
+	//entries := view.Entries()
+	//_, ok := entries[*txHash]
+	//if !ok {
+	//	b.Error("Could not find tx in view")
+	//}
 
-		//hash, err := chainhash.NewHash([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
-		//if err != nil {
-		//	fmt.Printf("Failed to create hash", err)
-		//}
-		//reallog.Println("Hash ", hash)
-		//_, ok = entries[*hash]
-		//if ok {
-		//	b.Error("Found non existing tx")
-		//}
+	//hash, err := chainhash.NewHash([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+	//if err != nil {
+	//	fmt.Printf("Failed to create hash", err)
+	//}
+	//reallog.Println("Hash ", hash)
+	//_, ok = entries[*hash]
+	//if ok {
+	//	b.Error("Found non existing tx")
+	//}
 
-	}
-	sqlDB.Close()
+	//}
+	//sqlDB.Close()
 }
 
 // multiTx is a MsgTx with an input and output and used in various tests.
