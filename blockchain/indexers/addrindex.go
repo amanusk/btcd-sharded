@@ -708,7 +708,7 @@ func (idx *AddrIndex) indexBlock(data writeIndexData, block btcutil.Block, view 
 					continue
 				}
 
-				idx.indexPkScript(data, entry.PkScript(), txIdx)
+				idx.indexPkScript(data, entry.GetPkScript(), txIdx)
 			}
 		}
 
@@ -877,7 +877,7 @@ func (idx *AddrIndex) AddUnconfirmedTx(tx *btcutil.Tx, utxoView blockchain.UtxoV
 			// call out all inputs must be available.
 			continue
 		}
-		idx.indexUnconfirmedAddresses(entry.PkScript(), tx)
+		idx.indexUnconfirmedAddresses(entry.GetPkScript(), tx)
 	}
 
 	// Index addresses of all created outputs.

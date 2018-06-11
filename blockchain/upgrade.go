@@ -423,10 +423,10 @@ func deserializeUtxoEntryV0(serialized []byte) (map[uint32]*UtxoEntry, error) {
 
 		// Create a new utxo entry with the details deserialized above.
 		entries[outputIndex] = &UtxoEntry{
-			amount:      int64(amount),
-			pkScript:    pkScript,
-			blockHeight: int32(blockHeight),
-			packedFlags: packedFlags,
+			Amount:      int64(amount),
+			PkScript:    pkScript,
+			BlockHeight: int32(blockHeight),
+			PackedFlags: packedFlags,
 		}
 	}
 

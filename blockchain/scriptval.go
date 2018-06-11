@@ -72,8 +72,8 @@ out:
 			// Create a new script engine for the script pair.
 			sigScript := txIn.SignatureScript
 			witness := txIn.Witness
-			pkScript := utxo.PkScript()
-			inputAmount := utxo.Amount()
+			pkScript := utxo.GetPkScript()
+			inputAmount := utxo.GetAmount()
 			vm, err := txscript.NewEngine(pkScript, txVI.tx.MsgTx(),
 				txVI.txInIndex, v.flags, v.sigCache, txVI.sigHashes,
 				inputAmount)

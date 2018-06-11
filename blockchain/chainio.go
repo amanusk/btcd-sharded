@@ -589,7 +589,7 @@ func utxoEntryHeaderCode(entry *UtxoEntry) (uint64, error) {
 	// As described in the serialization format comments, the header code
 	// encodes the height shifted over one bit and the coinbase flag in the
 	// lowest bit.
-	headerCode := uint64(entry.BlockHeight()) << 1
+	headerCode := uint64(entry.GetBlockHeight()) << 1
 	if entry.IsCoinBase() {
 		headerCode |= 0x01
 	}
@@ -613,14 +613,14 @@ func serializeUtxoEntry(entry *UtxoEntry) ([]byte, error) {
 
 	// Calculate the size needed to serialize the entry.
 	size := serializeSizeVLQ(headerCode) +
-		compressedTxOutSize(uint64(entry.Amount()), entry.PkScript())
+		compressedTxOutSize(uint64(entry.GetAmount()), entry.GetPkScript())
 
 	// Serialize the header code followed by the compressed unspent
 	// transaction output.
 	serialized := make([]byte, size)
 	offset := putVLQ(serialized, headerCode)
-	offset += putCompressedTxOut(serialized[offset:], uint64(entry.Amount()),
-		entry.PkScript())
+	offset += putCompressedTxOut(serialized[offset:], uint64(entry.GetAmount()),
+		entry.GetPkScript())
 
 	return serialized, nil
 }
@@ -650,13 +650,13 @@ func deserializeUtxoEntry(serialized []byte) (*UtxoEntry, error) {
 	}
 
 	entry := &UtxoEntry{
-		amount:      int64(amount),
-		pkScript:    pkScript,
-		blockHeight: blockHeight,
-		packedFlags: 0,
+		Amount:      int64(amount),
+		PkScript:    pkScript,
+		BlockHeight: blockHeight,
+		PackedFlags: 0,
 	}
 	if isCoinBase {
-		entry.packedFlags |= tfCoinBase
+		entry.PackedFlags |= tfCoinBase
 	}
 
 	return entry, nil

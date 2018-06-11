@@ -42,38 +42,40 @@ type UtxoEntry struct {
 	// specifically crafted to result in minimal padding.  There will be a
 	// lot of these in memory, so a few extra bytes of padding adds up.
 
-	amount      int64
-	pkScript    []byte // The public key script for the output.
-	blockHeight int32  // Height of block containing tx.
+	// NOTE: The memebers were made public to allow encoding and decoding
 
-	// packedFlags contains additional info about output such as whether it
+	Amount      int64
+	PkScript    []byte // The public key script for the output.
+	BlockHeight int32  // Height of block containing tx.
+
+	// PackedFlags contains additional info about output such as whether it
 	// is a coinbase, whether it is spent, and whether it has been modified
 	// since it was loaded.  This approach is used in order to reduce memory
 	// usage since there will be a lot of these in memory.
-	packedFlags txoFlags
+	PackedFlags txoFlags
 }
 
 // isModified returns whether or not the output has been modified since it was
 // loaded.
 func (entry *UtxoEntry) isModified() bool {
-	return entry.packedFlags&tfModified == tfModified
+	return entry.PackedFlags&tfModified == tfModified
 }
 
 // IsCoinBase returns whether or not the output was contained in a coinbase
 // transaction.
 func (entry *UtxoEntry) IsCoinBase() bool {
-	return entry.packedFlags&tfCoinBase == tfCoinBase
+	return entry.PackedFlags&tfCoinBase == tfCoinBase
 }
 
-// BlockHeight returns the height of the block containing the output.
-func (entry *UtxoEntry) BlockHeight() int32 {
-	return entry.blockHeight
+// GetBlockHeight returns the height of the block containing the output.
+func (entry *UtxoEntry) GetBlockHeight() int32 {
+	return entry.BlockHeight
 }
 
 // IsSpent returns whether or not the output has been spent based upon the
 // current state of the unspent transaction output view it was obtained from.
 func (entry *UtxoEntry) IsSpent() bool {
-	return entry.packedFlags&tfSpent == tfSpent
+	return entry.PackedFlags&tfSpent == tfSpent
 }
 
 // Spend marks the output as spent.  Spending an output that is already spent
@@ -85,17 +87,17 @@ func (entry *UtxoEntry) Spend() {
 	}
 
 	// Mark the output as spent and modified.
-	entry.packedFlags |= tfSpent | tfModified
+	entry.PackedFlags |= tfSpent | tfModified
 }
 
-// Amount returns the amount of the output.
-func (entry *UtxoEntry) Amount() int64 {
-	return entry.amount
+// GetAmount returns the amount of the output.
+func (entry *UtxoEntry) GetAmount() int64 {
+	return entry.Amount
 }
 
-// PkScript returns the public key script for the output.
-func (entry *UtxoEntry) PkScript() []byte {
-	return entry.pkScript
+// GetPkScript returns the public key script for the output.
+func (entry *UtxoEntry) GetPkScript() []byte {
+	return entry.PkScript
 }
 
 // Clone returns a shallow copy of the utxo entry.
@@ -105,10 +107,10 @@ func (entry *UtxoEntry) Clone() *UtxoEntry {
 	}
 
 	return &UtxoEntry{
-		amount:      entry.amount,
-		pkScript:    entry.pkScript,
-		blockHeight: entry.blockHeight,
-		packedFlags: entry.packedFlags,
+		Amount:      entry.Amount,
+		PkScript:    entry.PkScript,
+		BlockHeight: entry.BlockHeight,
+		PackedFlags: entry.PackedFlags,
 	}
 }
 
@@ -119,6 +121,7 @@ type UtxoView interface {
 	SetBestHash(hash *chainhash.Hash)
 	LookupEntry(outpoint wire.OutPoint) *UtxoEntry
 	AddTxOuts(tx *btcutil.Tx, blockHeight int32)
+	AddExplicitTxOut(outpoint wire.OutPoint, utxoEntry *UtxoEntry)
 	AddTxOut(tx *btcutil.Tx, txOutIdx uint32, blockHeight int32)
 	RemoveEntry(outpoint wire.OutPoint)
 	ConnectTransaction(tx *btcutil.Tx, blockHeight int32, stxos *[]spentTxOut) error
@@ -195,12 +198,12 @@ func (view *UtxoViewpoint) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut, i
 		view.entries[outpoint] = entry
 	}
 
-	entry.amount = txOut.Value
-	entry.pkScript = txOut.PkScript
-	entry.blockHeight = blockHeight
-	entry.packedFlags = tfModified
+	entry.Amount = txOut.Value
+	entry.PkScript = txOut.PkScript
+	entry.BlockHeight = blockHeight
+	entry.PackedFlags = tfModified
 	if isCoinBase {
-		entry.packedFlags |= tfCoinBase
+		entry.PackedFlags |= tfCoinBase
 	}
 }
 
@@ -243,6 +246,11 @@ func (view *UtxoViewpoint) AddTxOuts(tx *btcutil.Tx, blockHeight int32) {
 	}
 }
 
+// AddExplicitTxOut adds an output to the view that chould have been received in another way
+func (view *UtxoViewpoint) AddExplicitTxOut(outpoint wire.OutPoint, utxoEntry *UtxoEntry) {
+	view.entries[outpoint] = utxoEntry
+}
+
 // ConnectTransaction updates the view by adding all new utxos created by the
 // passed transaction and marking all utxos that the transactions spend as
 // spent.  In addition, when the 'stxos' argument is not nil, it will be updated
@@ -272,9 +280,9 @@ func (view *UtxoViewpoint) ConnectTransaction(tx *btcutil.Tx, blockHeight int32,
 		if stxos != nil {
 			// Populate the stxo details using the utxo entry.
 			var stxo = spentTxOut{
-				amount:     entry.Amount(),
-				pkScript:   entry.PkScript(),
-				height:     entry.BlockHeight(),
+				amount:     entry.GetAmount(),
+				pkScript:   entry.GetPkScript(),
+				height:     entry.GetBlockHeight(),
 				isCoinBase: entry.IsCoinBase(),
 			}
 			*stxos = append(*stxos, stxo)
@@ -390,10 +398,10 @@ func (view *UtxoViewpoint) DisconnectTransactions(db database.DB, block btcutil.
 			entry := view.entries[prevOut]
 			if entry == nil {
 				entry = &UtxoEntry{
-					amount:      txOut.Value,
-					pkScript:    txOut.PkScript,
-					blockHeight: block.Height(),
-					packedFlags: packedFlags,
+					Amount:      txOut.Value,
+					PkScript:    txOut.PkScript,
+					BlockHeight: block.Height(),
+					PackedFlags: packedFlags,
 				}
 
 				view.entries[prevOut] = entry
@@ -454,18 +462,18 @@ func (view *UtxoViewpoint) DisconnectTransactions(db database.DB, block btcutil.
 						*originOut))
 				}
 
-				stxo.height = utxo.BlockHeight()
+				stxo.height = utxo.GetBlockHeight()
 				stxo.isCoinBase = utxo.IsCoinBase()
 			}
 
 			// Restore the utxo using the stxo data from the spend
 			// journal and mark it as modified.
-			entry.amount = stxo.amount
-			entry.pkScript = stxo.pkScript
-			entry.blockHeight = stxo.height
-			entry.packedFlags = tfModified
+			entry.Amount = stxo.amount
+			entry.PkScript = stxo.pkScript
+			entry.BlockHeight = stxo.height
+			entry.PackedFlags = tfModified
 			if stxo.isCoinBase {
-				entry.packedFlags |= tfCoinBase
+				entry.PackedFlags |= tfCoinBase
 			}
 		}
 	}
@@ -497,7 +505,7 @@ func (view *UtxoViewpoint) Commit() {
 			continue
 		}
 
-		entry.packedFlags ^= tfModified
+		entry.PackedFlags ^= tfModified
 	}
 }
 

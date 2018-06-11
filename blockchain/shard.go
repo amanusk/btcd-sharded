@@ -3,7 +3,7 @@ package blockchain
 import (
 	"encoding/gob"
 	"fmt"
-	reallog "log"
+	logging "log"
 	"net"
 
 	"github.com/btcsuite/btcd/wire"
@@ -23,7 +23,7 @@ type Shard struct {
 	SQLDB                  *SQLBlockDB
 	ShardListener          net.Listener
 	intersectFilter        chan *FilterGob
-	nocolide               chan bool
+	missingTxOuts          chan (map[wire.OutPoint]*UtxoEntry)
 	ReceivedCombinedFilter *FilterGob
 }
 
@@ -47,7 +47,7 @@ func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex
 		unregisterShard: make(chan *Shard),
 		shards:          make(map[*Shard]bool),
 		intersectFilter: make(chan *FilterGob),
-		nocolide:        make(chan bool),
+		missingTxOuts:   make(chan map[wire.OutPoint]*UtxoEntry),
 		Socket:          connection,
 		ShardListener:   shardListener,
 	}
@@ -56,7 +56,7 @@ func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex
 
 // Handle instruction from coordinator to request the block
 func (shard *Shard) handleRequestBlock(header *HeaderGob, conn net.Conn) {
-	reallog.Println("Received request to request block")
+	logging.Println("Received request to request block")
 
 	// Send a request for txs from other shards
 	// Thes should have some logic, currently its 1:1
@@ -71,7 +71,7 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob, conn net.Conn) {
 
 		err := enc.Encode(headerToSend)
 		if err != nil {
-			reallog.Println(err, "Encode failed for struct: %#v", headerToSend)
+			logging.Println(err, "Encode failed for struct: %#v", headerToSend)
 		}
 
 	}
@@ -80,14 +80,14 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob, conn net.Conn) {
 
 // Handle the received combined filter and missing Txs from coordinator
 func (shard *Shard) handleFilterCombined(filterData *FilterGob, conn net.Conn) {
-	reallog.Println("Recived filter", filterData)
+	logging.Println("Recived filter", filterData)
 	shard.intersectFilter <- filterData
 
 }
 
 // Handle request for a block shard by another shard
 func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
-	reallog.Println("Received request to send a block shard")
+	logging.Println("Received request to send a block shard")
 
 	msgBlock := shard.SQLDB.FetchTXs(header.Header.BlockHash())
 	msgBlock.Header = *header.Header
@@ -105,17 +105,17 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	enc := gob.NewEncoder(conn)
 	err := enc.Encode(msg)
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct: %#v", msg)
+		logging.Println(err, "Encode failed for struct: %#v", msg)
 	}
 
 }
 
 // Receive a list of ip:port from coordinator, to which this shard will connect
 func (shard *Shard) handleShardConnect(receivedShardAddresses *AddressesGob, conn net.Conn) {
-	reallog.Println("Received request to connect to shards")
+	logging.Println("Received request to connect to shards")
 
 	for _, address := range receivedShardAddresses.Addresses {
-		reallog.Println("Shard connecting to shard on " + address.String())
+		logging.Println("Shard connecting to shard on " + address.String())
 		connection, err := net.Dial("tcp", address.String())
 		if err != nil {
 			fmt.Println(err)
@@ -132,13 +132,13 @@ func (shard *Shard) handleShardConnect(receivedShardAddresses *AddressesGob, con
 	}
 	err := enc.Encode(msg)
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct: %#v", msg)
+		logging.Println(err, "Encode failed for struct: %#v", msg)
 	}
 
 }
 
 func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn) {
-	reallog.Print("Received GOB data")
+	logging.Print("Received GOB data")
 
 	msgBlockShard := receivedBlock.Block
 
@@ -168,18 +168,18 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 
 	_, err := shard.ShardConnectBestChain(blockNode, block)
 	if err != nil {
-		reallog.Println(err)
+		logging.Println(err)
 		shard.NotifyOfBadBlock()
 		// return!
 		return
 	}
 
-	reallog.Println("Done processing block, sending SHARDDONE")
+	logging.Println("Done processing block, sending SHARDDONE")
 
 	// Send conformation to coordinator!
 	err = coordEnc.Encode(doneMsg)
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct: %#v", doneMsg)
+		logging.Println(err, "Encode failed for struct: %#v", doneMsg)
 	}
 
 }
@@ -197,18 +197,18 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
 	gob.Register(FilterGob{})
-	gob.Register(MatchingTxsGob{})
+	gob.Register(MatchingMissingTxOutsGob{})
 
 	for {
 		dec := gob.NewDecoder(conn)
 		var msg Message
 		err := dec.Decode(&msg)
 		if err != nil {
-			reallog.Println("Error decoding GOB data:", err)
+			logging.Println("Error decoding GOB data:", err)
 			return
 		}
 		cmd := msg.Cmd
-		reallog.Println("Got cmd ", cmd)
+		logging.Println("Got cmd ", cmd)
 
 		// handle according to received command
 		switch cmd {
@@ -234,10 +234,11 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 		// of current block
 		case "BADBLOCK":
 			shard.handleBadBlock(conn)
-		case "NOCOLIDE":
-			shard.handleNoCollide(conn)
+		case "MISSOUTS":
+			missingTxOutsGob := msg.Data.(MatchingMissingTxOutsGob)
+			shard.handleMissingTxOuts(conn, missingTxOutsGob.MissingTxOuts)
 		default:
-			reallog.Println("Command '", cmd, "' is not registered.")
+			logging.Println("Command '", cmd, "' is not registered.")
 		}
 
 	}
@@ -278,7 +279,7 @@ func (shard *Shard) ReceiveShard(s *Shard) {
 // is the same as SHARDDONE
 func (shard *Shard) SendEmptyBloomFilter() {
 	filter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
-	reallog.Println("Sending Empty bloomfilter to coordinator")
+	logging.Println("Sending Empty bloomfilter to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
 
 	err := enc.Encode(
@@ -289,7 +290,7 @@ func (shard *Shard) SendEmptyBloomFilter() {
 			},
 		})
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct: %#v", filter)
+		logging.Println(err, "Encode failed for struct: %#v", filter)
 	}
 }
 
@@ -298,62 +299,62 @@ func (shard *Shard) SendEmptyBloomFilter() {
 // possible or request for additional information
 // In addtion, a filter of all transaction hashes is sent
 // TODO: change list to map[]struct{}
-func (shard *Shard) SendInputBloomFilter(inputFilter *bloom.Filter, txFilter *bloom.Filter, missingTxList *[]*wire.OutPoint) {
-	reallog.Println("Sending bloom filter of transactions to coordinator")
+func (shard *Shard) SendInputBloomFilter(inputFilter *bloom.Filter, txFilter *bloom.Filter, missingTxOutsList *[]*wire.OutPoint) {
+	logging.Println("Sending bloom filter of transactions to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
 
 	// Print all missing inputs
-	reallog.Println("Sending missing Txs:")
-	for _, input := range *missingTxList {
-		reallog.Println(input)
+	logging.Println("Sending missing Txs:")
+	for _, input := range *missingTxOutsList {
+		logging.Println(input)
 	}
 
 	err := enc.Encode(
 		Message{
 			Cmd: "BLOOMFLT",
 			Data: FilterGob{
-				InputFilter: inputFilter.MsgFilterLoad(),
-				TxFilter:    txFilter.MsgFilterLoad(),
-				MissingTx:   *missingTxList,
+				InputFilter:   inputFilter.MsgFilterLoad(),
+				TxFilter:      txFilter.MsgFilterLoad(),
+				MissingTxOuts: *missingTxOutsList,
 			},
 		})
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct: %#v", inputFilter)
+		logging.Println(err, "Encode failed for struct: %#v", inputFilter)
 	}
 
 	// Wait for intersectFilter from coordinator
 	shard.ReceivedCombinedFilter = <-shard.intersectFilter
-	reallog.Println("Received combined filter")
+	logging.Println("Received combined filter")
 	return
 }
 
 // SendMatchingAndMissingTxOuts sends a list of matching transaction inputs to the coordinator
 // This list could be empty,
-func (shard *Shard) SendMatchingAndMissingTxOuts(txs []*wire.OutPoint) {
-	reallog.Println("Sending bloom filter of transactions to coordinator")
+func (shard *Shard) SendMatchingAndMissingTxOuts(matchingTxOuts []*wire.OutPoint, missingTxOuts map[wire.OutPoint]*UtxoEntry) map[wire.OutPoint]*UtxoEntry {
+	logging.Println("Sending bloom filter of transactions to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
 
 	err := enc.Encode(
 		Message{
 			Cmd: "MATCHTXS",
-			Data: MatchingTxsGob{
-				MatchingTxs: txs,
+			Data: MatchingMissingTxOutsGob{
+				MatchingTxOuts: matchingTxOuts,
+				MissingTxOuts:  missingTxOuts,
 			},
 		})
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct: %#v", txs)
+		logging.Println(err, "Encode failed for struct: %#v", matchingTxOuts)
 	}
 
-	// TODO: Wait for OK message from coordinator
-	<-shard.nocolide
-	reallog.Println("Recieved nocolide for coord")
-	return
+	receivedMissingTxOuts := <-shard.missingTxOuts
+	logging.Println("Received list of missing TxOuts from coordinator")
+	return receivedMissingTxOuts
 }
 
 // NotifyOfBadBlock sends a message to the coordinator that the block is illegal
 // for some reason, the block will not be connected
 func (shard *Shard) NotifyOfBadBlock() {
-	reallog.Println("Illegal block, send BADBLOCK to coordinator")
+	logging.Println("Illegal block, send BADBLOCK to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
 
 	err := enc.Encode(
@@ -361,7 +362,7 @@ func (shard *Shard) NotifyOfBadBlock() {
 			Cmd: "BADBLOCK",
 		})
 	if err != nil {
-		reallog.Println(err, "Encode failed for struct BADBLOCK")
+		logging.Println(err, "Encode failed for struct BADBLOCK")
 	}
 
 }
@@ -369,18 +370,17 @@ func (shard *Shard) NotifyOfBadBlock() {
 // handleBadBlock receives a notice of a bad block, needs to stop processing
 // the current block
 func (shard *Shard) handleBadBlock(conn net.Conn) {
-	reallog.Println("Received bad block indication form coordinator")
+	logging.Println("Received bad block indication form coordinator")
 	// TODO: we need to add some rules, in case this is received after,
 	// we need to revert the changes made by this shard
 
 	// Release the no colide lock if the block is bad
-	shard.nocolide <- true
+	shard.missingTxOuts <- make(map[wire.OutPoint]*UtxoEntry)
 }
 
-// handleNoCollide receives a notice that a block has no double spending TXs
-// TODO: You can send SHARDDONE and not wait for this to come back
-// and revert a bad block if BADBLOCK is received
-func (shard *Shard) handleNoCollide(conn net.Conn) {
-	shard.nocolide <- true
+// handleMissingTxOuts receives a map of the missing Txs
+func (shard *Shard) handleMissingTxOuts(conn net.Conn, missingTxOuts map[wire.OutPoint]*UtxoEntry) {
+	logging.Println("Received map of missing TxOuts")
+	shard.missingTxOuts <- missingTxOuts
 
 }

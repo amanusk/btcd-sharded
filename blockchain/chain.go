@@ -423,7 +423,7 @@ func (b *BlockChain) calcSequenceLock(node *BlockNode, tx *btcutil.Tx, utxoView 
 		// If the input height is set to the mempool height, then we
 		// assume the transaction makes it into the next block when
 		// evaluating its sequence blocks.
-		inputHeight := utxo.BlockHeight()
+		inputHeight := utxo.GetBlockHeight()
 		if inputHeight == 0x7fffffff {
 			inputHeight = nextHeight
 		}

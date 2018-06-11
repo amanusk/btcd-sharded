@@ -2722,9 +2722,9 @@ func handleGetTxOut(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (i
 
 		best := s.cfg.Chain.BestSnapshot()
 		bestBlockHash = best.Hash.String()
-		confirmations = 1 + best.Height - entry.BlockHeight()
-		value = entry.Amount()
-		pkScript = entry.PkScript()
+		confirmations = 1 + best.Height - entry.GetBlockHeight()
+		value = entry.GetAmount()
+		pkScript = entry.GetPkScript()
 		isCoinbase = entry.IsCoinBase()
 	}
 
