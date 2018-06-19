@@ -460,7 +460,7 @@ func main() {
 		}
 		defer teardownFunc()
 
-		// Start listener on port 12345 for coordinator
+		// Start listener for shards
 		fmt.Println("Starting server...")
 		shardListener, error := net.Listen("tcp", config.Server.ServerShardsPort)
 		if error != nil {
@@ -478,6 +478,8 @@ func main() {
 		// Wait for all the shards to get connected
 		for manager.GetNumShardes() < numShards {
 			connection, _ := manager.ShardListener.Accept()
+			// NOTE: this should be either a constant, or sent to the coord
+			// once connection is established
 			port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
 			shard := blockchain.NewShardConnection(connection, int(port))
 			manager.RegisterShard(shard)
@@ -585,13 +587,37 @@ func main() {
 		}
 		shardConn := make([]net.Conn, numShards)
 
-		shardDial := receivedShards.Addresses[0].IP.String() + ":12349"
+		shardDial := receivedShards.Addresses[0].IP.String() + ":12351"
 		shardConn[0], err = net.Dial("tcp", shardDial)
 
 		// NOTE: change if running on multiple machines
 		if numShards > 1 {
-			shardDial = "localhost:12357"
+			shardDial = "localhost:12352"
 			shardConn[1], err = net.Dial("tcp", shardDial)
+		}
+		if numShards > 2 {
+			shardDial = "localhost:12353"
+			shardConn[2], err = net.Dial("tcp", shardDial)
+		}
+		if numShards > 3 {
+			shardDial = "localhost:12354"
+			shardConn[3], err = net.Dial("tcp", shardDial)
+		}
+		if numShards > 4 {
+			shardDial = "localhost:12355"
+			shardConn[4], err = net.Dial("tcp", shardDial)
+		}
+		if numShards > 5 {
+			shardDial = "localhost:12356"
+			shardConn[5], err = net.Dial("tcp", shardDial)
+		}
+		if numShards > 6 {
+			shardDial = "localhost:12357"
+			shardConn[6], err = net.Dial("tcp", shardDial)
+		}
+		if numShards > 7 {
+			shardDial = "localhost:12358"
+			shardConn[7], err = net.Dial("tcp", shardDial)
 		}
 
 		if err != nil {
@@ -798,8 +824,10 @@ func main() {
 		fmt.Println("Waiting for shards to connect")
 		for {
 			connection, _ := s.ShardListener.Accept()
-			port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
-			shardConn := blockchain.NewShardConnection(connection, int(port))
+			// Note: The shard to shard port could be preset to a constant
+			// on multiple machines
+			//port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
+			shardConn := blockchain.NewShardConnection(connection, 0)
 			s.RegisterShard(shardConn)
 			go s.ReceiveShard(shardConn)
 		}

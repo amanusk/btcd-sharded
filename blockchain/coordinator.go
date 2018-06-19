@@ -503,8 +503,7 @@ func (coord *Coordinator) waitForBloomFilters() {
 		txFilters[connAndFilters.Conn] = connAndFilters.Filters.TxFilter
 		coord.missingInputs[connAndFilters.Conn] = connAndFilters.Filters.MissingTxOuts
 
-		checkFilter := bloom.LoadFilter(connAndFilters.Filters.InputFilter)
-		if checkFilter.FilterIsEmpty() {
+		if connAndFilters.Filters.TxFilter == nil {
 			logging.Println("Filter is empty, shardDone")
 			coord.shardDone <- true
 			continue
@@ -535,7 +534,8 @@ func (coord *Coordinator) waitForMatchingTxs() {
 			availableTxOuts[txOut] = utxoEnry
 		}
 
-		logging.Println("Registered list ", connAndTxs.MatchingTxOuts)
+		logging.Println("Registered maps of matching Txs")
+		//logging.Println("Registered list ", connAndTxs.MatchingTxOuts)
 	}
 	// Once all the shards have sent the transactions that collide,
 	// Go over the colliding list and see if these are actually the same transaction
@@ -552,8 +552,8 @@ func (coord *Coordinator) waitForMatchingTxs() {
 		// Search the combined list for transactions of each shard
 		for _, tx := range list {
 			for _, comparedTx := range combinedColliding {
-				logging.Println("Comapred ", comparedTx)
-				logging.Println("tx", tx)
+				//logging.Println("Comapred ", comparedTx)
+				//logging.Println("tx", tx)
 				if *tx == *comparedTx {
 					logging.Println("Tx,", tx, "Is double spending")
 					coord.sendBadBlockToAll()
@@ -617,8 +617,11 @@ func (coord *Coordinator) sendMissingOutsToAll(missingMap map[net.Conn]map[wire.
 func (coord *Coordinator) sendCombinedFilters(inputFilters map[net.Conn]*wire.MsgFilterLoad,
 	txFilters map[net.Conn]*wire.MsgFilterLoad, missingInputs map[net.Conn][]*wire.OutPoint) {
 	combinedFilters := make(map[net.Conn]*wire.MsgFilterLoad)
-	// Here we create he combined union inputFilters
-	for con := range inputFilters {
+	// Here we create the combined union inputFilters
+	for con, inFilter := range inputFilters {
+		if inFilter == nil {
+			continue
+		}
 		emptyFilter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
 		// The empty filter load will be used to create the union with
 		emptyFilterLoad := emptyFilter.MsgFilterLoad()
@@ -626,6 +629,9 @@ func (coord *Coordinator) sendCombinedFilters(inputFilters map[net.Conn]*wire.Ms
 		for conC, filterC := range inputFilters {
 			if conC == con {
 				continue // We want to union all but the the filter itself
+			}
+			if filterC == nil {
+				continue
 			}
 			combinedFilter, err := bloom.FilterUnion(combinedFilters[con], filterC)
 			if err != nil {
@@ -671,8 +677,8 @@ func (coord *Coordinator) sendCombinedFilters(inputFilters map[net.Conn]*wire.Ms
 
 	for con, filter := range combinedFilters {
 		// No need to send if the original bloom filter is empty, i.e. no TXs
-		testFilter := bloom.LoadFilter(inputFilters[con])
-		if testFilter.FilterIsEmpty() {
+		// testFilter := bloom.LoadFilter(inputFilters[con])
+		if filter == nil {
 			continue
 		}
 		logging.Println("Sending combined bloom filter back to shard")

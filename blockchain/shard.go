@@ -278,7 +278,6 @@ func (shard *Shard) ReceiveShard(s *Shard) {
 // is an indication that the shard has no transactions to process, and
 // is the same as SHARDDONE
 func (shard *Shard) SendEmptyBloomFilter() {
-	filter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
 	logging.Println("Sending Empty bloomfilter to coordinator")
 	enc := gob.NewEncoder(shard.Socket)
 
@@ -286,11 +285,12 @@ func (shard *Shard) SendEmptyBloomFilter() {
 		Message{
 			Cmd: "BLOOMFLT",
 			Data: FilterGob{
-				InputFilter: filter.MsgFilterLoad(),
+				InputFilter: nil,
+				TxFilter:    nil,
 			},
 		})
 	if err != nil {
-		logging.Println(err, "Encode failed for struct: %#v", filter)
+		logging.Println(err, "Encode failed for empty filter")
 	}
 }
 

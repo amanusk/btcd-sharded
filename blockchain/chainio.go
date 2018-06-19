@@ -827,7 +827,7 @@ func dbPutUtxoView(dbTx database.Tx, view UtxoView) error {
 // to the database.
 func sqlDbPutUtxoView(db *SQLBlockDB, view UtxoView) error {
 
-	reallog.Println("Storing view", view)
+	// reallog.Println("Storing view", view)
 	for outpoint, entry := range view.Entries() {
 		// No need to update the database if the entry was not modified.
 		if entry == nil || !entry.isModified() {
