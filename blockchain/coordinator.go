@@ -338,10 +338,14 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.Conn) {
 	logging.Print("Receivd process block request")
 
+	//startTime := time.Now()
 	err := coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
 	if err != nil {
 		logging.Fatal("Coordinator unable to process block")
 	}
+	//endTime := time.Since(startTime)
+	//fmt.Println("Block", headerBlock.Height, "took", endTime)
+	//fmt.Println(endTime)
 	coord.sendBlockDone(conn)
 }
 
