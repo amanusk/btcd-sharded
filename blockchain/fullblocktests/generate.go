@@ -2267,7 +2267,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	//   genesis -> bm0 -> bm1 -> ... -> bm99
 	// ---------------------------------------------------------------------
-	extraTxs := uint16(1000)
+	extraTxs := uint16(1100)
 	coinbaseMaturity := g.params.CoinbaseMaturity
 	fmt.Println("Coin base maturity", coinbaseMaturity)
 	var testInstances []TestInstance
@@ -2510,39 +2510,39 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//accepted()
 
 	// Try to make transactions that do not require inner block dependancies
-	//txnsNeeded := 5000
-	//b39 := g.nextBlock("b39", outs[12], func(b *wire.MsgBlock) {
-	//	// Create a chain of transactions each spending from the
-	//	// previous one such that each contains an output that pays to
-	//	// the redeem script and the total number of signature
-	//	// operations in those redeem scripts will be more than the
-	//	// max allowed per block.
-	//	p2shScript := payToScriptHashScript(redeemScript)
-	//	for i := 0; i < txnsNeeded; i++ {
-	//		prevTx := createSpendTx(outs[15+i], lowFee)
-	//		prevTx.TxOut[0].Value -= 1
-	//		prevTx.AddTxOut(wire.NewTxOut(1, p2shScript))
-	//		b.AddTransaction(prevTx)
-	//	}
-	//})
-	//g.assertTipBlockNumTxns(txnsNeeded + 2)
-	//accepted()
+	txnsNeeded := 1000
+	b39 := g.nextBlock("b39", outs[12], func(b *wire.MsgBlock) {
+		// Create a chain of transactions each spending from the
+		// previous one such that each contains an output that pays to
+		// the redeem script and the total number of signature
+		// operations in those redeem scripts will be more than the
+		// max allowed per block.
+		p2shScript := payToScriptHashScript(redeemScript)
+		for i := 0; i < txnsNeeded; i++ {
+			prevTx := createSpendTx(outs[15+i], lowFee)
+			prevTx.TxOut[0].Value--
+			prevTx.AddTxOut(wire.NewTxOut(1, p2shScript))
+			b.AddTransaction(prevTx)
+		}
+	})
+	g.assertTipBlockNumTxns(txnsNeeded + 2)
+	accepted()
 
-	//g.nextBlock("b41", outs[13], func(b *wire.MsgBlock) {
-	//	for i := 0; i < txnsNeeded; i++ {
-	//		spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
-	//		tx := createSpendTx(&spend, lowFee)
-	//		sig, err := txscript.RawTxInSignature(tx, 0,
-	//			redeemScript, txscript.SigHashAll, g.privKey)
-	//		if err != nil {
-	//			panic(err)
-	//		}
-	//		tx.TxIn[0].SignatureScript = pushDataScript(sig,
-	//			redeemScript)
-	//		b.AddTransaction(tx)
-	//	}
-	//})
-	//accepted()
+	g.nextBlock("b41", outs[13], func(b *wire.MsgBlock) {
+		for i := 0; i < txnsNeeded; i++ {
+			spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
+			tx := createSpendTx(&spend, lowFee)
+			sig, err := txscript.RawTxInSignature(tx, 0,
+				redeemScript, txscript.SigHashAll, g.privKey)
+			if err != nil {
+				panic(err)
+			}
+			tx.TxIn[0].SignatureScript = pushDataScript(sig,
+				redeemScript)
+			b.AddTransaction(tx)
+		}
+	})
+	accepted()
 
 	return tests, nil
 }

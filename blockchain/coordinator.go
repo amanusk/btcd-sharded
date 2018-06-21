@@ -5,6 +5,7 @@ import (
 	"fmt"
 	logging "log"
 	"net"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil/bloom"
@@ -336,17 +337,16 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 // The coordinator validates the header and waits for conformation
 // from all the shards
 func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.Conn) {
-	logging.Print("Receivd process block request")
+	logging.Println("Receivd process block request")
 
-	//startTime := time.Now()
+	startTime := time.Now()
 	err := coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
 	if err != nil {
 		logging.Fatal("Coordinator unable to process block")
 	}
-	//endTime := time.Since(startTime)
-	//fmt.Println("Block", headerBlock.Height, "took", endTime)
-	//fmt.Println(endTime)
-	coord.sendBlockDone(conn)
+	go coord.sendBlockDone(conn)
+	endTime := time.Since(startTime)
+	logging.Println("Block", headerBlock.Height, "took", endTime)
 }
 
 func (coord *Coordinator) sendBlockDone(conn net.Conn) {
