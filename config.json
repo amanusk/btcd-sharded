@@ -3,11 +3,11 @@
         "server_log": "testlog.log",
         "server_shards_port": ":12345",
         "server_coords_port": ":12346",
-        "server_db": "postgresql://amanusk@localhost:26257/blockchain?sslmode=disable"
+        "server_db": "testdbserver"
     },
     "shard": {
         "shard_log": "stestlog1.log",
         "shard_shards_port": ":12351",
-        "shard_db": "postgresql://amanusk@localhost:26257/blockchain?sslmode=disable"
+        "shard_db": "testdbshard1"
     }
 }

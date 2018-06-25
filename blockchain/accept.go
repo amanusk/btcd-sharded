@@ -131,9 +131,13 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 	// expensive connection logic.  It also has some other nice properties
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
-	b.SQLDB.AddBlockHeader(header)
-	// Store the coinbase tx in txs
-	StoreBlockShard(b.SQLDB, headerBlock)
+	block := btcutil.NewFullBlock(wire.NewMsgBlockFromShard(headerBlock))
+	err := b.db.Update(func(dbTx database.Tx) error {
+		return dbStoreBlock(dbTx, block)
+	})
+	if err != nil {
+		return false, err
+	}
 
 	// Create a new block node for the block and add it to the in-memory
 	// block chain (could be either a side chain or the main chain).
@@ -146,8 +150,7 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 	}
 	// Block is added to the index, only the coordinator holds the index
 	b.index.AddNode(newNode)
-
-	block := btcutil.NewFullBlock(wire.NewMsgBlockFromShard(headerBlock))
+	err = b.index.flushToDB()
 
 	// NOTE: Each shard is validating its part
 	// The coorinator is validating the coinbase transaction!
@@ -155,7 +158,7 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 	// also handles validation of the transaction scripts.
 	// TODO: Check if added to main chain
 	// TODO: This is where we will be able to reorgenise if needed
-	_, err := b.CoordConnectBestChain(newNode, block, flags)
+	_, err = b.CoordConnectBestChain(newNode, block, flags)
 	if err != nil {
 		return false, err
 	}

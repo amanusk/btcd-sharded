@@ -54,6 +54,27 @@ type Config struct {
 	} `json:"shard"`
 }
 
+const (
+	// testDbType is the database backend type to use for the tests.
+	testDbType = "ffldb"
+
+	// blockDataNet is the expected network in the test block data.
+	blockDataNet = wire.MainNet
+)
+
+// isSupportedDbType returns whether or not the passed database type is
+// currently supported.
+func isSupportedDbType(dbType string) bool {
+	supportedDrivers := database.SupportedDrivers()
+	for _, driver := range supportedDrivers {
+		if dbType == driver {
+			return true
+		}
+	}
+
+	return false
+}
+
 // LoadConfig loads the passed json file and returns a config struct
 func LoadConfig(filename string) (Config, error) {
 	var config Config
@@ -385,16 +406,53 @@ func nomain() {
 // a teardown function the caller should invoke when done testing to clean up.
 func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockchain.BlockChain, func(), error) {
 
+	if !isSupportedDbType(testDbType) {
+		return nil, nil, fmt.Errorf("unsupported db type %v", testDbType)
+	}
+
 	// Handle memory database specially since it doesn't need the disk
 	// specific handling.
-	reallog.Println("Trying to open db", config.Server.ServerDb)
+	var db database.DB
 	var teardown func()
-	sqlDB := blockchain.OpenDB(config.Server.ServerDb)
+	if testDbType == "memdb" {
+		ndb, err := database.Create(testDbType)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error creating db: %v", err)
+		}
+		db = ndb
 
-	// Setup a teardown function for cleaning up.  This function is
-	// returned to the caller to be invoked when it is done testing.
-	teardown = func() {
-		sqlDB.Close()
+		// Setup a teardown function for cleaning up.  This function is
+		// returned to the caller to be invoked when it is done testing.
+		teardown = func() {
+			db.Close()
+		}
+	} else {
+		// Create the root directory for test databases.
+		testDbRoot := config.Server.ServerDb
+		if !fileExists(testDbRoot) {
+			if err := os.MkdirAll(testDbRoot, 0700); err != nil {
+				err := fmt.Errorf("unable to create test db "+
+					"root: %v", err)
+				return nil, nil, err
+			}
+		}
+
+		// Create a new database to store the accepted blocks into.
+		dbPath := filepath.Join(testDbRoot, dbName)
+		_ = os.RemoveAll(dbPath)
+		ndb, err := database.Create(testDbType, dbPath, blockDataNet)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error creating db: %v", err)
+		}
+		db = ndb
+
+		// Setup a teardown function for cleaning up.  This function is
+		// returned to the caller to be invoked when it is done testing.
+		teardown = func() {
+			db.Close()
+			os.RemoveAll(dbPath)
+			os.RemoveAll(testDbRoot)
+		}
 	}
 
 	// Copy the chain params to ensure any modifications the tests do to
@@ -402,8 +460,8 @@ func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockch
 	paramsCopy := *params
 
 	// Create the main chain instance.
-	chain, err := blockchain.SQLNew(&blockchain.Config{
-		SQLDB:       sqlDB,
+	chain, err := blockchain.New(&blockchain.Config{
+		DB:          db,
 		ChainParams: &paramsCopy,
 		Checkpoints: nil,
 		TimeSource:  blockchain.NewMedianTime(),
@@ -799,10 +857,36 @@ func main() {
 		reallog.Println("This is a test log entry")
 
 		fmt.Print("Shard mode\n")
-		sqlDB := blockchain.OpenDB(config.Shard.ShardDb)
-		index := blockchain.MyNewBlockIndex(sqlDB, &chaincfg.RegressionNetParams)
+		// Create the root directory for test databases.
+		testDbRoot := config.Shard.ShardDb
+		if !fileExists(testDbRoot) {
+			if err := os.MkdirAll(testDbRoot, 0700); err != nil {
+				err := fmt.Errorf("unable to create test db "+
+					"root: %v", err)
+			}
+		}
 
-		reallog.Print("DB is", sqlDB)
+		// Create a new database to store the accepted blocks into.
+		dbName := "shardblockstest"
+		dbPath := filepath.Join(testDbRoot, dbName)
+		_ = os.RemoveAll(dbPath)
+		ndb, err := database.Create(testDbType, dbPath, blockDataNet)
+		if err != nil {
+			reallog.Panicf("error creating db: %v", err)
+		}
+		db := ndb
+
+		// Setup a teardown function for cleaning up.  This function is
+		// returned to the caller to be invoked when it is done testing.
+		// teardown = func() {
+		// 	db.Close()
+		// 	os.RemoveAll(dbPath)
+		// 	os.RemoveAll(testDbRoot)
+		// }
+
+		index := blockchain.newBlockIndex(db, &chaincfg.RegressionNetParams)
+
+		reallog.Print("DB is", db)
 		reallog.Print("Index is", index)
 
 		fmt.Println("Starting shard...")
@@ -818,7 +902,7 @@ func main() {
 		}
 
 		fmt.Println("Connection started", connection)
-		s := blockchain.NewShard(shardListener, connection, index, sqlDB)
+		s := blockchain.NewShard(shardListener, connection, index, db)
 		go s.StartShard()
 
 		fmt.Println("Waiting for shards to connect")

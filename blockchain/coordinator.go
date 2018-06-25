@@ -438,6 +438,8 @@ func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
 // ProcessBlock will make a sanity check on the block header and will wait for confirmations from all the shards
 // that the block has been processed
 func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags BehaviorFlags, height int32) error {
+	coord.Chain.chainLock.Lock()
+	defer coord.Chain.chainLock.Unlock()
 
 	header := headerBlock.Header
 

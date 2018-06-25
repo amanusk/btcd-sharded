@@ -2235,11 +2235,11 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	// orphanedOrRejected creates and appends a single orphanOrRejectBlock
 	// test instance for the current tip.
-	accepted := func() {
-		tests = append(tests, []TestInstance{
-			acceptBlock(g.tipName, g.tip, true, false),
-		})
-	}
+	//accepted := func() {
+	//	tests = append(tests, []TestInstance{
+	//		acceptBlock(g.tipName, g.tip, true, false),
+	//	})
+	//}
 	//acceptedToSideChainWithExpectedTip := func(tipName string) {
 	//	tests = append(tests, []TestInstance{
 	//		acceptBlock(g.tipName, g.tip, false, false),
@@ -2267,11 +2267,12 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	//   genesis -> bm0 -> bm1 -> ... -> bm99
 	// ---------------------------------------------------------------------
-	extraTxs := uint16(1100)
+	extraTxs := uint16(0)
 	coinbaseMaturity := g.params.CoinbaseMaturity
+	coinbaseMaturity = 1
 	fmt.Println("Coin base maturity", coinbaseMaturity)
 	var testInstances []TestInstance
-	for i := uint16(0); i < coinbaseMaturity+extraTxs; i++ {
+	for i := uint16(0); i < uint16(1)+extraTxs; i++ {
 		blockName := fmt.Sprintf("bm%d", i)
 		g.nextBlock(blockName, nil)
 		g.saveTipCoinbaseOut()
@@ -2287,190 +2288,230 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 		outs = append(outs, &op)
 	}
 
-	// ---------------------------------------------------------------------
-	// Basic forking and reorg tests.
-	// ---------------------------------------------------------------------
+	//// ---------------------------------------------------------------------
+	//// Basic forking and reorg tests.
+	//// ---------------------------------------------------------------------
 
-	// ---------------------------------------------------------------------
-	// The comments below identify the structure of the chain being built.
-	//
-	// The values in parenthesis repesent which outputs are being spent.
-	//
-	// For example, b1(0) indicates the first collected spendable output
-	// which, due to the code above to create the correct number of blocks,
-	// is the first output that can be spent at the current block height due
-	// to the coinbase maturity requirement.
-	// ---------------------------------------------------------------------
+	//// ---------------------------------------------------------------------
+	//// The comments below identify the structure of the chain being built.
+	////
+	//// The values in parenthesis repesent which outputs are being spent.
+	////
+	//// For example, b1(0) indicates the first collected spendable output
+	//// which, due to the code above to create the correct number of blocks,
+	//// is the first output that can be spent at the current block height due
+	//// to the coinbase maturity requirement.
+	//// ---------------------------------------------------------------------
 
-	// Start by building a couple of blocks at current tip (value in parens
-	// is which output is spent):
-	//
-	//   ... -> b1(0) -> b2(1)
-	g.nextBlock("b111", outs[0])
-	accepted()
-
-	g.nextBlock("b112", outs[1])
-	accepted()
-
-	// Test with more than 2 transactions
-	g.nextBlock("b113", outs[2], func(b *wire.MsgBlock) {
-		fee := btcutil.Amount(1)
-		b.AddTransaction(createSpendTx(outs[3], fee))
-	})
-	accepted()
-
-	//manySigOps := repeatOpcode(txscript.OP_CHECKSIG, maxBlockSigOps)
-	//g.nextBlock("b4", outs[5], replaceSpendScript(manySigOps))
-	//g.assertTipBlockSigOpsCount(maxBlockSigOps)
+	//// Start by building a couple of blocks at current tip (value in parens
+	//// is which output is spent):
+	////
+	////   ... -> b1(0) -> b2(1)
+	//g.nextBlock("b111", outs[0])
 	//accepted()
 
-	//TESTED!
-	// Create block with transaction that pays more than its inputs.
-	//
-	//   ... -> b57(16)
-	//                 \-> b59(17)
-	//txToSpend4:= []*spendableOut{outs[7]}
-	//g.nextBlockMultiTX("b5", txToSpend4, func(b *wire.MsgBlock) {
-	//	b.Transactions[1].TxOut[0].Value = int64(outs[7].amount) + 1
-	//})
-	// TODO: Create a reject block function so all can be tested
-	// rejected(blockchain.ErrSpendTooHigh)
-	// This should not actually be accepted
+	//g.nextBlock("b112", outs[1])
 	//accepted()
 
-	// TESTED!
-	// Create a block that spends a transaction that does not exist.
-	//
-	//   ... -> b43(13)
-	//                 \-> b52(14)
-	//txToSpend4 := []*spendableOut{outs[7]}
-	//g.nextBlockMultiTX("b6", txToSpend4, func(b *wire.MsgBlock) {
-	//	hash := newHashFromStr("00000000000000000000000000000000" +
-	//		"00000000000000000123456789abcdef")
-	//	b.Transactions[1].TxIn[0].PreviousOutPoint.Hash = *hash
-	//	b.Transactions[1].TxIn[0].PreviousOutPoint.Index = 0
-	//})
-	//rejected(blockchain.ErrMissingTxOut)
-	//accepted()
-
-	// TESTED!
-	// Create block with duplicate transactions.
-	//
-	// This test relies on the shape of the shape of the merkle tree to test
-	// the intended condition and thus is asserted below.
-	//
-	//   ... -> b43(13)
-	//                 \-> b51(14)
-	//g.nextBlock("b51", outs[14], func(b *wire.MsgBlock) {
-	//	b.AddTransaction(b.Transactions[1])
-	//})
-	//g.assertTipBlockNumTxns(3)
-	//accepted()
-	//rejected(blockchain.ErrDuplicateTx)
-
-	// A test to check if transactions will be accepted if they are submitted in
-	// the order they are sent to the shards
-	// Should be passing on 2 shards
-	// co gets: TX0
-	// s0 gets: TX2(out7)
-	// s1 gets: TX1(out6), TX3(spendTx(6))
-	g.nextBlock("b114", outs[6], func(b *wire.MsgBlock) {
-		// Create 4 transactions that each spend from the previous tx
-		// in the block.
-		fee := btcutil.Amount(1)
-		b.AddTransaction(createSpendTx(outs[7], fee))
-		spendTx := b.Transactions[1] //out6
-		for i := 0; i < 1; i++ {
-			spendTx = createSpendTxForTx(spendTx, lowFee)
-			b.AddTransaction(spendTx)
-		}
-	})
-	g.assertTipBlockNumTxns(4)
-	accepted()
-
-	// Create block that double spends a transaction created in the same
-	// block. This should fail on both 2 shards and 1 shad. The double spend
-	// is on the an old coinbase
-	// co get TX0
-	// s0 gets TX1
-	// s1 gets TX2
-	//g.nextBlock("b110", outs[8], func(b *wire.MsgBlock) {
+	//// Test with more than 2 transactions
+	//g.nextBlock("b113", outs[2], func(b *wire.MsgBlock) {
 	//	fee := btcutil.Amount(1)
-	//	b.AddTransaction(createSpendTx(outs[8], fee))
+	//	b.AddTransaction(createSpendTx(outs[3], fee))
 	//})
-	////rejected(blockchain.ErrMissingTxOut)
-	//g.assertTipBlockNumTxns(3)
 	//accepted()
 
-	// Create a block with transactions that spend transactions in the block
-	// This should pass with one shard, and might be a problem with 2
-	// co gets: TX0
-	// s1 gets: TX2(out9)
-	// s2 gets: TX1(out8), TX3(spendTx(out9))
-	g.nextBlock("b115", outs[8], func(b *wire.MsgBlock) {
-		// Create 4 transactions that each spend from the previous tx
-		// in the block.
-		fee := btcutil.Amount(1)
-		b.AddTransaction(createSpendTx(outs[9], fee))
-		spendTx := b.Transactions[2]
-		for i := 0; i < 1; i++ {
-			spendTx = createSpendTxForTx(spendTx, lowFee)
-			b.AddTransaction(spendTx)
-		}
-	})
-	g.assertTipBlockNumTxns(4)
-	accepted()
+	////manySigOps := repeatOpcode(txscript.OP_CHECKSIG, maxBlockSigOps)
+	////g.nextBlock("b4", outs[5], replaceSpendScript(manySigOps))
+	////g.assertTipBlockSigOpsCount(maxBlockSigOps)
+	////accepted()
 
-	// Similar to previous test, but now both shards will be missing txs
-	// co gets: TX0
-	// s1 gets: TX2(out10), TX4(spend(Tx(out9)
-	// s2 gets: TX1(out9), TX3(spendTx(out10))
-	g.nextBlock("b116", outs[10], func(b *wire.MsgBlock) {
-		// Create 4 transactions that each spend from the previous tx
-		// in the block.
-		fee := btcutil.Amount(1)
-		b.AddTransaction(createSpendTx(outs[11], fee))
-		spendTx := b.Transactions[2]
-		spendTx = createSpendTxForTx(spendTx, lowFee)
-		b.AddTransaction(spendTx)
-		spendTx = b.Transactions[3]
-		spendTx = createSpendTxForTx(spendTx, lowFee)
-		b.AddTransaction(spendTx)
-	})
-	g.assertTipBlockNumTxns(5)
-	accepted()
+	////TESTED!
+	//// Create block with transaction that pays more than its inputs.
+	////
+	////   ... -> b57(16)
+	////                 \-> b59(17)
+	////txToSpend4:= []*spendableOut{outs[7]}
+	////g.nextBlockMultiTX("b5", txToSpend4, func(b *wire.MsgBlock) {
+	////	b.Transactions[1].TxOut[0].Value = int64(outs[7].amount) + 1
+	////})
+	//// TODO: Create a reject block function so all can be tested
+	//// rejected(blockchain.ErrSpendTooHigh)
+	//// This should not actually be accepted
+	////accepted()
 
-	// Create block that double spends a transaction created in the same
-	// block. This should fail on both 2 shards and 1 shad. The double spend
-	// is on a transaction crated in this block
-	//
-	//   ... -> b65(19)
-	//                 \-> b67(20)
-	//g.nextBlock("b111", outs[9], func(b *wire.MsgBlock) {
-	//	tx2 := b.Transactions[1]
-	//	tx3 := createSpendTxForTx(tx2, lowFee)
-	//	tx4 := createSpendTxForTx(tx2, lowFee)
-	//	b.AddTransaction(tx3)
-	//	b.AddTransaction(tx4)
-	//})
+	//// TESTED!
+	//// Create a block that spends a transaction that does not exist.
+	////
+	////   ... -> b43(13)
+	////                 \-> b52(14)
+	////txToSpend4 := []*spendableOut{outs[7]}
+	////g.nextBlockMultiTX("b6", txToSpend4, func(b *wire.MsgBlock) {
+	////	hash := newHashFromStr("00000000000000000000000000000000" +
+	////		"00000000000000000123456789abcdef")
+	////	b.Transactions[1].TxIn[0].PreviousOutPoint.Hash = *hash
+	////	b.Transactions[1].TxIn[0].PreviousOutPoint.Index = 0
+	////})
 	////rejected(blockchain.ErrMissingTxOut)
+	////accepted()
+
+	//// TESTED!
+	//// Create block with duplicate transactions.
+	////
+	//// This test relies on the shape of the shape of the merkle tree to test
+	//// the intended condition and thus is asserted below.
+	////
+	////   ... -> b43(13)
+	////                 \-> b51(14)
+	////g.nextBlock("b51", outs[14], func(b *wire.MsgBlock) {
+	////	b.AddTransaction(b.Transactions[1])
+	////})
+	////g.assertTipBlockNumTxns(3)
+	////accepted()
+	////rejected(blockchain.ErrDuplicateTx)
+
+	//// A test to check if transactions will be accepted if they are submitted in
+	//// the order they are sent to the shards
+	//// Should be passing on 2 shards
+	//// co gets: TX0
+	//// s0 gets: TX2(out7)
+	//// s1 gets: TX1(out6), TX3(spendTx(6))
+	//g.nextBlock("b114", outs[6], func(b *wire.MsgBlock) {
+	//	// Create 4 transactions that each spend from the previous tx
+	//	// in the block.
+	//	fee := btcutil.Amount(1)
+	//	b.AddTransaction(createSpendTx(outs[7], fee))
+	//	spendTx := b.Transactions[1] //out6
+	//	for i := 0; i < 1; i++ {
+	//		spendTx = createSpendTxForTx(spendTx, lowFee)
+	//		b.AddTransaction(spendTx)
+	//	}
+	//})
 	//g.assertTipBlockNumTxns(4)
 	//accepted()
 
-	// Create a pay-to-script-hash redeem script that consists of 9
-	// signature operations to be used in the next three blocks.
-	// NOTE: uncomment here
-	redeemScript := pushDataScript(g.privKey.PubKey().SerializeCompressed())
-	redeemScript = append(redeemScript, bytes.Repeat([]byte{txscript.OP_2DUP,
-		txscript.OP_CHECKSIGVERIFY}, 1)...)
-	redeemScript = append(redeemScript, txscript.OP_CHECKSIG)
+	//// Create block that double spends a transaction created in the same
+	//// block. This should fail on both 2 shards and 1 shad. The double spend
+	//// is on the an old coinbase
+	//// co get TX0
+	//// s0 gets TX1
+	//// s1 gets TX2
+	////g.nextBlock("b110", outs[8], func(b *wire.MsgBlock) {
+	////	fee := btcutil.Amount(1)
+	////	b.AddTransaction(createSpendTx(outs[8], fee))
+	////})
+	//////rejected(blockchain.ErrMissingTxOut)
+	////g.assertTipBlockNumTxns(3)
+	////accepted()
 
-	// Create a block that has enough pay-to-script-hash outputs such that
-	// another block can be created that consumes them all and exceeds the
-	// max allowed signature operations per block.
-	//
-	//   ... -> b35(10) -> b39(11)1
-	//txnsNeeded := 10
+	//// Create a block with transactions that spend transactions in the block
+	//// This should pass with one shard, and might be a problem with 2
+	//// co gets: TX0
+	//// s1 gets: TX2(out9)
+	//// s2 gets: TX1(out8), TX3(spendTx(out9))
+	//g.nextBlock("b115", outs[8], func(b *wire.MsgBlock) {
+	//	// Create 4 transactions that each spend from the previous tx
+	//	// in the block.
+	//	fee := btcutil.Amount(1)
+	//	b.AddTransaction(createSpendTx(outs[9], fee))
+	//	spendTx := b.Transactions[2]
+	//	for i := 0; i < 1; i++ {
+	//		spendTx = createSpendTxForTx(spendTx, lowFee)
+	//		b.AddTransaction(spendTx)
+	//	}
+	//})
+	//g.assertTipBlockNumTxns(4)
+	//accepted()
+
+	//// Similar to previous test, but now both shards will be missing txs
+	//// co gets: TX0
+	//// s1 gets: TX2(out10), TX4(spend(Tx(out9)
+	//// s2 gets: TX1(out9), TX3(spendTx(out10))
+	//g.nextBlock("b116", outs[10], func(b *wire.MsgBlock) {
+	//	// Create 4 transactions that each spend from the previous tx
+	//	// in the block.
+	//	fee := btcutil.Amount(1)
+	//	b.AddTransaction(createSpendTx(outs[11], fee))
+	//	spendTx := b.Transactions[2]
+	//	spendTx = createSpendTxForTx(spendTx, lowFee)
+	//	b.AddTransaction(spendTx)
+	//	spendTx = b.Transactions[3]
+	//	spendTx = createSpendTxForTx(spendTx, lowFee)
+	//	b.AddTransaction(spendTx)
+	//})
+	//g.assertTipBlockNumTxns(5)
+	//accepted()
+
+	//// Create block that double spends a transaction created in the same
+	//// block. This should fail on both 2 shards and 1 shad. The double spend
+	//// is on a transaction crated in this block
+	////
+	////   ... -> b65(19)
+	////                 \-> b67(20)
+	////g.nextBlock("b111", outs[9], func(b *wire.MsgBlock) {
+	////	tx2 := b.Transactions[1]
+	////	tx3 := createSpendTxForTx(tx2, lowFee)
+	////	tx4 := createSpendTxForTx(tx2, lowFee)
+	////	b.AddTransaction(tx3)
+	////	b.AddTransaction(tx4)
+	////})
+	//////rejected(blockchain.ErrMissingTxOut)
+	////g.assertTipBlockNumTxns(4)
+	////accepted()
+
+	//// Create a pay-to-script-hash redeem script that consists of 9
+	//// signature operations to be used in the next three blocks.
+	//// NOTE: uncomment here
+	//redeemScript := pushDataScript(g.privKey.PubKey().SerializeCompressed())
+	//redeemScript = append(redeemScript, bytes.Repeat([]byte{txscript.OP_2DUP,
+	//	txscript.OP_CHECKSIGVERIFY}, 1)...)
+	//redeemScript = append(redeemScript, txscript.OP_CHECKSIG)
+
+	//// Create a block that has enough pay-to-script-hash outputs such that
+	//// another block can be created that consumes them all and exceeds the
+	//// max allowed signature operations per block.
+	////
+	////   ... -> b35(10) -> b39(11)1
+	////txnsNeeded := 10
+	////b39 := g.nextBlock("b39", outs[12], func(b *wire.MsgBlock) {
+	////	// Create a chain of transactions each spending from the
+	////	// previous one such that each contains an output that pays to
+	////	// the redeem script and the total number of signature
+	////	// operations in those redeem scripts will be more than the
+	////	// max allowed per block.
+	////	p2shScript := payToScriptHashScript(redeemScript)
+	////	prevTx := b.Transactions[1]
+	////	for i := 0; i < txnsNeeded; i++ {
+	////		prevTx = createSpendTxForTx(prevTx, lowFee)
+	////		prevTx.TxOut[0].Value -= 1
+	////		prevTx.AddTxOut(wire.NewTxOut(1, p2shScript))
+	////		b.AddTransaction(prevTx)
+	////	}
+	////})
+	////g.assertTipBlockNumTxns(txnsNeeded + 2)
+	////accepted()
+
+	////// Create a block with the max allowed signature operations where the
+	////// majority of them are in pay-to-script-hash scripts.
+	//////
+	//////   ... -> b35(10) -> b39(11) -> b41(12)
+	////g.nextBlock("b41", outs[13], func(b *wire.MsgBlock) {
+	////	for i := 0; i < txnsNeeded; i++ {
+	////		spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
+	////		tx := createSpendTx(&spend, lowFee)
+	////		sig, err := txscript.RawTxInSignature(tx, 0,
+	////			redeemScript, txscript.SigHashAll, g.privKey)
+	////		if err != nil {
+	////			panic(err)
+	////		}
+	////		tx.TxIn[0].SignatureScript = pushDataScript(sig,
+	////			redeemScript)
+	////		b.AddTransaction(tx)
+	////	}
+	////})
+	////accepted()
+
+	//// Try to make transactions that do not require inner block dependancies
+	//txnsNeeded := 1000
 	//b39 := g.nextBlock("b39", outs[12], func(b *wire.MsgBlock) {
 	//	// Create a chain of transactions each spending from the
 	//	// previous one such that each contains an output that pays to
@@ -2478,10 +2519,9 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//	// operations in those redeem scripts will be more than the
 	//	// max allowed per block.
 	//	p2shScript := payToScriptHashScript(redeemScript)
-	//	prevTx := b.Transactions[1]
 	//	for i := 0; i < txnsNeeded; i++ {
-	//		prevTx = createSpendTxForTx(prevTx, lowFee)
-	//		prevTx.TxOut[0].Value -= 1
+	//		prevTx := createSpendTx(outs[15+i], lowFee)
+	//		prevTx.TxOut[0].Value--
 	//		prevTx.AddTxOut(wire.NewTxOut(1, p2shScript))
 	//		b.AddTransaction(prevTx)
 	//	}
@@ -2489,10 +2529,6 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//g.assertTipBlockNumTxns(txnsNeeded + 2)
 	//accepted()
 
-	//// Create a block with the max allowed signature operations where the
-	//// majority of them are in pay-to-script-hash scripts.
-	////
-	////   ... -> b35(10) -> b39(11) -> b41(12)
 	//g.nextBlock("b41", outs[13], func(b *wire.MsgBlock) {
 	//	for i := 0; i < txnsNeeded; i++ {
 	//		spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
@@ -2508,41 +2544,6 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//	}
 	//})
 	//accepted()
-
-	// Try to make transactions that do not require inner block dependancies
-	txnsNeeded := 1000
-	b39 := g.nextBlock("b39", outs[12], func(b *wire.MsgBlock) {
-		// Create a chain of transactions each spending from the
-		// previous one such that each contains an output that pays to
-		// the redeem script and the total number of signature
-		// operations in those redeem scripts will be more than the
-		// max allowed per block.
-		p2shScript := payToScriptHashScript(redeemScript)
-		for i := 0; i < txnsNeeded; i++ {
-			prevTx := createSpendTx(outs[15+i], lowFee)
-			prevTx.TxOut[0].Value--
-			prevTx.AddTxOut(wire.NewTxOut(1, p2shScript))
-			b.AddTransaction(prevTx)
-		}
-	})
-	g.assertTipBlockNumTxns(txnsNeeded + 2)
-	accepted()
-
-	g.nextBlock("b41", outs[13], func(b *wire.MsgBlock) {
-		for i := 0; i < txnsNeeded; i++ {
-			spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
-			tx := createSpendTx(&spend, lowFee)
-			sig, err := txscript.RawTxInSignature(tx, 0,
-				redeemScript, txscript.SigHashAll, g.privKey)
-			if err != nil {
-				panic(err)
-			}
-			tx.TxIn[0].SignatureScript = pushDataScript(sig,
-				redeemScript)
-			b.AddTransaction(tx)
-		}
-	})
-	accepted()
 
 	return tests, nil
 }

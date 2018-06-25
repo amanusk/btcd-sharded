@@ -6,6 +6,7 @@ import (
 	logging "log"
 	"net"
 
+	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
@@ -20,7 +21,7 @@ type Shard struct {
 	unregisterShard        chan *Shard
 	Port                   int // Saves the port the shard is listening to other shards
 	Index                  *BlockIndex
-	SQLDB                  *SQLBlockDB
+	DB                     database.DB
 	ShardListener          net.Listener
 	intersectFilter        chan *FilterGob
 	missingTxOuts          chan (map[wire.OutPoint]*UtxoEntry)
@@ -39,10 +40,10 @@ func NewShardConnection(connection net.Conn, shardPort int) *Shard {
 
 // NewShard Creates a new shard for a coordinator to use.
 // It has a connection and a channel to receive data from the server
-func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex, db *SQLBlockDB) *Shard {
+func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex, db database.DB) *Shard {
 	shard := &Shard{
 		Index:           index,
-		SQLDB:           db,
+		DB:              db,
 		registerShard:   make(chan *Shard),
 		unregisterShard: make(chan *Shard),
 		shards:          make(map[*Shard]bool),
@@ -86,30 +87,30 @@ func (shard *Shard) handleFilterCombined(filterData *FilterGob, conn net.Conn) {
 }
 
 // Handle request for a block shard by another shard
-func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
-	logging.Println("Received request to send a block shard")
-
-	msgBlock := shard.SQLDB.FetchTXs(header.Header.BlockHash())
-	msgBlock.Header = *header.Header
-
-	// Create a gob of serialized msgBlock
-	msg := Message{
-		Cmd: "PRCBLOCK",
-		Data: RawBlockGob{
-			Block:  msgBlock,
-			Flags:  BFNone,
-			Height: header.Height,
-		},
-	}
-	//Actually write the GOB on the socket
-	enc := gob.NewEncoder(conn)
-	err := enc.Encode(msg)
-	if err != nil {
-		logging.Println(err, "Encode failed for struct: %#v", msg)
-	}
-
-}
-
+//func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
+//	logging.Println("Received request to send a block shard")
+//
+//	msgBlock := shard.SQLDB.FetchTXs(header.Header.BlockHash())
+//	msgBlock.Header = *header.Header
+//
+//	// Create a gob of serialized msgBlock
+//	msg := Message{
+//		Cmd: "PRCBLOCK",
+//		Data: RawBlockGob{
+//			Block:  msgBlock,
+//			Flags:  BFNone,
+//			Height: header.Height,
+//		},
+//	}
+//	//Actually write the GOB on the socket
+//	enc := gob.NewEncoder(conn)
+//	err := enc.Encode(msg)
+//	if err != nil {
+//		logging.Println(err, "Encode failed for struct: %#v", msg)
+//	}
+//
+//}
+//
 // Receive a list of ip:port from coordinator, to which this shard will connect
 func (shard *Shard) handleShardConnect(receivedShardAddresses *AddressesGob, conn net.Conn) {
 	logging.Println("Received request to connect to shards")
@@ -159,7 +160,7 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 	block := btcutil.NewBlockShard(msgBlockShard)
 
 	// Store the txs in database, this could be postponed until after validation
-	StoreBlockShard(shard.SQLDB, msgBlockShard)
+	//StoreBlockShard(shard.SQLDB, msgBlockShard)
 
 	// shard does not need the parent node
 	blockNode := NewBlockNode(&msgBlockShard.Header, nil)
@@ -223,9 +224,9 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 			header := msg.Data.(HeaderGob)
 			shard.handleRequestBlock(&header, conn)
 		// handle a request for block shard coming from another shard
-		case "SNDBLOCK":
-			header := msg.Data.(HeaderGob)
-			shard.handleSendBlock(&header, conn)
+		//case "SNDBLOCK":
+		//	header := msg.Data.(HeaderGob)
+		//	shard.handleSendBlock(&header, conn)
 		// Receive a combined bloom filter from coordinator
 		case "BLOOMCOM":
 			filter := msg.Data.(FilterGob)
