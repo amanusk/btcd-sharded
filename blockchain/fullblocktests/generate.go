@@ -913,8 +913,8 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 	//   genesis -> bm0 -> bm1 -> ... -> bm99
 	// ---------------------------------------------------------------------
 
-	//coinbaseMaturity := g.params.CoinbaseMaturity
-	coinbaseMaturity := uint16(100)
+	coinbaseMaturity := g.params.CoinbaseMaturity
+	// coinbaseMaturity := uint16(100)
 	fmt.Print("Coin base maturity", coinbaseMaturity)
 	var testInstances []TestInstance
 	for i := uint16(0); i < coinbaseMaturity; i++ {
@@ -2235,11 +2235,11 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	// orphanedOrRejected creates and appends a single orphanOrRejectBlock
 	// test instance for the current tip.
-	//accepted := func() {
-	//	tests = append(tests, []TestInstance{
-	//		acceptBlock(g.tipName, g.tip, true, false),
-	//	})
-	//}
+	accepted := func() {
+		tests = append(tests, []TestInstance{
+			acceptBlock(g.tipName, g.tip, true, false),
+		})
+	}
 	//acceptedToSideChainWithExpectedTip := func(tipName string) {
 	//	tests = append(tests, []TestInstance{
 	//		acceptBlock(g.tipName, g.tip, false, false),
@@ -2267,12 +2267,11 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	//   genesis -> bm0 -> bm1 -> ... -> bm99
 	// ---------------------------------------------------------------------
-	extraTxs := uint16(0)
+	extraTxs := uint16(10)
 	coinbaseMaturity := g.params.CoinbaseMaturity
-	coinbaseMaturity = 1
 	fmt.Println("Coin base maturity", coinbaseMaturity)
 	var testInstances []TestInstance
-	for i := uint16(0); i < uint16(1)+extraTxs; i++ {
+	for i := uint16(0); i < coinbaseMaturity+extraTxs; i++ {
 		blockName := fmt.Sprintf("bm%d", i)
 		g.nextBlock(blockName, nil)
 		g.saveTipCoinbaseOut()
@@ -2288,37 +2287,37 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 		outs = append(outs, &op)
 	}
 
-	//// ---------------------------------------------------------------------
-	//// Basic forking and reorg tests.
-	//// ---------------------------------------------------------------------
+	// ---------------------------------------------------------------------
+	// Basic forking and reorg tests.
+	// ---------------------------------------------------------------------
 
-	//// ---------------------------------------------------------------------
-	//// The comments below identify the structure of the chain being built.
-	////
-	//// The values in parenthesis repesent which outputs are being spent.
-	////
-	//// For example, b1(0) indicates the first collected spendable output
-	//// which, due to the code above to create the correct number of blocks,
-	//// is the first output that can be spent at the current block height due
-	//// to the coinbase maturity requirement.
-	//// ---------------------------------------------------------------------
+	// ---------------------------------------------------------------------
+	// The comments below identify the structure of the chain being built.
+	//
+	// The values in parenthesis repesent which outputs are being spent.
+	//
+	// For example, b1(0) indicates the first collected spendable output
+	// which, due to the code above to create the correct number of blocks,
+	// is the first output that can be spent at the current block height due
+	// to the coinbase maturity requirement.
+	// ---------------------------------------------------------------------
 
-	//// Start by building a couple of blocks at current tip (value in parens
-	//// is which output is spent):
-	////
-	////   ... -> b1(0) -> b2(1)
-	//g.nextBlock("b111", outs[0])
-	//accepted()
+	// Start by building a couple of blocks at current tip (value in parens
+	// is which output is spent):
+	//
+	//   ... -> b1(0) -> b2(1)
+	g.nextBlock("b111", outs[0])
+	accepted()
 
-	//g.nextBlock("b112", outs[1])
-	//accepted()
+	g.nextBlock("b112", outs[1])
+	accepted()
 
-	//// Test with more than 2 transactions
-	//g.nextBlock("b113", outs[2], func(b *wire.MsgBlock) {
-	//	fee := btcutil.Amount(1)
-	//	b.AddTransaction(createSpendTx(outs[3], fee))
-	//})
-	//accepted()
+	// Test with more than 2 transactions
+	g.nextBlock("b113", outs[2], func(b *wire.MsgBlock) {
+		fee := btcutil.Amount(1)
+		b.AddTransaction(createSpendTx(outs[3], fee))
+	})
+	accepted()
 
 	////manySigOps := repeatOpcode(txscript.OP_CHECKSIG, maxBlockSigOps)
 	////g.nextBlock("b4", outs[5], replaceSpendScript(manySigOps))
@@ -2369,25 +2368,25 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	////accepted()
 	////rejected(blockchain.ErrDuplicateTx)
 
-	//// A test to check if transactions will be accepted if they are submitted in
-	//// the order they are sent to the shards
-	//// Should be passing on 2 shards
-	//// co gets: TX0
-	//// s0 gets: TX2(out7)
-	//// s1 gets: TX1(out6), TX3(spendTx(6))
-	//g.nextBlock("b114", outs[6], func(b *wire.MsgBlock) {
-	//	// Create 4 transactions that each spend from the previous tx
-	//	// in the block.
-	//	fee := btcutil.Amount(1)
-	//	b.AddTransaction(createSpendTx(outs[7], fee))
-	//	spendTx := b.Transactions[1] //out6
-	//	for i := 0; i < 1; i++ {
-	//		spendTx = createSpendTxForTx(spendTx, lowFee)
-	//		b.AddTransaction(spendTx)
-	//	}
-	//})
-	//g.assertTipBlockNumTxns(4)
-	//accepted()
+	// A test to check if transactions will be accepted if they are submitted in
+	// the order they are sent to the shards
+	// Should be passing on 2 shards
+	// co gets: TX0
+	// s0 gets: TX2(out7)
+	// s1 gets: TX1(out6), TX3(spendTx(6))
+	// g.nextBlock("b114", outs[6], func(b *wire.MsgBlock) {
+	// 	// Create 4 transactions that each spend from the previous tx
+	// 	// in the block.
+	// 	fee := btcutil.Amount(1)
+	// 	b.AddTransaction(createSpendTx(outs[7], fee))
+	// 	spendTx := b.Transactions[1] //out6
+	// 	for i := 0; i < 1; i++ {
+	// 		spendTx = createSpendTxForTx(spendTx, lowFee)
+	// 		b.AddTransaction(spendTx)
+	// 	}
+	// })
+	// g.assertTipBlockNumTxns(4)
+	// accepted()
 
 	//// Create block that double spends a transaction created in the same
 	//// block. This should fail on both 2 shards and 1 shad. The double spend

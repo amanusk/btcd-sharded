@@ -6,7 +6,6 @@ import (
 	logging "log"
 	"net"
 
-	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
@@ -14,14 +13,14 @@ import (
 
 // Shard is a single node in a sharded bitcoin client cluster
 type Shard struct {
+	Chain                  *BlockChain
 	Socket                 net.Conn
 	shards                 map[*Shard]bool // A map of shards connected to this shard
 	terminate              chan bool
 	registerShard          chan *Shard
 	unregisterShard        chan *Shard
 	Port                   int // Saves the port the shard is listening to other shards
-	Index                  *BlockIndex
-	DB                     database.DB
+	Index                  int // Save the shard index in the coords array
 	ShardListener          net.Listener
 	intersectFilter        chan *FilterGob
 	missingTxOuts          chan (map[wire.OutPoint]*UtxoEntry)
@@ -30,20 +29,20 @@ type Shard struct {
 
 // NewShardConnection Creates a new shard connection for a coordinator to use.
 // It has a connection and a channel to receive data from the server
-func NewShardConnection(connection net.Conn, shardPort int) *Shard {
+func NewShardConnection(connection net.Conn, shardPort int, index int) *Shard {
 	shard := &Shard{
 		Socket: connection, // The connection to the coordinator
 		Port:   shardPort,  // Will store the prot the shard is listening to for other shards
+		Index:  index,
 	}
 	return shard
 }
 
 // NewShard Creates a new shard for a coordinator to use.
 // It has a connection and a channel to receive data from the server
-func NewShard(shardListener net.Listener, connection net.Conn, index *BlockIndex, db database.DB) *Shard {
+func NewShard(shardListener net.Listener, connection net.Conn, blockchain *BlockChain) *Shard {
 	shard := &Shard{
-		Index:           index,
-		DB:              db,
+		Chain:           blockchain,
 		registerShard:   make(chan *Shard),
 		unregisterShard: make(chan *Shard),
 		shards:          make(map[*Shard]bool),
@@ -122,7 +121,7 @@ func (shard *Shard) handleShardConnect(receivedShardAddresses *AddressesGob, con
 			fmt.Println(err)
 		}
 
-		shardConn := NewShardConnection(connection, address.Port)
+		shardConn := NewShardConnection(connection, address.Port, 0) // TODO: change
 		shard.RegisterShard(shardConn)
 		go shard.ReceiveShard(shardConn)
 	}

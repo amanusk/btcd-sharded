@@ -578,9 +578,12 @@ func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view Utx
 	}
 
 	// Sanity check the correct number of stxos are provided.
-	if len(stxos) != countSpentOutputs(block) {
-		return AssertError("connectBlock called with inconsistent " +
-			"spent transaction out information")
+	// stxos could be nil in case of coordinator
+	if stxos != nil {
+		if len(stxos) != countSpentOutputs(block) {
+			return AssertError("connectBlock called with inconsistent " +
+				"spent transaction out information")
+		}
 	}
 
 	// No warnings about unknown rules or versions until the chain is
@@ -594,9 +597,9 @@ func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view Utx
 
 		// Warn if a high enough percentage of the last blocks have
 		// unexpected versions.
-		if err := b.warnUnknownVersions(node); err != nil {
-			return err
-		}
+		//if err := b.warnUnknownVersions(node); err != nil {
+		//	return err
+		//}
 	}
 
 	// Write any block status changes to DB before updating best state.
@@ -1304,7 +1307,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 		//view := NewSQLUtxoViewpoint(b.SqlDB)
 		view := NewUtxoViewpoint()
 		view.SetBestHash(parentHash)
-		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
+		//stxos := make([]spentTxOut, 0, countSpentOutputs(block))
 		// NOTE: we are not validating the connections of the coinbase
 		//if !fastAdd {
 		//	err := b.checkConnectBlock(node, block, view, &stxos) // This is what we need to replace
@@ -1321,16 +1324,16 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 		// was skipped, so the utxo view needs to load the referenced
 		// utxos, spend them, and add the new utxos being created by
 		// this block.
-		if fastAdd {
-			err := view.ConnectTransactions(block, &stxos)
-			if err != nil {
-				return false, err
-			}
-		}
+		//if fastAdd {
+		//	err := view.ConnectTransactions(block, &stxos)
+		//	if err != nil {
+		//		return false, err
+		//	}
+		//}
 
 		logging.Println("Connecting block", block.Hash())
 		// Connect the block to the main chain.
-		err := b.connectBlock(node, block, view, stxos)
+		err := b.connectBlock(node, block, view, nil)
 		if err != nil {
 			return false, err
 		}
@@ -1430,7 +1433,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 		// Connect the block to the main chain.
 		// NOTE: This writes all the updated databases to the DB
 		logging.Println("Connecting block", block.Hash())
-		err = sqlConnectBlock(shard.DB, block, view, stxos)
+		err = sqlConnectBlock(shard.Chain.db, block, view, stxos)
 		if err != nil {
 			logging.Print("Failed to connect block: ", err)
 			return false, err

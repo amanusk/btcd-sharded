@@ -9,7 +9,7 @@ import (
 	"flag"
 	"fmt"
 	_ "io"
-	reallog "log"
+	logging "log"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
 
@@ -505,15 +506,15 @@ func main() {
 		// Setting up my logging system
 		f, _ := os.OpenFile(config.Server.ServerLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		defer f.Close()
-		reallog.SetOutput(f)
-		reallog.SetFlags(reallog.Lshortfile)
-		reallog.Println("This is a test log entry")
+		logging.SetOutput(f)
+		logging.SetFlags(logging.Lshortfile)
+		logging.Println("This is a test log entry")
 
 		// Create a new database and chain instance to run tests against.
-		chain, teardownFunc, err := chainSetup("fullblocktest",
+		chain, teardownFunc, err := chainSetup(config.Server.ServerDb,
 			&chaincfg.RegressionNetParams, config)
 		if err != nil {
-			reallog.Printf("Failed to setup chain instance: %v", err)
+			logging.Printf("Failed to setup chain instance: %v", err)
 			return
 		}
 		defer teardownFunc()
@@ -534,12 +535,14 @@ func main() {
 		go manager.Start()
 
 		// Wait for all the shards to get connected
+		shardCount := 0
 		for manager.GetNumShardes() < numShards {
 			connection, _ := manager.ShardListener.Accept()
 			// NOTE: this should be either a constant, or sent to the coord
 			// once connection is established
 			port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
-			shard := blockchain.NewShardConnection(connection, int(port))
+			shard := blockchain.NewShardConnection(connection, int(port), shardCount)
+			shardCount++
 			manager.RegisterShard(shard)
 			// Start receiving from shard
 			go manager.ReceiveShard(shard)
@@ -568,7 +571,7 @@ func main() {
 
 			err = coordEnc.Encode(msg)
 			if err != nil {
-				reallog.Println(err, "Encode failed for struct: %#v", msg)
+				logging.Println(err, "Encode failed for struct: %#v", msg)
 			}
 			// TODO Change to work with Message + Move to Coord
 			var receivedShards blockchain.AddressesGob
@@ -576,7 +579,7 @@ func main() {
 			dec := gob.NewDecoder(coordConn)
 			err = dec.Decode(&receivedShards)
 			if err != nil {
-				reallog.Println("Error decoding GOB data:", err)
+				logging.Println("Error decoding GOB data:", err)
 				return
 			}
 			manager.NotifyShards(receivedShards.Addresses)
@@ -584,7 +587,7 @@ func main() {
 			for i := 0; i < numShards; i++ {
 				<-manager.ConnectedOut
 			}
-			reallog.Println("All shards finished connecting")
+			logging.Println("All shards finished connecting")
 
 			// Once setup is complete, listen for messages from connected coord
 			go manager.ReceiveCoord(c)
@@ -603,8 +606,8 @@ func main() {
 		// Setting up my logging system
 		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		defer f.Close()
-		reallog.SetOutput(f)
-		reallog.SetFlags(reallog.Lshortfile)
+		logging.SetOutput(f)
+		logging.SetFlags(logging.Lshortfile)
 
 		// Connect to coordinator
 		// TODO make this part of the config
@@ -613,7 +616,7 @@ func main() {
 			fmt.Println(err)
 		}
 
-		reallog.Println("Connection started", coordConn)
+		logging.Println("Connection started", coordConn)
 
 		tests, err := fullblocktests.SimpleGenerate(false)
 		if err != nil {
@@ -632,7 +635,7 @@ func main() {
 
 		err = coordEnc.Encode(msg)
 		if err != nil {
-			reallog.Println(err, "Encode failed for struct: %#v", msg)
+			logging.Println(err, "Encode failed for struct: %#v", msg)
 		}
 
 		var receivedShards blockchain.AddressesGob
@@ -640,7 +643,7 @@ func main() {
 		dec := gob.NewDecoder(coordConn)
 		err = dec.Decode(&receivedShards)
 		if err != nil {
-			reallog.Println("Error decoding GOB data:", err)
+			logging.Println("Error decoding GOB data:", err)
 			return
 		}
 		shardConn := make([]net.Conn, numShards)
@@ -688,7 +691,7 @@ func main() {
 		testAcceptedBlock := func(item fullblocktests.AcceptedBlock) {
 			blockHeight := item.Height
 			block := item.Block
-			reallog.Printf("Testing block %s (hash %s, height %d)",
+			logging.Printf("Testing block %s (hash %s, height %d)",
 				item.Name, block.BlockHash(), blockHeight)
 
 			// Send block to coordinator
@@ -699,8 +702,8 @@ func main() {
 			headerBlock := wire.NewMsgBlockShard(&block.Header)
 
 			// Add only the coinbase transaction to the block
-			newTx := wire.NewTxIndexFromTx(block.Transactions[0], int32(0))
-			headerBlock.AddTransaction(newTx)
+			//newTx := wire.NewTxIndexFromTx(block.Transactions[0], int32(0))
+			//headerBlock.AddTransaction(newTx)
 
 			// Generate a header gob to send to coordinator
 			msg := blockchain.Message{
@@ -714,28 +717,28 @@ func main() {
 
 			err = coordEnc.Encode(msg)
 			if err != nil {
-				reallog.Println(err, "Encode failed for struct: %#v", msg)
+				logging.Println(err, "Encode failed for struct: %#v", msg)
 			}
-			reallog.Println("Waiting for shards to request block")
+			logging.Println("Waiting for shards to request block")
 			// Wait for shard to request the block
 			for i := 0; i < numShards; i++ {
 				dec := gob.NewDecoder(shardConn[i])
 				var msg blockchain.Message
 				err := dec.Decode(&msg)
 				if err != nil {
-					reallog.Println("Error decoding GOB data:", err)
+					logging.Println("Error decoding GOB data:", err)
 					return
 				}
 				cmd := msg.Cmd
 
-				reallog.Println("Recived command", cmd)
+				logging.Println("Recived command", cmd)
 				switch cmd {
 
 				case "SNDBLOCK":
-					reallog.Println("'Shard' received requist SNDBLOCK")
+					logging.Println("'Shard' received requist SNDBLOCK")
 					break // Quit the switch case
 				default:
-					reallog.Println("Command '", cmd, "' is not registered.")
+					logging.Println("Command '", cmd, "' is not registered.")
 				}
 				//break // Quit the for loop
 			}
@@ -748,14 +751,16 @@ func main() {
 			}
 
 			// Split transactions between blocks
-			// Do not include coinbase, the coordinator will handle it
-			for idx, tx := range block.Transactions[1:] {
-				// idx starts from 0, but 0 is coinbase
-				newTx := wire.NewTxIndexFromTx(tx, int32(idx+1))
+			for idx, tx := range block.Transactions {
+				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
 				// NOTE: This should be a DHT
-				bShards[(idx+1)%numShards].AddTransaction(newTx)
+				txHash := newTx.TxHash()
+				logging.Println("txHash", txHash)
+				shardNum := binary.BigEndian.Uint64(txHash[:]) % uint64(numShards)
+				logging.Println("Shard for tx", shardNum)
+				bShards[shardNum].AddTransaction(newTx)
 			}
-			reallog.Println("Sending shards")
+			logging.Println("Sending shards")
 
 			for i := 0; i < numShards; i++ {
 
@@ -772,31 +777,31 @@ func main() {
 				enc := gob.NewEncoder(shardConn[i])
 				err = enc.Encode(msg)
 				if err != nil {
-					reallog.Println(err, "Encode failed for struct: %#v", msg)
+					logging.Println(err, "Encode failed for struct: %#v", msg)
 				}
 			}
 
-			reallog.Println("Waiting for conformation on block")
+			logging.Println("Waiting for conformation on block")
 			for {
 				dec := gob.NewDecoder(coordConn)
 				var msg blockchain.Message
 				err := dec.Decode(&msg)
 				if err != nil {
-					reallog.Println("Error decoding GOB data:", err)
+					logging.Println("Error decoding GOB data:", err)
 					return
 				}
 				cmd := msg.Cmd
 
-				reallog.Println("Recived command", cmd)
+				logging.Println("Recived command", cmd)
 				switch cmd {
 				case "BLOCKDONE":
-					reallog.Println("Received BLOCKDONE")
+					logging.Println("Received BLOCKDONE")
 					break // Quit the switch case
 				case "BADBLOCK":
-					reallog.Println("Received BADBLOCK")
+					logging.Println("Received BADBLOCK")
 					break // Quit the switch case
 				default:
-					reallog.Println("Command '", cmd, "' is not registered.")
+					logging.Println("Command '", cmd, "' is not registered.")
 				}
 				break // Quit the for loop
 			}
@@ -852,42 +857,20 @@ func main() {
 		}
 		defer f.Close()
 
-		reallog.SetOutput(f)
-		reallog.SetFlags(reallog.Lshortfile)
-		reallog.Println("This is a test log entry")
+		logging.SetOutput(f)
+		logging.SetFlags(logging.Lshortfile)
+		logging.Println("This is a test log entry")
 
 		fmt.Print("Shard mode\n")
-		// Create the root directory for test databases.
-		testDbRoot := config.Shard.ShardDb
-		if !fileExists(testDbRoot) {
-			if err := os.MkdirAll(testDbRoot, 0700); err != nil {
-				err := fmt.Errorf("unable to create test db "+
-					"root: %v", err)
-			}
-		}
 
-		// Create a new database to store the accepted blocks into.
-		dbName := "shardblockstest"
-		dbPath := filepath.Join(testDbRoot, dbName)
-		_ = os.RemoveAll(dbPath)
-		ndb, err := database.Create(testDbType, dbPath, blockDataNet)
+		// Create a new database and chain instance to run tests against.
+		chain, teardownFunc, err := chainSetup(config.Shard.ShardDb,
+			&chaincfg.RegressionNetParams, config)
 		if err != nil {
-			reallog.Panicf("error creating db: %v", err)
+			logging.Printf("Failed to setup chain instance: %v", err)
+			return
 		}
-		db := ndb
-
-		// Setup a teardown function for cleaning up.  This function is
-		// returned to the caller to be invoked when it is done testing.
-		// teardown = func() {
-		// 	db.Close()
-		// 	os.RemoveAll(dbPath)
-		// 	os.RemoveAll(testDbRoot)
-		// }
-
-		index := blockchain.newBlockIndex(db, &chaincfg.RegressionNetParams)
-
-		reallog.Print("DB is", db)
-		reallog.Print("Index is", index)
+		defer teardownFunc()
 
 		fmt.Println("Starting shard...")
 		connection, err := net.Dial("tcp", "localhost"+config.Server.ServerShardsPort)
@@ -902,17 +885,20 @@ func main() {
 		}
 
 		fmt.Println("Connection started", connection)
-		s := blockchain.NewShard(shardListener, connection, index, db)
+
+		s := blockchain.NewShard(shardListener, connection, chain)
 		go s.StartShard()
 
 		fmt.Println("Waiting for shards to connect")
+		shardCount := 0
 		for {
 			connection, _ := s.ShardListener.Accept()
 			// Note: The shard to shard port could be preset to a constant
 			// on multiple machines
 			//port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
-			shardConn := blockchain.NewShardConnection(connection, 0)
+			shardConn := blockchain.NewShardConnection(connection, 0, shardCount)
 			s.RegisterShard(shardConn)
+			shardCount++
 			go s.ReceiveShard(shardConn)
 		}
 	} else if strings.ToLower(*flagMode) == "test" {

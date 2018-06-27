@@ -122,7 +122,7 @@ func initBlockNode(node *BlockNode, blockHeader *wire.BlockHeader, parent *Block
 	}
 }
 
-// newBlockNode returns a new block node for the given block header and parent
+// NewBlockNode returns a new block node for the given block header and parent
 // node, calculating the height and workSum from the respective fields on the
 // parent. This function is NOT safe for concurrent access.
 func NewBlockNode(blockHeader *wire.BlockHeader, parent *BlockNode) *BlockNode {
@@ -255,18 +255,6 @@ type BlockIndex struct {
 func newBlockIndex(db database.DB, chainParams *chaincfg.Params) *BlockIndex {
 	return &BlockIndex{
 		db:          db,
-		chainParams: chainParams,
-		index:       make(map[chainhash.Hash]*BlockNode),
-		dirty:       make(map[*BlockNode]struct{}),
-	}
-}
-
-// MyNewBlockIndex returns a new empty instance of a block index.  The index will
-// be dynamically populated as block nodes are loaded from the database and
-// manually added.
-func MyNewBlockIndex(db *SQLBlockDB, chainParams *chaincfg.Params) *BlockIndex {
-	return &BlockIndex{
-		//db:          db, // my db does not implement DB yet
 		chainParams: chainParams,
 		index:       make(map[chainhash.Hash]*BlockNode),
 		dirty:       make(map[*BlockNode]struct{}),

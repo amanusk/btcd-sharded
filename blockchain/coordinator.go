@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	logging "log"
@@ -655,25 +656,23 @@ func (coord *Coordinator) sendCombinedFilters(inputFilters map[net.Conn]*wire.Ms
 	}
 
 	missingToSend := make(map[net.Conn][]*wire.OutPoint)
+	shardIndexMap := make(map[int]net.Conn)
+
+	// generate shardIndex-> conn map
+	for conn, shard := range coord.shards {
+		shardIndexMap[shard.Index] = conn
+	}
 
 	// Find missing TXs per shard
 	// Iterate over all shards
-	for conn, missing := range missingInputs {
+	for _, missing := range missingInputs {
 		// Iterate over list of all missing Txs
 		for _, input := range missing {
-			// Iterate over all the other filters
-			for conC, filterC := range txFilters {
-				// ignore the shard itself
-				if conC == conn {
-					logging.Println("Not considering", conC)
-					continue
-				}
-				testedFilter := bloom.LoadFilter(filterC)
-				if testedFilter.Matches(input.Hash[:]) {
-					missingToSend[conC] = append(missingToSend[conC], input)
-					logging.Println("Added", input, "To missing in", conC)
-				}
-			}
+			// Index this should belong to
+			shardNum := binary.BigEndian.Uint64(input.Hash[:]) % uint64(len(coord.shards))
+			logging.Println("ShardNum", shardNum)
+			missingToSend[shardIndexMap[int(shardNum)]] = append(missingToSend[shardIndexMap[int(shardNum)]], input)
+			logging.Println("Added", input, "to shard", shardNum)
 		}
 	}
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -1113,11 +1114,21 @@ func CalculateFilterIntersection(filters *FilterGob, transactions map[int]*btcut
 // GetRequestedMissingTxOuts goes over the list of missing inputs of other shards passed by
 // the coordinator and return a slice containing these outputs
 // included in the passed filter
-func GetRequestedMissingTxOuts(filters *FilterGob, transactions map[int]*btcutil.Tx, view UtxoView, blockHeight int32) map[wire.OutPoint]*UtxoEntry {
-	// Find the possible double spending transactions
+func GetRequestedMissingTxOuts(filters *FilterGob, transactions map[int]*btcutil.Tx, view UtxoView, blockHeight int32, db database.DB) map[wire.OutPoint]*UtxoEntry {
 	requestedTxOuts := filters.MissingTxOuts
-	txsToSend := make(map[wire.OutPoint]*UtxoEntry)
+	// TODO: remove and replace with function
+	neededSet := make(map[wire.OutPoint]struct{})
 	for _, reqTx := range requestedTxOuts {
+		neededSet[*reqTx] = struct{}{}
+	}
+	view.FetchUtxosMain(db, neededSet)
+
+	txsToSend := make(map[wire.OutPoint]*UtxoEntry)
+	// Load missing outputs from db
+
+	// Find outputs in the current view
+	for _, reqTx := range requestedTxOuts {
+		logging.Println("Locating", reqTx.Hash, reqTx.Index)
 		for _, tx := range transactions {
 			for outIdx := range tx.MsgTx().TxOut {
 				//logging.Println("compared")
@@ -1186,7 +1197,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	////
 	//// These utxo entries are needed for verification of things such as
 	//// transaction inputs, counting pay-to-script-hashes, and scripts.
-	err := view.FetchInputUtxos(shard.DB, block)
+	err := view.FetchInputUtxos(shard.Chain.db, block)
 	if err != nil {
 		return err
 	}
@@ -1250,6 +1261,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	var localMissingTxOuts []*wire.OutPoint
 
 	for _, tx := range transactions {
+		if IsCoinBase(tx) {
+			continue
+		}
 		localTxFilter.Add(tx.Hash()[:])
 		for txInIndex, txIn := range tx.MsgTx().TxIn {
 			// Ensure the referenced input transaction is available
@@ -1276,7 +1290,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 
 	matchingTxOuts := CalculateFilterIntersection(shard.ReceivedCombinedFilter, transactions)
 
-	missingTxOuts := GetRequestedMissingTxOuts(shard.ReceivedCombinedFilter, transactions, view, node.height)
+	missingTxOuts := GetRequestedMissingTxOuts(shard.ReceivedCombinedFilter, transactions, view, node.height, shard.Chain.db)
 
 	logging.Println(missingTxOuts)
 
