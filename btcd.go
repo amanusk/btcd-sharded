@@ -429,7 +429,7 @@ func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockch
 		}
 	} else {
 		// Create the root directory for test databases.
-		testDbRoot := config.Server.ServerDb
+		testDbRoot := "testdb"
 		if !fileExists(testDbRoot) {
 			if err := os.MkdirAll(testDbRoot, 0700); err != nil {
 				err := fmt.Errorf("unable to create test db "+

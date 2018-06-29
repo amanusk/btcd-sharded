@@ -501,7 +501,7 @@ func (coord *Coordinator) waitForBloomFilters() {
 	inputFilters := make(map[net.Conn]*wire.MsgFilterLoad)
 	txFilters := make(map[net.Conn]*wire.MsgFilterLoad)
 	coord.missingInputs = make(map[net.Conn][]*wire.OutPoint)
-	coord.shardsToWaitFor = make(map[net.Conn]bool)
+	//coord.shardsToWaitFor = make(map[net.Conn]bool)
 
 	for i := 0; i < len(coord.shards); i++ {
 
@@ -510,19 +510,19 @@ func (coord *Coordinator) waitForBloomFilters() {
 		txFilters[connAndFilters.Conn] = connAndFilters.Filters.TxFilter
 		coord.missingInputs[connAndFilters.Conn] = connAndFilters.Filters.MissingTxOuts
 
-		if connAndFilters.Filters.TxFilter == nil {
-			logging.Println("Filter is empty, shardDone")
-			coord.shardDone <- true
-			continue
-		} else {
-			logging.Println("Waiting for shard", connAndFilters.Conn)
-			coord.shardsToWaitFor[connAndFilters.Conn] = true
-		}
+		//if connAndFilters.Filters.TxFilter == nil {
+		//	logging.Println("Filter is empty, shardDone")
+		//	coord.shardDone <- true
+		//	continue
+		//} else {
+		//	logging.Println("Waiting for shard", connAndFilters.Conn)
+		//	coord.shardsToWaitFor[connAndFilters.Conn] = true
+		//}
 
 		logging.Println("Logged new filter ")
 	}
 	logging.Println("Done receiving filters")
-	logging.Println("Expecting", len(coord.shardsToWaitFor), " answers")
+	//logging.Println("Expecting", len(coord.shardsToWaitFor), " answers")
 	coord.sendCombinedFilters(inputFilters, txFilters, coord.missingInputs)
 }
 
@@ -532,8 +532,8 @@ func (coord *Coordinator) waitForBloomFilters() {
 func (coord *Coordinator) waitForMatchingTxs() {
 	matchingTxsMap := make(map[net.Conn][]*wire.OutPoint)
 	availableTxOuts := make(map[wire.OutPoint]*UtxoEntry)
-	logging.Println("Waiting for matches from", len(coord.shardsToWaitFor), " shards")
-	for i := 0; i < len(coord.shardsToWaitFor); i++ {
+	logging.Println("Waiting for matches from", len(coord.shards), " shards")
+	for i := 0; i < len(coord.shards); i++ {
 		connAndTxs := <-coord.registerMatchingTxs
 		matchingTxsMap[connAndTxs.Conn] = connAndTxs.MatchingTxOuts
 		// Add all available TxOuts to the map of available ones
@@ -599,7 +599,7 @@ func (coord *Coordinator) sendMissingOutsToAll(missingMap map[net.Conn]map[wire.
 		}
 	}
 	// TODO: do not send to shards that do not need it
-	for con := range coord.shardsToWaitFor {
+	for con := range coord.shards {
 		enc := gob.NewEncoder(con)
 
 		msg := Message{

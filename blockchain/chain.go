@@ -929,8 +929,10 @@ func (b *BlockChain) disconnectBlock(node *BlockNode, block btcutil.Block, view 
 func countSpentOutputs(block btcutil.Block) int {
 	// Exclude the coinbase transaction since it can't spend anything.
 	var numSpent int
-	for _, tx := range block.Transactions()[1:] {
-		numSpent += len(tx.MsgTx().TxIn)
+	for _, tx := range block.Transactions() {
+		if !IsCoinBase(tx) {
+			numSpent += len(tx.MsgTx().TxIn)
+		}
 	}
 	return numSpent
 }
@@ -1397,7 +1399,11 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 		//globalView := NewSQLUtxoViewpoint(shard.SqlDB)
 		view := NewUtxoViewpoint()
 		//view.SetBestHash(parentHash)
-		stxos := make([]spentTxOut, 0, countSpentOutputs(block))
+		numStxos := 0
+		if len(block.Transactions()) > 0 {
+			numStxos = countSpentOutputs(block)
+		}
+		stxos := make([]spentTxOut, 0, numStxos)
 
 		// Validating signatre and other characteristics block shard
 		// This might require communication with the coordinator

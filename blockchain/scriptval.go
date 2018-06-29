@@ -7,7 +7,6 @@ package blockchain
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"time"
 
 	"github.com/btcsuite/btcd/txscript"
@@ -123,7 +122,8 @@ func (v *txValidator) Validate(items []*txValidateItem) error {
 	// Limit the number of goroutines to do script validation based on the
 	// number of processor cores.  This helps ensure the system stays
 	// reasonably responsive under heavy load.
-	maxGoRoutines := runtime.NumCPU() * 3
+	// maxGoRoutines := runtime.NumCPU() * 3
+	maxGoRoutines := 1
 	if maxGoRoutines <= 0 {
 		maxGoRoutines = 1
 	}

@@ -584,7 +584,10 @@ func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) 
 	// which has no inputs) collecting them into sets of what is needed and
 	// what is already known (in-flight).
 	neededSet := make(map[wire.OutPoint]struct{})
-	for i, tx := range transactions[1:] {
+	for i, tx := range transactions {
+		if IsCoinBase(tx) {
+			continue
+		}
 		for _, txIn := range tx.MsgTx().TxIn {
 			// It is acceptable for a transaction input to reference
 			// the output of another transaction in this block only

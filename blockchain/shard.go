@@ -149,10 +149,10 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn
 	}
 
 	// If blockShard is empty (could happen), just send SHARDDONE
-	if len(msgBlockShard.Transactions) == 0 {
-		shard.SendEmptyBloomFilter()
-		return
-	}
+	//if len(msgBlockShard.Transactions) == 0 {
+	//	shard.SendEmptyBloomFilter()
+	//	return
+	//}
 
 	// Process the transactions
 	// Create a new block node for the block and add it to the in-memory

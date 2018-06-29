@@ -8,6 +8,6 @@
     "shard": {
         "shard_log": "stestlog2.log",
         "shard_shards_port": ":12352",
-        "shard_db": "testdb"
+        "shard_db": "testdbs2"
     }
 }
