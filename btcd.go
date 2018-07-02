@@ -49,9 +49,11 @@ type Config struct {
 		ServerDb              string `json:"server_db"`
 	} `json:"server"`
 	Shard struct {
-		ShardLog        string `json:"shard_log"`
-		ShardShardsPort string `json:"shard_shards_port"`
-		ShardDb         string `json:"shard_db"`
+		ShardLog       string `json:"shard_log"`
+		ShardInterPort string `json:"shard_inter_port"`
+		ShardIntraPort string `json:"shard_intra_port"`
+		ShardIP        string `json:"shard_ip"`
+		ShardDb        string `json:"shard_db"`
 	} `json:"shard"`
 }
 
@@ -540,15 +542,23 @@ func main() {
 			connection, _ := manager.ShardListener.Accept()
 			// NOTE: this should be either a constant, or sent to the coord
 			// once connection is established
-			port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
-			shard := blockchain.NewShardConnection(connection, int(port), shardCount)
-			shardCount++
+			shard := blockchain.NewShardConnection(connection, 0, shardCount)
 			manager.RegisterShard(shard)
+			// Request shards ports
+			manager.RequestShardsInfo(connection, shardCount)
+			shardCount++
 			// Start receiving from shard
 			go manager.ReceiveShard(shard)
 			// Will continue loop once a shard has connected
 			<-manager.Connected
 		}
+		// Send dht information to each shard
+		manager.DistributeDHT()
+		// Wait for all shards to finish connecting
+		for i := 0; i < numShards; i++ {
+			<-manager.ConnectedOut
+		}
+
 		// Wait for connections from other coordinators
 		go manager.ListenToCoordinators()
 
@@ -753,7 +763,6 @@ func main() {
 			// Split transactions between blocks
 			for idx, tx := range block.Transactions {
 				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
-				// NOTE: This should be a DHT
 				txHash := newTx.TxHash()
 				logging.Println("txHash", txHash)
 				shardNum := binary.BigEndian.Uint64(txHash[:]) % uint64(numShards)
@@ -879,20 +888,35 @@ func main() {
 		}
 
 		// Listner for other shards to connect
-		shardListener, error := net.Listen("tcp", config.Shard.ShardShardsPort)
+		shardInterListener, error := net.Listen("tcp", config.Shard.ShardInterPort)
+		if error != nil {
+			fmt.Println(error)
+		}
+
+		// Listner for other shards to connect
+		shardIntraListener, error := net.Listen("tcp", config.Shard.ShardIntraPort)
 		if error != nil {
 			fmt.Println(error)
 		}
 
 		fmt.Println("Connection started", connection)
+		interShardPort, err := strconv.Atoi(config.Shard.ShardInterPort[1:])
+		intraShardPort, err := strconv.Atoi(config.Shard.ShardIntraPort[1:])
+		logging.Println("Shard inter port", interShardPort)
+		logging.Println("Shard intra port", intraShardPort)
+		if err != nil {
+			fmt.Println(err)
+		}
 
-		s := blockchain.NewShard(shardListener, connection, chain)
+		s := blockchain.NewShard(shardInterListener, shardIntraListener, connection, chain, net.ParseIP(config.Shard.ShardIP), interShardPort, intraShardPort)
 		go s.StartShard()
+
+		s.AwaitShards(numShards)
 
 		fmt.Println("Waiting for shards to connect")
 		shardCount := 0
 		for {
-			connection, _ := s.ShardListener.Accept()
+			connection, _ := s.ShardInterListener.Accept()
 			// Note: The shard to shard port could be preset to a constant
 			// on multiple machines
 			//port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])

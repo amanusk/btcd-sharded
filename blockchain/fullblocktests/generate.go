@@ -2267,7 +2267,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	//   genesis -> bm0 -> bm1 -> ... -> bm99
 	// ---------------------------------------------------------------------
-	extraTxs := uint16(5100)
+	extraTxs := uint16(10)
 	coinbaseMaturity := g.params.CoinbaseMaturity
 	fmt.Println("Coin base maturity", coinbaseMaturity)
 	var testInstances []TestInstance
@@ -2510,7 +2510,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//accepted()
 
 	//// Try to make transactions that do not require inner block dependancies
-	txnsNeeded := 4502
+	txnsNeeded := 10
 	b39 := g.nextBlock("b39", outs[12], func(b *wire.MsgBlock) {
 		// Create a chain of transactions each spending from the
 		// previous one such that each contains an output that pays to

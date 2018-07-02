@@ -17,6 +17,13 @@ type AddressesGob struct {
 	Addresses []*net.TCPAddr
 }
 
+// DHTGob is used to pass the shard index and addresses of all other
+// shards to each shards
+type DHTGob struct {
+	Index    int
+	DHTTable map[int]net.TCPAddr
+}
+
 // MatchingMissingTxOutsGob  is a struct to send a list of tx inputs, the coordinator
 // needs to validate that no 2 tx of 2 different shards match
 type MatchingMissingTxOutsGob struct {
@@ -71,6 +78,8 @@ type ConnAndMatchingTxs struct {
 type Coordinator struct {
 	Socket              net.Conn                      // Connection to the shard you connected to
 	shards              map[net.Conn]*Shard           // A map of shards connected to this coordinator
+	dht                 map[int]net.Conn              // Mapping  between dht index and connection
+	shardsIntraAddr     map[int]net.TCPAddr           // Mapping  between shard index and intra address
 	coords              map[*Coordinator]bool         // A map of coords connected to this coordinator
 	missingInputs       map[net.Conn][]*wire.OutPoint // A map between connections and missing Txs
 	registerShard       chan *Shard
@@ -104,6 +113,8 @@ func NewCoordConnection(connection net.Conn) *Coordinator {
 func NewCoordinator(shardListener net.Listener, coordListener net.Listener, blockchain *BlockChain) *Coordinator {
 	coord := Coordinator{
 		shards:              make(map[net.Conn]*Shard),
+		dht:                 make(map[int]net.Conn),
+		shardsIntraAddr:     make(map[int]net.TCPAddr),
 		coords:              make(map[*Coordinator]bool),
 		registerShard:       make(chan *Shard),
 		unregisterShard:     make(chan *Shard),
@@ -314,6 +325,7 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 
 	logging.Print("Receive shards request")
 	// TODO TODO TODO Change this to work with messages like evrything else
+	// TODO TODO TODO change to consider the dht
 	shardConnections := coord.GetShardsConnections()
 
 	logging.Print("Shards to send", shardConnections)
@@ -745,4 +757,62 @@ func (coord *Coordinator) handleMatcingMissingTxOuts(conn net.Conn, matchingTxOu
 	logging.Print("Received bloom filter to process and missing Tx outs")
 
 	coord.registerMatchingTxs <- &ConnAndMatchingTxs{conn, matchingTxOuts, missingTxOuts}
+}
+
+// RequestShardsInfo sends a request to the shards for their IP and port number
+// on which they listen to other shards
+func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
+	//dht := make(map[int]*net.TCPAddr)
+	logging.Println("Requesting Shard Info")
+	enc := gob.NewEncoder(conn)
+
+	msg := Message{
+		Cmd: "REQINFO",
+	}
+	err := enc.Encode(msg)
+	if err != nil {
+		logging.Println("Error encoding addresses GOB data:", err)
+		return
+	}
+	var receivedAddresses AddressesGob
+	dec := gob.NewDecoder(conn)
+	err = dec.Decode(&receivedAddresses)
+	if err != nil {
+		logging.Println("Error decoding GOB data:", err)
+		return
+	}
+	// Set information on current shard port and IP
+	coord.shards[conn].Port = receivedAddresses.Addresses[0].Port
+	coord.shards[conn].IP = receivedAddresses.Addresses[0].IP
+	// Set shard dht index
+	coord.shardsIntraAddr[shardIndex] = *receivedAddresses.Addresses[1]
+	logging.Println("Receive shards addresses")
+	logging.Println("Inter", receivedAddresses.Addresses[0])
+	logging.Println("Intra", receivedAddresses.Addresses[1])
+}
+
+// DistributeDHT sends the map between index and IP to each shard, and waits
+// for it to connect to all inner shards
+func (coord *Coordinator) DistributeDHT() {
+	gob.Register(DHTGob{})
+	for con, shard := range coord.shards {
+		enc := gob.NewEncoder(con)
+
+		// Each shard gets the table of addresses and its own index
+		msg := Message{
+			Cmd: "SHARDDHT",
+			Data: DHTGob{
+				Index:    shard.Index,
+				DHTTable: coord.shardsIntraAddr,
+			},
+		}
+		logging.Print("Sending DHT", msg.Data)
+		//Actually write the GOB on the socket
+		err := enc.Encode(msg)
+		if err != nil {
+			logging.Println("Error encoding addresses GOB data:", err)
+			return
+		}
+	}
+
 }
