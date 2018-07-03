@@ -1257,7 +1257,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		logging.Println("Tx id ", txIdx, " TX ", tx)
 	}
 	// Create map between txs and the shards responsible
-	var localMissingTxOuts map[int]map[wire.OutPoint]struct{}
+	localMissingTxOuts := make(map[int]map[wire.OutPoint]struct{})
+
+	//go shard.AwaitMissingTxOuts()
 
 	for _, tx := range transactions {
 		// Coinbase does not need to have inputs
@@ -1277,6 +1279,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 				// Get the txout owner
 				owner := binary.BigEndian.Uint64(previousHash[:]) % uint64(shard.NumShards)
 				// Add missing to map of that perticular shard
+				if localMissingTxOuts[int(owner)] == nil {
+					localMissingTxOuts[int(owner)] = make(map[wire.OutPoint]struct{})
+				}
 				localMissingTxOuts[int(owner)][txIn.PreviousOutPoint] = struct{}{}
 				logging.Println(str)
 				logging.Println("Append", &txIn.PreviousOutPoint, "to missing")
@@ -1286,6 +1291,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	}
 
 	shard.SendMissingTxOuts(localMissingTxOuts)
+
+	<-shard.receiveAllMissingRequests
 
 	// We have checked before that blockshard has at least one transaction
 	//shard.SendInputBloomFilter(localTxInputFilter, localTxFilter, &localMissingTxOuts)

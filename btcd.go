@@ -544,12 +544,12 @@ func main() {
 			// once connection is established
 			shard := blockchain.NewShardConnection(connection, 0, shardCount)
 			manager.RegisterShard(shard)
-			go manager.ReceiveShard(shard)
 			// Request shards ports
 			manager.RequestShardsInfo(connection, shardCount)
 			shardCount++
 			// Start receiving from shard
 			// Will continue loop once a shard has connected
+			go manager.ReceiveShard(shard)
 			<-manager.Connected
 		}
 		// Wait for all shards to send their ports
@@ -557,7 +557,6 @@ func main() {
 			<-manager.ConnectedOut
 		}
 		// Send dht information to each shard
-		manager.DistributeDHT()
 		// Wait for all shards to finish connecting
 		for i := 0; i < numShards; i++ {
 			<-manager.ConnectedOut
@@ -903,8 +902,7 @@ func main() {
 		if error != nil {
 			fmt.Println(error)
 		}
-
-		fmt.Println("Connection started", connection)
+		logging.Println("Connection started", connection)
 		interShardPort, err := strconv.Atoi(config.Shard.ShardInterPort[1:])
 		intraShardPort, err := strconv.Atoi(config.Shard.ShardIntraPort[1:])
 		logging.Println("Shard inter port", interShardPort)
@@ -914,9 +912,36 @@ func main() {
 		}
 
 		s := blockchain.NewShard(shardInterListener, shardIntraListener, connection, chain, net.ParseIP(config.Shard.ShardIP), interShardPort, intraShardPort)
+		// Before the shard is started, it must receive its index from coordinator
+		dec := gob.NewDecoder(connection)
+		var msg blockchain.Message
+		err = dec.Decode(&msg)
+		if err != nil {
+			logging.Panicln("Error decoding GOB data:", err)
+		}
+		if msg.Cmd != "REQINFO" {
+			logging.Panicln("Error receiving index from coord", err)
+		}
+		s.Index = msg.Data.(int)
+
+		// Now the shard can start and reply with its info
 		go s.StartShard()
 
+		// Reply to the coordinators request for information
+		s.HandleRequestInfo(connection, s.Index)
+		// Go wait for other shards to connect to you
 		s.AwaitShards(numShards)
+
+		time.Sleep(time.Second)
+		logging.Println("All connections")
+		for shardNum, shardConn := range s.ShardNumToShard {
+			logging.Println("num", shardNum, "socket", shardConn.Socket)
+		}
+		s.SendDeadToShards()
+
+		for idx, con := range s.ShardNumToShard {
+			logging.Println("Conn to", idx, "on", con.Socket)
+		}
 
 		fmt.Println("Waiting for shards to connect")
 		shardCount := 0

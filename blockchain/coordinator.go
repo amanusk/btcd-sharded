@@ -185,6 +185,7 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 	gob.Register(MissingTxOutsGob{})
 
 	for {
+		logging.Println("Waiting to decode on", conn)
 		dec := gob.NewDecoder(conn)
 		var msg Message
 		err := dec.Decode(&msg)
@@ -781,28 +782,24 @@ func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
 	}
 }
 
-// DistributeDHT sends the map between index and IP to each shard, and waits
-// for it to connect to all inner shards
-func (coord *Coordinator) DistributeDHT() {
+// SendDHT sends the map between index and IP to each shard
+func (coord *Coordinator) SendDHT(con net.Conn) {
 	gob.Register(DHTGob{})
-	for con, shard := range coord.shards {
-		enc := gob.NewEncoder(con)
+	enc := gob.NewEncoder(con)
 
-		// Each shard gets the table of addresses and its own index
-		msg := Message{
-			Cmd: "SHARDDHT",
-			Data: DHTGob{
-				Index:    shard.Index,
-				DHTTable: coord.shardsIntraAddr,
-			},
-		}
-		logging.Print("Sending DHT", msg.Data)
-		//Actually write the GOB on the socket
-		err := enc.Encode(msg)
-		if err != nil {
-			logging.Println("Error encoding addresses GOB data:", err)
-			return
-		}
+	// Shards will get the DHT of all who is current connected
+	msg := Message{
+		Cmd: "SHARDDHT",
+		Data: DHTGob{
+			DHTTable: coord.shardsIntraAddr,
+		},
+	}
+	logging.Print("Sending DHT", msg.Data)
+	//Actually write the GOB on the socket
+	err := enc.Encode(msg)
+	if err != nil {
+		logging.Println("Error encoding addresses GOB data:", err)
+		return
 	}
 }
 
@@ -815,6 +812,7 @@ func (coord *Coordinator) handleRepliedInfo(addresses []*net.TCPAddr, shardIndex
 	logging.Println("Receive shards addresses")
 	logging.Println("Inter", addresses[0])
 	logging.Println("Intra", addresses[1])
+	coord.SendDHT(conn)
 	coord.ConnectedOut <- true
 
 }
