@@ -1256,50 +1256,52 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	for txIdx, tx := range transactions {
 		logging.Println("Tx id ", txIdx, " TX ", tx)
 	}
-	localTxInputFilter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
-	localTxFilter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
-	var localMissingTxOuts []*wire.OutPoint
+	// Create map between txs and the shards responsible
+	var localMissingTxOuts map[int]map[wire.OutPoint]struct{}
 
 	for _, tx := range transactions {
+		// Coinbase does not need to have inputs
 		if IsCoinBase(tx) {
 			continue
 		}
-		localTxFilter.Add(tx.Hash()[:])
 		for txInIndex, txIn := range tx.MsgTx().TxIn {
 			// Ensure the referenced input transaction is available
 			utxo := view.LookupEntry(txIn.PreviousOutPoint)
 
 			if utxo == nil {
-				//TODO: This needs to be different, need to wait for cross-shard txs
 				str := fmt.Sprintf("output %v referenced from "+
 					"transaction %s:%d "+
 					"does not exist", txIn.PreviousOutPoint,
 					tx.Hash(), txInIndex)
-				localMissingTxOuts = append(localMissingTxOuts, &txIn.PreviousOutPoint)
+				previousHash := txIn.PreviousOutPoint.Hash
+				// Get the txout owner
+				owner := binary.BigEndian.Uint64(previousHash[:]) % uint64(shard.NumShards)
+				// Add missing to map of that perticular shard
+				localMissingTxOuts[int(owner)][txIn.PreviousOutPoint] = struct{}{}
 				logging.Println(str)
 				logging.Println("Append", &txIn.PreviousOutPoint, "to missing")
 				continue
 			}
-			// Add the outpoint to input filters
-			localTxInputFilter.AddOutPoint(&txIn.PreviousOutPoint)
 		}
 	}
 
+	shard.SendMissingTxOuts(localMissingTxOuts)
+
 	// We have checked before that blockshard has at least one transaction
-	shard.SendInputBloomFilter(localTxInputFilter, localTxFilter, &localMissingTxOuts)
+	//shard.SendInputBloomFilter(localTxInputFilter, localTxFilter, &localMissingTxOuts)
 
-	matchingTxOuts := CalculateFilterIntersection(shard.ReceivedCombinedFilter, transactions)
+	//matchingTxOuts := CalculateFilterIntersection(shard.ReceivedCombinedFilter, transactions)
 
-	missingTxOuts := GetRequestedMissingTxOuts(shard.ReceivedCombinedFilter, transactions, view, node.height, shard.Chain.db)
+	//missingTxOuts := GetRequestedMissingTxOuts(shard.ReceivedCombinedFilter, transactions, view, node.height, shard.Chain.db)
 
-	logging.Println(missingTxOuts)
+	//logging.Println(missingTxOuts)
 
-	receivedMissingTxOuts := shard.SendMatchingAndMissingTxOuts(matchingTxOuts, missingTxOuts)
-	logging.Println("The shard received the missing TxOuts:")
-	for txOut, utxoEntry := range receivedMissingTxOuts {
-		logging.Println(txOut)
-		view.AddExplicitTxOut(txOut, utxoEntry)
-	}
+	// receivedMissingTxOuts := shard.SendMatchingAndMissingTxOuts(matchingTxOuts, missingTxOuts)
+	//logging.Println("The shard received the missing TxOuts:")
+	//for txOut, utxoEntry := range receivedMissingTxOuts {
+	//	logging.Println(txOut)
+	//	view.AddExplicitTxOut(txOut, utxoEntry)
+	//}
 
 	for txIdx, tx := range transactions {
 		logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")

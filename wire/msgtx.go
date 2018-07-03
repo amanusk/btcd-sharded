@@ -6,6 +6,7 @@ package wire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"strconv"
@@ -301,6 +302,12 @@ func (msg *MsgTx) AddTxIn(ti *TxIn) {
 // AddTxOut adds a transaction output to the message.
 func (msg *MsgTx) AddTxOut(to *TxOut) {
 	msg.TxOut = append(msg.TxOut, to)
+}
+
+// ModTxHash returns the result of TxHash % the passed integer
+func (msg *MsgTx) ModTxHash(i int) uint64 {
+	hash := msg.TxHash()
+	return binary.BigEndian.Uint64(hash[:]) % uint64(i)
 }
 
 // TxHash generates the Hash for the transaction.

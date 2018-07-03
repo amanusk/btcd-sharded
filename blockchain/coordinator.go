@@ -14,6 +14,7 @@ import (
 
 // AddressesGob is a struct to send a list of tcp connections
 type AddressesGob struct {
+	Index     int
 	Addresses []*net.TCPAddr
 }
 
@@ -24,11 +25,12 @@ type DHTGob struct {
 	DHTTable map[int]net.TCPAddr
 }
 
-// MatchingMissingTxOutsGob  is a struct to send a list of tx inputs, the coordinator
-// needs to validate that no 2 tx of 2 different shards match
-type MatchingMissingTxOutsGob struct {
-	MatchingTxOuts []*wire.OutPoint
-	MissingTxOuts  map[wire.OutPoint]*UtxoEntry
+// MissingTxOutsGob  is a struct to send a map of missing TxInputs
+type MissingTxOutsGob struct {
+	// TODO: Remove MatchingTxOuts
+	MatchingTxOuts   []*wire.OutPoint
+	MissingEmptyOuts map[wire.OutPoint]struct{}
+	MissingTxOuts    map[wire.OutPoint]*UtxoEntry
 }
 
 // HeaderGob is a struct to send headers over tcp connections
@@ -180,7 +182,7 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
 	gob.Register(FilterGob{})
-	gob.Register(MatchingMissingTxOutsGob{})
+	gob.Register(MissingTxOutsGob{})
 
 	for {
 		dec := gob.NewDecoder(conn)
@@ -217,8 +219,12 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 			filter := msg.Data.(FilterGob)
 			coord.handleBloomFilter(conn, &filter)
 		case "MATCHTXS":
-			receivedTxOuts := msg.Data.(MatchingMissingTxOutsGob)
+			receivedTxOuts := msg.Data.(MissingTxOutsGob)
 			coord.handleMatcingMissingTxOuts(conn, receivedTxOuts.MatchingTxOuts, receivedTxOuts.MissingTxOuts)
+		// Receive shard information on incoming ports
+		case "RPLYINFO":
+			AddressesGob := msg.Data.(AddressesGob)
+			coord.handleRepliedInfo(AddressesGob.Addresses, AddressesGob.Index, conn)
 
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
@@ -367,7 +373,6 @@ func (coord *Coordinator) sendBlockDone(conn net.Conn) {
 	// TODO: This should be sent to a specific coordinator
 	enc := gob.NewEncoder(conn)
 
-	// TODO here there should be some logic to sort which shard gets what
 	msg := Message{
 		Cmd: "BLOCKDONE",
 	}
@@ -485,10 +490,10 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	go coord.waitForShardsDone()
 
 	// Handle bloom filters
-	coord.waitForBloomFilters()
+	//coord.waitForBloomFilters()
 
 	// Wait for matching TXs in bloom filters
-	coord.waitForMatchingTxs()
+	//coord.waitForMatchingTxs()
 
 	// All shards must be done to unlock this channel
 	<-coord.allShardsDone
@@ -616,7 +621,7 @@ func (coord *Coordinator) sendMissingOutsToAll(missingMap map[net.Conn]map[wire.
 
 		msg := Message{
 			Cmd: "MISSOUTS",
-			Data: MatchingMissingTxOutsGob{
+			Data: MissingTxOutsGob{
 				MissingTxOuts: missingMap[con],
 			},
 		}
@@ -762,33 +767,18 @@ func (coord *Coordinator) handleMatcingMissingTxOuts(conn net.Conn, matchingTxOu
 // RequestShardsInfo sends a request to the shards for their IP and port number
 // on which they listen to other shards
 func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
-	//dht := make(map[int]*net.TCPAddr)
 	logging.Println("Requesting Shard Info")
 	enc := gob.NewEncoder(conn)
 
 	msg := Message{
-		Cmd: "REQINFO",
+		Cmd:  "REQINFO",
+		Data: shardIndex,
 	}
 	err := enc.Encode(msg)
 	if err != nil {
 		logging.Println("Error encoding addresses GOB data:", err)
 		return
 	}
-	var receivedAddresses AddressesGob
-	dec := gob.NewDecoder(conn)
-	err = dec.Decode(&receivedAddresses)
-	if err != nil {
-		logging.Println("Error decoding GOB data:", err)
-		return
-	}
-	// Set information on current shard port and IP
-	coord.shards[conn].Port = receivedAddresses.Addresses[0].Port
-	coord.shards[conn].IP = receivedAddresses.Addresses[0].IP
-	// Set shard dht index
-	coord.shardsIntraAddr[shardIndex] = *receivedAddresses.Addresses[1]
-	logging.Println("Receive shards addresses")
-	logging.Println("Inter", receivedAddresses.Addresses[0])
-	logging.Println("Intra", receivedAddresses.Addresses[1])
 }
 
 // DistributeDHT sends the map between index and IP to each shard, and waits
@@ -814,5 +804,17 @@ func (coord *Coordinator) DistributeDHT() {
 			return
 		}
 	}
+}
+
+func (coord *Coordinator) handleRepliedInfo(addresses []*net.TCPAddr, shardIndex int, conn net.Conn) {
+	// Set information on current shard port and IP
+	coord.shards[conn].Port = addresses[0].Port
+	coord.shards[conn].IP = addresses[0].IP
+	// Set shard dht index
+	coord.shardsIntraAddr[shardIndex] = *addresses[1]
+	logging.Println("Receive shards addresses")
+	logging.Println("Inter", addresses[0])
+	logging.Println("Intra", addresses[1])
+	coord.ConnectedOut <- true
 
 }

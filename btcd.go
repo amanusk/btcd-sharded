@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
 
@@ -539,18 +538,23 @@ func main() {
 		// Wait for all the shards to get connected
 		shardCount := 0
 		for manager.GetNumShardes() < numShards {
+			logging.Println("Num shards", manager.GetNumShardes())
 			connection, _ := manager.ShardListener.Accept()
 			// NOTE: this should be either a constant, or sent to the coord
 			// once connection is established
 			shard := blockchain.NewShardConnection(connection, 0, shardCount)
 			manager.RegisterShard(shard)
+			go manager.ReceiveShard(shard)
 			// Request shards ports
 			manager.RequestShardsInfo(connection, shardCount)
 			shardCount++
 			// Start receiving from shard
-			go manager.ReceiveShard(shard)
 			// Will continue loop once a shard has connected
 			<-manager.Connected
+		}
+		// Wait for all shards to send their ports
+		for i := 0; i < numShards; i++ {
+			<-manager.ConnectedOut
 		}
 		// Send dht information to each shard
 		manager.DistributeDHT()
@@ -558,6 +562,7 @@ func main() {
 		for i := 0; i < numShards; i++ {
 			<-manager.ConnectedOut
 		}
+		logging.Println("All shards finished connecting to each other")
 
 		// Wait for connections from other coordinators
 		go manager.ListenToCoordinators()
@@ -765,7 +770,7 @@ func main() {
 				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
 				txHash := newTx.TxHash()
 				logging.Println("txHash", txHash)
-				shardNum := binary.BigEndian.Uint64(txHash[:]) % uint64(numShards)
+				shardNum := newTx.ModTxHash(numShards)
 				logging.Println("Shard for tx", shardNum)
 				bShards[shardNum].AddTransaction(newTx)
 			}
