@@ -932,13 +932,6 @@ func main() {
 		// Go wait for other shards to connect to you
 		s.AwaitShards(numShards)
 
-		time.Sleep(time.Second)
-		logging.Println("All connections")
-		for shardNum, shardConn := range s.ShardNumToShard {
-			logging.Println("num", shardNum, "socket", shardConn.Socket)
-		}
-		s.SendDeadToShards()
-
 		for idx, con := range s.ShardNumToShard {
 			logging.Println("Conn to", idx, "on", con.Socket)
 		}

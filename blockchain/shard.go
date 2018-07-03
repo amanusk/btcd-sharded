@@ -6,6 +6,7 @@ import (
 	logging "log"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -28,6 +29,7 @@ type Shard struct {
 	intersectFilter        chan *FilterGob
 	missingTxOuts          chan (map[wire.OutPoint]*UtxoEntry)
 	ReceivedCombinedFilter *FilterGob
+	requestedTxOutsMap     map[int]map[wire.OutPoint]struct{}
 	NumShards              int // Save the number of shards in total, needed to calc the mod
 	// Shard-to-shard comms
 	IP                        net.IP
@@ -216,7 +218,6 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 	gob.Register(DHTGob{})
 
 	for {
-		logging.Println("Waiting to decode on", conn)
 		dec := gob.NewDecoder(conn)
 		var msg Message
 		err := dec.Decode(&msg)
@@ -496,7 +497,9 @@ func (shard *Shard) AwaitShards(numShards int) {
 		logging.Println("Should go receive on", con.Socket)
 	}
 	logging.Println("Done connecting to all shards")
-
+	// Give the coordinator some time to start listening
+	// Fixable
+	time.Sleep(time.Millisecond * 100)
 	enc := gob.NewEncoder(shard.Socket)
 	msg := Message{
 		Cmd: "CONCTDONE",
@@ -583,6 +586,8 @@ func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]st
 // Once all answers are received, unlocks the waiting channel
 func (shard *Shard) AwaitMissingTxOuts() {
 	logging.Println("Waiting for requests")
+	// Create the map that the will wait for requests in
+	shard.requestedTxOutsMap = make(map[int]map[wire.OutPoint]struct{})
 	for i := 0; i < shard.NumShards-1; i++ {
 		<-shard.receiveMissingRequest
 	}
@@ -590,13 +595,15 @@ func (shard *Shard) AwaitMissingTxOuts() {
 	shard.receiveAllMissingRequests <- true
 }
 
-func (shard *Shard) handleRequestedOuts(conn net.Conn, missingOuts map[wire.OutPoint]struct{}) {
+func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.OutPoint]struct{}) {
 	logging.Println("Got request from shard", shard.socketToShardNum[conn])
-	//for txOut := range missingOuts {
-	//	logging.Println("Got missing out", txOut)
-	//}
+	// socketToShardNum maps sockets to shard indexes
+	shard.requestedTxOutsMap[shard.socketToShardNum[conn]] = missingTxOuts
+	for txOut := range missingTxOuts {
+		logging.Println("Got missing out", txOut)
+	}
 	// Unlock wait for each shard to send missing
-	//shard.receiveMissingRequest <- true
+	shard.receiveMissingRequest <- true
 }
 
 // SendDeadToShards sends DEADBEEF

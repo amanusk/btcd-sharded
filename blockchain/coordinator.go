@@ -185,7 +185,6 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 	gob.Register(MissingTxOutsGob{})
 
 	for {
-		logging.Println("Waiting to decode on", conn)
 		dec := gob.NewDecoder(conn)
 		var msg Message
 		err := dec.Decode(&msg)

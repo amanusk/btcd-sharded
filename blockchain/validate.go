@@ -1259,7 +1259,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// Create map between txs and the shards responsible
 	localMissingTxOuts := make(map[int]map[wire.OutPoint]struct{})
 
-	//go shard.AwaitMissingTxOuts()
+	// Start the waiting routine before starting to send anything
+	go shard.AwaitMissingTxOuts()
 
 	for _, tx := range transactions {
 		// Coinbase does not need to have inputs
@@ -1291,8 +1292,15 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	}
 
 	shard.SendMissingTxOuts(localMissingTxOuts)
-
+	// This is where we wait for the shard to receive all requests for missingTxOuts
+	// before we continue to find them in the view
 	<-shard.receiveAllMissingRequests
+	// At this point we should have all requested maps from each shard
+	for shardIdx, reqTxOuts := range shard.requestedTxOutsMap {
+		for txOut := range reqTxOuts {
+			logging.Println("From shard ", shardIdx, "got", txOut)
+		}
+	}
 
 	// We have checked before that blockshard has at least one transaction
 	//shard.SendInputBloomFilter(localTxInputFilter, localTxFilter, &localMissingTxOuts)
