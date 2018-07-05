@@ -542,14 +542,14 @@ func main() {
 			connection, _ := manager.ShardListener.Accept()
 			// NOTE: this should be either a constant, or sent to the coord
 			// once connection is established
-			shard := blockchain.NewShardConnection(connection, 0, shardCount)
+			shard := blockchain.NewShardConnection(connection, 0, shardCount, nil, nil)
 			manager.RegisterShard(shard)
 			// Request shards ports and wait for response
 			manager.RequestShardsInfo(connection, shardCount)
 			shardCount++
 			// Start receiving from shard
 			// Will continue loop once a shard has connected
-			go manager.ReceiveShard(shard)
+			go manager.ReceiveIntraShard(shard)
 			<-manager.Connected
 		}
 		// Wait for all shards to send connect done
@@ -938,10 +938,10 @@ func main() {
 			// Note: The shard to shard port could be preset to a constant
 			// on multiple machines
 			//port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
-			shardConn := blockchain.NewShardConnection(connection, 0, shardCount)
+			shardConn := blockchain.NewShardConnection(connection, 0, shardCount, nil, nil)
 			s.RegisterShard(shardConn)
 			shardCount++
-			go s.ReceiveShard(shardConn)
+			go s.ReceiveInterShard(shardConn)
 		}
 	} else if strings.ToLower(*flagMode) == "test" {
 		//// Connect to coordinator

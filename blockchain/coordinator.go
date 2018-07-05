@@ -230,8 +230,8 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 
 }
 
-// ReceiveShard receives a shard and handle messages from shard
-func (coord *Coordinator) ReceiveShard(shard *Shard) {
+// ReceiveIntraShard receives a shard and handle messages from shard
+func (coord *Coordinator) ReceiveIntraShard(shard *Shard) {
 	coord.HandleSmartMessages(shard.Socket)
 }
 
