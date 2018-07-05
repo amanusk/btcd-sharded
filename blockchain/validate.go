@@ -1114,39 +1114,36 @@ func CalculateFilterIntersection(filters *FilterGob, transactions map[int]*btcut
 // GetRequestedMissingTxOuts goes over the list of missing inputs of other shards passed by
 // the coordinator and return a slice containing these outputs
 // included in the passed filter
-func GetRequestedMissingTxOuts(filters *FilterGob, transactions map[int]*btcutil.Tx, view UtxoView, blockHeight int32, db database.DB) map[wire.OutPoint]*UtxoEntry {
-	requestedTxOuts := filters.MissingTxOuts
-	// TODO: remove and replace with function
+func GetRequestedMissingTxOuts(requestedTxOuts map[int]map[wire.OutPoint]struct{}, view UtxoView, blockHeight int32, db database.DB) map[int]map[wire.OutPoint]*UtxoEntry {
+	// TODO: remove and replace with function to save this loop
 	neededSet := make(map[wire.OutPoint]struct{})
-	for _, reqTx := range requestedTxOuts {
-		neededSet[*reqTx] = struct{}{}
+	for _, reqTxOuts := range requestedTxOuts {
+		for reqTxOut := range reqTxOuts {
+			neededSet[reqTxOut] = struct{}{}
+		}
 	}
 	view.FetchUtxosMain(db, neededSet)
 
-	txsToSend := make(map[wire.OutPoint]*UtxoEntry)
-	// Load missing outputs from db
+	// Craete the map of TxOuts to send back
+	// They should all be present
+	txOutsToSend := make(map[int]map[wire.OutPoint]*UtxoEntry)
 
-	// Find outputs in the current view
-	for _, reqTx := range requestedTxOuts {
-		logging.Println("Locating", reqTx.Hash, reqTx.Index)
-		for _, tx := range transactions {
-			for outIdx := range tx.MsgTx().TxOut {
-				//logging.Println("compared")
-				//logging.Println(*tx.Hash(), outIdx)
-				//logging.Println(reqTx.Hash, reqTx.Index)
-				if *tx.Hash() == reqTx.Hash && uint32(outIdx) == reqTx.Index {
-					view.AddTxOuts(tx, blockHeight)
-				}
+	for shardIdx, reqTxOuts := range requestedTxOuts {
+		for reqTxOut := range reqTxOuts {
+			if txOutsToSend[shardIdx] == nil {
+				txOutsToSend[shardIdx] = make(map[wire.OutPoint]*UtxoEntry)
 			}
+			// Find the missing TxOut in the view
+			lookedup := view.LookupEntry(reqTxOut)
+			if lookedup == nil {
+				logging.Panicln("The requested txOut was not found in view")
+			}
+			txOutsToSend[shardIdx][reqTxOut] = lookedup
 		}
-	}
-	// Now that they are in the view, add them to the map to send
-	for _, reqTx := range requestedTxOuts {
-		txsToSend[*reqTx] = view.LookupEntry(*reqTx)
 	}
 
 	// Create a list of the missing transactions
-	return txsToSend
+	return txOutsToSend
 }
 
 // ShardCheckConnectBlock performs several checks to confirm connecting the passed
@@ -1259,9 +1256,6 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// Create map between txs and the shards responsible
 	localMissingTxOuts := make(map[int]map[wire.OutPoint]struct{})
 
-	// Start the waiting routine before starting to send anything
-	go shard.AwaitMissingTxOuts()
-
 	for _, tx := range transactions {
 		// Coinbase does not need to have inputs
 		if IsCoinBase(tx) {
@@ -1302,12 +1296,29 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		}
 	}
 
-	// We have checked before that blockshard has at least one transaction
-	//shard.SendInputBloomFilter(localTxInputFilter, localTxFilter, &localMissingTxOuts)
+	// Now we fetch the utxos others are missing and populate them with
+	// output information
+	retreivedTxOuts := GetRequestedMissingTxOuts(shard.requestedTxOutsMap, view, node.height, shard.Chain.db)
 
-	//matchingTxOuts := CalculateFilterIntersection(shard.ReceivedCombinedFilter, transactions)
+	for shardIdx, reqTxOuts := range retreivedTxOuts {
+		for txOut := range reqTxOuts {
+			logging.Println("Fetched", txOut, "for", shardIdx)
+		}
+	}
 
-	//missingTxOuts := GetRequestedMissingTxOuts(shard.ReceivedCombinedFilter, transactions, view, node.height, shard.Chain.db)
+	// Send all TxOuts requested from you
+	shard.SendRequestedTxOuts(retreivedTxOuts)
+
+	// Wait to get responds from all shards before continuing with validation
+	//<-shard.receiveAllRetrieved
+
+	//for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap {
+	//	for txOut := range reqTxOuts {
+	//		logging.Println("Got", txOut, "from", shardIdx)
+	//	}
+	//}
+
+	// At this point, all the retrived Tx outs should be received
 
 	//logging.Println(missingTxOuts)
 

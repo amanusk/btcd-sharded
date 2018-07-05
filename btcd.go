@@ -544,7 +544,7 @@ func main() {
 			// once connection is established
 			shard := blockchain.NewShardConnection(connection, 0, shardCount)
 			manager.RegisterShard(shard)
-			// Request shards ports
+			// Request shards ports and wait for response
 			manager.RequestShardsInfo(connection, shardCount)
 			shardCount++
 			// Start receiving from shard
@@ -552,12 +552,7 @@ func main() {
 			go manager.ReceiveShard(shard)
 			<-manager.Connected
 		}
-		// Wait for all shards to send their ports
-		for i := 0; i < numShards; i++ {
-			<-manager.ConnectedOut
-		}
-		// Send dht information to each shard
-		// Wait for all shards to finish connecting
+		// Wait for all shards to send connect done
 		for i := 0; i < numShards; i++ {
 			<-manager.ConnectedOut
 		}

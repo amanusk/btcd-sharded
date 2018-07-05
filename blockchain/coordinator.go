@@ -28,9 +28,9 @@ type DHTGob struct {
 // MissingTxOutsGob  is a struct to send a map of missing TxInputs
 type MissingTxOutsGob struct {
 	// TODO: Remove MatchingTxOuts
-	MatchingTxOuts   []*wire.OutPoint
-	MissingEmptyOuts map[wire.OutPoint]struct{}
-	MissingTxOuts    map[wire.OutPoint]*UtxoEntry
+	MatchingTxOuts  []*wire.OutPoint
+	MissingTxOuts   map[wire.OutPoint]struct{}
+	RetrievedTxOuts map[wire.OutPoint]*UtxoEntry
 }
 
 // HeaderGob is a struct to send headers over tcp connections
@@ -220,11 +220,8 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 			coord.handleBloomFilter(conn, &filter)
 		case "MATCHTXS":
 			receivedTxOuts := msg.Data.(MissingTxOutsGob)
-			coord.handleMatcingMissingTxOuts(conn, receivedTxOuts.MatchingTxOuts, receivedTxOuts.MissingTxOuts)
+			coord.handleMatcingMissingTxOuts(conn, receivedTxOuts.MatchingTxOuts, receivedTxOuts.RetrievedTxOuts)
 		// Receive shard information on incoming ports
-		case "RPLYINFO":
-			AddressesGob := msg.Data.(AddressesGob)
-			coord.handleRepliedInfo(AddressesGob.Addresses, AddressesGob.Index, conn)
 
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
@@ -622,7 +619,7 @@ func (coord *Coordinator) sendMissingOutsToAll(missingMap map[net.Conn]map[wire.
 		msg := Message{
 			Cmd: "MISSOUTS",
 			Data: MissingTxOutsGob{
-				MissingTxOuts: missingMap[con],
+				RetrievedTxOuts: missingMap[con],
 			},
 		}
 		err := enc.Encode(msg)
@@ -768,6 +765,8 @@ func (coord *Coordinator) handleMatcingMissingTxOuts(conn net.Conn, matchingTxOu
 // on which they listen to other shards
 func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
 	logging.Println("Requesting Shard Info")
+	gob.Register(AddressesGob{})
+
 	enc := gob.NewEncoder(conn)
 
 	msg := Message{
@@ -779,6 +778,18 @@ func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
 		logging.Println("Error encoding addresses GOB data:", err)
 		return
 	}
+	// Wait for shard to reply info
+	dec := gob.NewDecoder(conn)
+	err = dec.Decode(&msg)
+	if err != nil {
+		logging.Panicln("Error decoding GOB data:", err)
+	}
+	if msg.Cmd != "RPLYINFO" {
+		logging.Panicln("Error receiving index from coord", err)
+	}
+	AddressesGob := msg.Data.(AddressesGob)
+	coord.handleRepliedInfo(AddressesGob.Addresses, AddressesGob.Index, conn)
+
 }
 
 // SendDHT sends the map between index and IP to each shard
@@ -812,6 +823,5 @@ func (coord *Coordinator) handleRepliedInfo(addresses []*net.TCPAddr, shardIndex
 	logging.Println("Inter", addresses[0])
 	logging.Println("Intra", addresses[1])
 	coord.SendDHT(conn)
-	coord.ConnectedOut <- true
 
 }

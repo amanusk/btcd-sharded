@@ -6,7 +6,6 @@ import (
 	logging "log"
 	"net"
 	"strconv"
-	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -30,13 +29,17 @@ type Shard struct {
 	missingTxOuts          chan (map[wire.OutPoint]*UtxoEntry)
 	ReceivedCombinedFilter *FilterGob
 	requestedTxOutsMap     map[int]map[wire.OutPoint]struct{}
+	retrievedTxOutsMap     map[int]map[wire.OutPoint]*UtxoEntry
 	NumShards              int // Save the number of shards in total, needed to calc the mod
 	// Shard-to-shard comms
+	connected                 chan bool // Pass true once you finshed connecting to a shard from dht
 	IP                        net.IP
 	InterPort                 int
 	IntraPort                 int
 	receiveAllMissingRequests chan bool // A channel to unlock the requests from all shards
 	receiveMissingRequest     chan bool // A channel to unlock the requests from all shards
+	receiveAllRetrieved       chan bool // A channel to unlock when all retrieved TxOuts received
+	receiveRetrieved          chan bool // A channel to unlock per retrived TxOut received
 }
 
 // NewShardConnection Creates a new shard connection for a coordinator to use.
@@ -71,8 +74,13 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		IP:                        ip,
 		InterPort:                 interShardPort,
 		IntraPort:                 intraShardPort,
+		connected:                 make(chan bool),
 		receiveMissingRequest:     make(chan bool),
 		receiveAllMissingRequests: make(chan bool),
+		receiveRetrieved:          make(chan bool),
+		receiveAllRetrieved:       make(chan bool),
+		requestedTxOutsMap:        make(map[int]map[wire.OutPoint]struct{}),
+		retrievedTxOutsMap:        make(map[int]map[wire.OutPoint]*UtxoEntry),
 	}
 	return shard
 }
@@ -80,6 +88,12 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 // Handle instruction from coordinator to request the block
 func (shard *Shard) handleRequestBlock(header *HeaderGob, conn net.Conn) {
 	logging.Println("Received request to request block")
+	// Start waiting for requests and responds from shard immediately
+	// Start the waiting routine before starting to send anything
+	go shard.AwaitRequestedTxOuts()
+	// Start Listening for responses on your missing TxOuts
+	// TODO: Move to earlier stage
+	go shard.AwaitRetrievedTxOuts()
 
 	// Send a request for txs from other shards
 	// Thes should have some logic, currently its 1:1
@@ -249,7 +263,7 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 		// Messages related to processing a block
 		case "PRCBLOCK":
 			block := msg.Data.(RawBlockGob)
-			shard.handleProcessBlock(&block, conn)
+			go shard.handleProcessBlock(&block, conn)
 		// Receive a combined bloom filter from coordinator
 		case "BLOOMCOM":
 			filter := msg.Data.(FilterGob)
@@ -260,12 +274,15 @@ func (shard *Shard) handleSmartMessages(conn net.Conn) {
 			shard.handleBadBlock(conn)
 		case "MISSOUTS":
 			missingTxOutsGob := msg.Data.(MissingTxOutsGob)
-			shard.handleMissingTxOuts(conn, missingTxOutsGob.MissingTxOuts)
+			shard.handleMissingTxOuts(conn, missingTxOutsGob.RetrievedTxOuts)
 		// handle request for missing TxOuts from all shards
 		case "REQOUTS":
-			logging.Println("Got command REQOUTS")
 			missingTxOutsGob := msg.Data.(MissingTxOutsGob)
-			shard.handleRequestedOuts(conn, missingTxOutsGob.MissingEmptyOuts)
+			go shard.handleRequestedOuts(conn, missingTxOutsGob.MissingTxOuts)
+		// handle received requested TxOuts
+		case "RETOUTS":
+			missingTxOutsGob := msg.Data.(MissingTxOutsGob)
+			go shard.handleRetreivedTxOuts(conn, missingTxOutsGob.RetrievedTxOuts)
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
 		}
@@ -367,8 +384,8 @@ func (shard *Shard) SendMatchingAndMissingTxOuts(matchingTxOuts []*wire.OutPoint
 		Message{
 			Cmd: "MATCHTXS",
 			Data: MissingTxOutsGob{
-				MatchingTxOuts: matchingTxOuts,
-				MissingTxOuts:  missingTxOuts,
+				MatchingTxOuts:  matchingTxOuts,
+				RetrievedTxOuts: missingTxOuts,
 			},
 		})
 	if err != nil {
@@ -445,6 +462,7 @@ func (shard *Shard) HandleRequestInfo(conn net.Conn, shardIndex int) {
 	logging.Print("Sending shard ports inter", addresses[0])
 	logging.Print("Sending shard ports intra", addresses[1])
 
+	gob.Register(AddressesGob{})
 	//Actually write the GOB on the socket
 	enc := gob.NewEncoder(conn)
 	err := enc.Encode(msg)
@@ -462,6 +480,7 @@ func (shard *Shard) AwaitShards(numShards int) {
 	logging.Println("Awaiting shards")
 	// The awaiting shards are waiting for all the shards above them
 	logging.Println("Waiting for", numShards-shard.Index-1, "To connect to me")
+	logging.Println("Waiting for", shard.Index, "connection to be made")
 	for i := 0; i < numShards-shard.Index-1; i++ {
 		connection, _ := shard.ShardIntraListener.Accept()
 		logging.Println("Received connection", connection)
@@ -489,17 +508,10 @@ func (shard *Shard) AwaitShards(numShards int) {
 	}
 	// Send connection done to coordinator
 	logging.Println("Received all shards connection")
-	//for len(shard.ShardNumToShard) < shard.NumShards-1 {
-	//	// TODO TODO TODO: Busy wait
-	//	logging.Println("BusyWait")
-	//}
-	for _, con := range shard.ShardNumToShard {
-		logging.Println("Should go receive on", con.Socket)
+	for i := 0; i < shard.Index; i++ {
+		<-shard.connected
 	}
-	logging.Println("Done connecting to all shards")
-	// Give the coordinator some time to start listening
-	// Fixable
-	time.Sleep(time.Millisecond * 100)
+
 	enc := gob.NewEncoder(shard.Socket)
 	msg := Message{
 		Cmd: "CONCTDONE",
@@ -552,6 +564,8 @@ func (shard *Shard) handleConnectToShards(index int, dhtTable map[int]net.TCPAdd
 		shard.ShardNumToShard[shardIndex] = shardConn
 		shard.socketToShardNum[connection] = shardIndex
 		go shard.ReceiveShard(shardConn)
+		// Release the lock on CONCTDONE
+		shard.connected <- true
 	}
 }
 
@@ -571,7 +585,7 @@ func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]st
 			Cmd: "REQOUTS",
 			Data: MissingTxOutsGob{
 				// This can be nil, but needs to be sent
-				MissingEmptyOuts: missingTxOuts[shardNum],
+				MissingTxOuts: missingTxOuts[shardNum],
 			},
 		}
 		err := enc.Encode(msg)
@@ -582,17 +596,52 @@ func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]st
 	}
 }
 
-// AwaitMissingTxOuts waits for answers on missing TxOuts from all shards
+// SendRequestedTxOuts sends each shard a map of all the TxOuts it has earlier
+// requested.
+func (shard *Shard) SendRequestedTxOuts(requestedTxOuts map[int]map[wire.OutPoint]*UtxoEntry) {
+	for shardNum, intraShard := range shard.ShardNumToShard {
+		// Send on the open socket with the relevant shard
+		logging.Println("Sending retrieved outs to", shardNum)
+		enc := gob.NewEncoder(intraShard.Socket)
+
+		msg := Message{
+			Cmd: "RETOUTS",
+			Data: MissingTxOutsGob{
+				// This can be nil, but needs to be sent
+				RetrievedTxOuts: requestedTxOuts[shardNum],
+			},
+		}
+		err := enc.Encode(msg)
+		if err != nil {
+			logging.Println("Error encoding addresses GOB data:", err)
+			return
+		}
+	}
+}
+
+// AwaitRequestedTxOuts waits for missing TxOuts from all shards
 // Once all answers are received, unlocks the waiting channel
-func (shard *Shard) AwaitMissingTxOuts() {
+func (shard *Shard) AwaitRequestedTxOuts() {
 	logging.Println("Waiting for requests")
 	// Create the map that the will wait for requests in
-	shard.requestedTxOutsMap = make(map[int]map[wire.OutPoint]struct{})
 	for i := 0; i < shard.NumShards-1; i++ {
 		<-shard.receiveMissingRequest
 	}
 	// Unlock wait for all shards to send requests
 	shard.receiveAllMissingRequests <- true
+}
+
+// AwaitRetrievedTxOuts waits for the retrieved TxOuts which were
+// previously requested by this shard.
+// Unlocks when all are received
+func (shard *Shard) AwaitRetrievedTxOuts() {
+	logging.Println("Waiting for retrieved")
+	// Create the map that the will wait for requests in
+	for i := 0; i < shard.NumShards-1; i++ {
+		<-shard.receiveRetrieved
+	}
+	// Unlock wait for all shards to send response
+	shard.receiveAllRetrieved <- true
 }
 
 func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.OutPoint]struct{}) {
@@ -606,6 +655,17 @@ func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.Ou
 	shard.receiveMissingRequest <- true
 }
 
+func (shard *Shard) handleRetreivedTxOuts(conn net.Conn, retreivedTxOuts map[wire.OutPoint]*UtxoEntry) {
+	logging.Println("Got retrived from shard", shard.socketToShardNum[conn])
+	// socketToShardNum maps sockets to shard indexes
+	shard.retrievedTxOutsMap[shard.socketToShardNum[conn]] = retreivedTxOuts
+	for txOut := range retreivedTxOuts {
+		logging.Println("Got the retreived TxOut", txOut)
+	}
+	// Unlock wait for each shard to send missing
+	shard.receiveRetrieved <- true
+}
+
 // SendDeadToShards sends DEADBEEF
 func (shard *Shard) SendDeadToShards() {
 	for shardNum, shardConn := range shard.ShardNumToShard {
@@ -614,7 +674,7 @@ func (shard *Shard) SendDeadToShards() {
 
 		err := enc.Encode(
 			Message{
-				Cmd: "DEADBEE",
+				Cmd: "DEADBEEF",
 			})
 		if err != nil {
 			logging.Panicln(err, "Encode failed for struct DEADBEE")
@@ -625,7 +685,7 @@ func (shard *Shard) SendDeadToShards() {
 
 	err := enc.Encode(
 		Message{
-			Cmd: "DEADBEE",
+			Cmd: "DEADBEEF",
 		})
 	if err != nil {
 		logging.Panicln(err, "Encode failed for struct DEADBEE")
