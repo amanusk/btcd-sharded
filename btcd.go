@@ -548,7 +548,7 @@ func main() {
 			shard := blockchain.NewShardConnection(connection, 0, shardCount, enc, dec)
 			coord.RegisterShard(shard)
 			// Wait for write to map to finish
-			<-coord.Connected
+			<-coord.ConnectectionAdded
 			// Request shards ports and wait for response
 			coord.RequestShardsInfo(connection, shardCount)
 			shardCount++
@@ -926,6 +926,7 @@ func main() {
 			dec := gob.NewDecoder(connection)
 			shardConn := blockchain.NewShardConnection(connection, 0, 0, enc, dec)
 			s.RegisterShard(shardConn)
+			<-s.ConnectionAdded
 			go s.ReceiveInterShard(shardConn)
 		}
 	} else if strings.ToLower(*flagMode) == "test" {

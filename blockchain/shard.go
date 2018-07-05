@@ -32,6 +32,7 @@ type Shard struct {
 	NumShards              int // Save the number of shards in total, needed to calc the mod
 	// Shard-to-shard comms
 	connected                 chan bool // Pass true once you finshed connecting to a shard from dht
+	ConnectionAdded           chan bool // Lock to wait for write to connections map to finish
 	IP                        net.IP
 	InterPort                 int
 	IntraPort                 int
@@ -80,6 +81,7 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		InterPort:                 interShardPort,
 		IntraPort:                 intraShardPort,
 		connected:                 make(chan bool),
+		ConnectionAdded:           make(chan bool),
 		receiveMissingRequest:     make(chan bool),
 		receiveAllMissingRequests: make(chan bool),
 		receiveRetrieved:          make(chan bool),
@@ -162,6 +164,7 @@ func (shard *Shard) handleConnectInterShard(receivedShardAddresses *AddressesGob
 
 		shardConn := NewShardConnection(connection, address.Port, 0, nil, nil) // TODO: change
 		shard.RegisterShard(shardConn)
+		<-shard.ConnectionAdded
 		go shard.ReceiveIntraShard(shardConn)
 	}
 	// Send connection done to coordinator
@@ -354,6 +357,7 @@ func (shard *Shard) StartShard() {
 		case s := <-shard.registerShard:
 			shard.interShards[s.Socket] = s
 			fmt.Println("Added new shard to shard!")
+			shard.ConnectionAdded <- true
 		case s := <-shard.unregisterShard:
 			if _, ok := shard.interShards[s.Socket]; ok {
 				delete(shard.interShards, s.Socket)
@@ -487,6 +491,7 @@ func (shard *Shard) AwaitShards(numShards int) {
 		shardConn := NewShardConnection(connection, 0, shardIndex, enc, dec)
 		logging.Println("Connected to shard", shardIndex, "on", shardConn.Socket)
 		// Save mappings both ways for send and receive
+		// TODO: This is basically Register shard
 		shard.ShardNumToShard[shardIndex] = shardConn
 		shard.intraShards[connection] = shardConn
 		go shard.ReceiveIntraShard(shardConn)

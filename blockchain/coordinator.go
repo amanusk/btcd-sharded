@@ -89,7 +89,7 @@ type Coordinator struct {
 	registerMatchingTxs chan *ConnAndMatchingTxs // A channel to receive lists of matching transactions
 	shardDone           chan bool
 	allShardsDone       chan bool
-	Connected           chan bool // Sends a sigal that a shard connection completed
+	ConnectectionAdded  chan bool // Sends a sigal that a shard connection completed
 	ConnectedOut        chan bool // Sends shards finished connecting to shards
 	BlockDone           chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
 	KeepAlive           chan interface{}
@@ -127,7 +127,7 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 		registerBloomFilter: make(chan *ConnAndFilter),
 		registerMatchingTxs: make(chan *ConnAndMatchingTxs),
 		allShardsDone:       make(chan bool),
-		Connected:           make(chan bool),
+		ConnectectionAdded:  make(chan bool),
 		ConnectedOut:        make(chan bool),
 		BlockDone:           make(chan bool),
 		Chain:               blockchain,
@@ -160,7 +160,7 @@ func (coord *Coordinator) Start() {
 		case shard := <-coord.registerShard:
 			coord.shards[shard.Socket] = shard
 			fmt.Println("Added new shard!")
-			coord.Connected <- true
+			coord.ConnectectionAdded <- true
 		case shard := <-coord.unregisterShard:
 			if _, ok := coord.shards[shard.Socket]; ok {
 				delete(coord.shards, shard.Socket)
@@ -172,7 +172,7 @@ func (coord *Coordinator) Start() {
 			coord.coords[c.Socket] = c
 			fmt.Println("Added new peer!", c.Socket.RemoteAddr())
 			// Unlock when add to map finished
-			coord.Connected <- true
+			coord.ConnectectionAdded <- true
 		}
 	}
 }
@@ -543,7 +543,7 @@ func (coord *Coordinator) ListenToCoordinators() error {
 		c := NewCoordConnection(connection, enc, dec)
 		coord.RegisterCoord(c)
 		go coord.ReceiveCoord(c)
-		<-coord.Connected
+		<-coord.ConnectectionAdded
 	}
 }
 
