@@ -532,82 +532,84 @@ func main() {
 			fmt.Println(error)
 		}
 
-		manager := blockchain.NewCoordinator(shardListener, coordListener, chain)
-		go manager.Start()
+		coord := blockchain.NewCoordinator(shardListener, coordListener, chain)
+		go coord.Start()
 
 		// Wait for all the shards to get connected
 		shardCount := 0
-		for manager.GetNumShardes() < numShards {
-			logging.Println("Num shards", manager.GetNumShardes())
-			connection, _ := manager.ShardListener.Accept()
+		for coord.GetNumShardes() < numShards {
+			logging.Println("Num shards", coord.GetNumShardes())
+			fmt.Println("New shard is connecting")
+			connection, _ := coord.ShardListener.Accept()
+			enc := gob.NewEncoder(connection)
+			dec := gob.NewDecoder(connection)
 			// NOTE: this should be either a constant, or sent to the coord
 			// once connection is established
-			shard := blockchain.NewShardConnection(connection, 0, shardCount, nil, nil)
-			manager.RegisterShard(shard)
+			shard := blockchain.NewShardConnection(connection, 0, shardCount, enc, dec)
+			coord.RegisterShard(shard)
+			// Wait for write to map to finish
+			<-coord.Connected
 			// Request shards ports and wait for response
-			manager.RequestShardsInfo(connection, shardCount)
+			coord.RequestShardsInfo(connection, shardCount)
 			shardCount++
 			// Start receiving from shard
 			// Will continue loop once a shard has connected
-			go manager.ReceiveIntraShard(shard)
-			<-manager.Connected
+			go coord.ReceiveIntraShard(shard)
 		}
 		// Wait for all shards to send connect done
 		for i := 0; i < numShards; i++ {
-			<-manager.ConnectedOut
+			<-coord.ConnectedOut
 		}
 		logging.Println("All shards finished connecting to each other")
 
 		// Wait for connections from other coordinators
-		go manager.ListenToCoordinators()
+		go coord.ListenToCoordinators()
 
 		if !(*flagBoot) {
 			// connect to the already running server
-			coordConn, err := net.Dial("tcp", config.Server.ServerTargetServer)
+			connection, err := net.Dial("tcp", config.Server.ServerTargetServer)
 			if err != nil {
 				fmt.Println(err)
 			}
+			enc := gob.NewEncoder(connection)
+			dec := gob.NewDecoder(connection)
 			// Register the connection with yourself
-			c := blockchain.NewCoordConnection(coordConn)
-			manager.RegisterCoord(c)
-
-			// Request for shards
-			coordEnc := gob.NewEncoder(coordConn)
+			// TODO: fix
+			c := blockchain.NewCoordConnection(connection, enc, dec)
+			coord.RegisterCoord(c)
 
 			msg := blockchain.Message{
 				Cmd: "GETSHARDS",
 			}
-
-			err = coordEnc.Encode(msg)
+			err = enc.Encode(msg)
 			if err != nil {
 				logging.Println(err, "Encode failed for struct: %#v", msg)
 			}
 			// TODO Change to work with Message + Move to Coord
 			var receivedShards blockchain.AddressesGob
 
-			dec := gob.NewDecoder(coordConn)
 			err = dec.Decode(&receivedShards)
 			if err != nil {
 				logging.Println("Error decoding GOB data:", err)
 				return
 			}
-			manager.NotifyShards(receivedShards.Addresses)
+			coord.NotifyShards(receivedShards.Addresses)
 
 			for i := 0; i < numShards; i++ {
-				<-manager.ConnectedOut
+				<-coord.ConnectedOut
 			}
 			logging.Println("All shards finished connecting")
 
 			// Once setup is complete, listen for messages from connected coord
-			go manager.ReceiveCoord(c)
+			go coord.ReceiveCoord(c)
 
 			// Need to wait for shards to be ready
-			manager.SendBlocksRequest()
+			coord.SendBlocksRequest()
 
 		}
 
 		// Sleep on this until process is killed
-		<-manager.KeepAlive
+		<-coord.KeepAlive
 
 		// Start in oracle mode
 	} else if strings.ToLower(*flagMode) == "oracle" {
@@ -620,12 +622,15 @@ func main() {
 
 		// Connect to coordinator
 		// TODO make this part of the config
-		coordConn, err := net.Dial("tcp", "localhost:12346")
+		connection, err := net.Dial("tcp", "localhost:12346")
+		enc := gob.NewEncoder(connection)
+		dec := gob.NewDecoder(connection)
+		coordConn := blockchain.NewCoordConnection(connection, enc, dec)
 		if err != nil {
 			fmt.Println(err)
 		}
 
-		logging.Println("Connection started", coordConn)
+		logging.Println("Connection started", coordConn.Socket)
 
 		tests, err := fullblocktests.SimpleGenerate(false)
 		if err != nil {
@@ -636,7 +641,7 @@ func main() {
 		gob.Register(blockchain.RawBlockGob{})
 		gob.Register(blockchain.AddressesGob{})
 
-		coordEnc := gob.NewEncoder(coordConn)
+		coordEnc := coordConn.Enc
 
 		msg := blockchain.Message{
 			Cmd: "GETSHARDS",
@@ -649,45 +654,27 @@ func main() {
 
 		var receivedShards blockchain.AddressesGob
 
-		dec := gob.NewDecoder(coordConn)
+		dec = coordConn.Dec
 		err = dec.Decode(&receivedShards)
 		if err != nil {
 			logging.Println("Error decoding GOB data:", err)
 			return
 		}
-		shardConn := make([]net.Conn, numShards)
+		shardConn := make([]*blockchain.Shard, numShards)
 
 		shardDial := receivedShards.Addresses[0].IP.String() + ":12351"
-		shardConn[0], err = net.Dial("tcp", shardDial)
+		connection, err = net.Dial("tcp", shardDial)
+		enc = gob.NewEncoder(connection)
+		dec = gob.NewDecoder(connection)
+		shardConn[0] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
 
 		// NOTE: change if running on multiple machines
 		if numShards > 1 {
 			shardDial = "localhost:12352"
-			shardConn[1], err = net.Dial("tcp", shardDial)
-		}
-		if numShards > 2 {
-			shardDial = "localhost:12353"
-			shardConn[2], err = net.Dial("tcp", shardDial)
-		}
-		if numShards > 3 {
-			shardDial = "localhost:12354"
-			shardConn[3], err = net.Dial("tcp", shardDial)
-		}
-		if numShards > 4 {
-			shardDial = "localhost:12355"
-			shardConn[4], err = net.Dial("tcp", shardDial)
-		}
-		if numShards > 5 {
-			shardDial = "localhost:12356"
-			shardConn[5], err = net.Dial("tcp", shardDial)
-		}
-		if numShards > 6 {
-			shardDial = "localhost:12357"
-			shardConn[6], err = net.Dial("tcp", shardDial)
-		}
-		if numShards > 7 {
-			shardDial = "localhost:12358"
-			shardConn[7], err = net.Dial("tcp", shardDial)
+			connection, err = net.Dial("tcp", shardDial)
+			enc := gob.NewEncoder(connection)
+			dec := gob.NewDecoder(connection)
+			shardConn[1] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
 		}
 
 		if err != nil {
@@ -706,7 +693,7 @@ func main() {
 			// Send block to coordinator
 			gob.Register(blockchain.RawBlockGob{})
 
-			coordEnc := gob.NewEncoder(coordConn)
+			coordEnc := coordConn.Enc
 
 			headerBlock := wire.NewMsgBlockShard(&block.Header)
 
@@ -731,7 +718,7 @@ func main() {
 			logging.Println("Waiting for shards to request block")
 			// Wait for shard to request the block
 			for i := 0; i < numShards; i++ {
-				dec := gob.NewDecoder(shardConn[i])
+				dec := shardConn[i].Dec
 				var msg blockchain.Message
 				err := dec.Decode(&msg)
 				if err != nil {
@@ -782,7 +769,7 @@ func main() {
 					},
 				}
 				//Actually write the GOB on the socket
-				enc := gob.NewEncoder(shardConn[i])
+				enc := shardConn[i].Enc
 				err = enc.Encode(msg)
 				if err != nil {
 					logging.Println(err, "Encode failed for struct: %#v", msg)
@@ -791,7 +778,7 @@ func main() {
 
 			logging.Println("Waiting for conformation on block")
 			for {
-				dec := gob.NewDecoder(coordConn)
+				dec := coordConn.Dec
 				var msg blockchain.Message
 				err := dec.Decode(&msg)
 				if err != nil {
@@ -905,10 +892,11 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
-
-		s := blockchain.NewShard(shardInterListener, shardIntraListener, connection, chain, net.ParseIP(config.Shard.ShardIP), interShardPort, intraShardPort)
-		// Before the shard is started, it must receive its index from coordinator
 		dec := gob.NewDecoder(connection)
+		enc := gob.NewEncoder(connection)
+		coordConn := blockchain.NewCoordConnection(connection, enc, dec)
+		s := blockchain.NewShard(shardInterListener, shardIntraListener, coordConn, chain, net.ParseIP(config.Shard.ShardIP), interShardPort, intraShardPort)
+		// Before the shard is started, it must receive its index from coordinator
 		var msg blockchain.Message
 		err = dec.Decode(&msg)
 		if err != nil {
@@ -923,7 +911,7 @@ func main() {
 		go s.StartShard()
 
 		// Reply to the coordinators request for information
-		s.HandleRequestInfo(connection, s.Index)
+		s.HandleRequestInfo(s.Index)
 		// Go wait for other shards to connect to you
 		s.AwaitShards(numShards)
 
@@ -932,15 +920,12 @@ func main() {
 		}
 
 		fmt.Println("Waiting for shards to connect")
-		shardCount := 0
 		for {
 			connection, _ := s.ShardInterListener.Accept()
-			// Note: The shard to shard port could be preset to a constant
-			// on multiple machines
-			//port, _ := strconv.Atoi(config.Shard.ShardShardsPort[1:])
-			shardConn := blockchain.NewShardConnection(connection, 0, shardCount, nil, nil)
+			enc := gob.NewEncoder(connection)
+			dec := gob.NewDecoder(connection)
+			shardConn := blockchain.NewShardConnection(connection, 0, 0, enc, dec)
 			s.RegisterShard(shardConn)
-			shardCount++
 			go s.ReceiveInterShard(shardConn)
 		}
 	} else if strings.ToLower(*flagMode) == "test" {

@@ -1,7 +1,6 @@
 package blockchain
 
 import (
-	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	logging "log"
@@ -9,7 +8,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil/bloom"
 )
 
 // AddressesGob is a struct to send a list of tcp connections
@@ -78,18 +76,16 @@ type ConnAndMatchingTxs struct {
 
 // Coordinator is the coordinator in a sharded bitcoin cluster
 type Coordinator struct {
-	Socket              net.Conn                      // Connection to the shard you connected to
 	shards              map[net.Conn]*Shard           // A map of shards connected to this coordinator
 	dht                 map[int]net.Conn              // Mapping  between dht index and connection
 	shardsIntraAddr     map[int]net.TCPAddr           // Mapping  between shard index and intra address
-	coords              map[*Coordinator]bool         // A map of coords connected to this coordinator
+	coords              map[net.Conn]*Coordinator     // A map of coords connected to this coordinator
 	missingInputs       map[net.Conn][]*wire.OutPoint // A map between connections and missing Txs
 	registerShard       chan *Shard
 	unregisterShard     chan *Shard
 	registerCoord       chan *Coordinator
 	unregisterCoord     chan *Coordinator
-	registerBloomFilter chan *ConnAndFilter // A channel to receive bloom filters on
-	shardsToWaitFor     map[net.Conn]bool
+	registerBloomFilter chan *ConnAndFilter      // A channel to receive bloom filters on
 	registerMatchingTxs chan *ConnAndMatchingTxs // A channel to receive lists of matching transactions
 	shardDone           chan bool
 	allShardsDone       chan bool
@@ -100,13 +96,19 @@ type Coordinator struct {
 	ShardListener       net.Listener
 	CoordListener       net.Listener
 	Chain               *BlockChain
+	// For Coordinator Connection only!
+	Socket net.Conn     // Connection to the shard you connected to
+	Enc    *gob.Encoder // Used to send information to this connection
+	Dec    *gob.Decoder // Used to decode information from this connection
 }
 
 // NewCoordConnection creates a new coordinator connection for a coordintor to use.
 // It has a connection and a channel to receive data from the server
-func NewCoordConnection(connection net.Conn) *Coordinator {
+func NewCoordConnection(connection net.Conn, enc *gob.Encoder, dec *gob.Decoder) *Coordinator {
 	coord := &Coordinator{
 		Socket: connection, // A connection to the connected peer
+		Enc:    enc,
+		Dec:    dec,
 	}
 	return coord
 }
@@ -117,7 +119,7 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 		shards:              make(map[net.Conn]*Shard),
 		dht:                 make(map[int]net.Conn),
 		shardsIntraAddr:     make(map[int]net.TCPAddr),
-		coords:              make(map[*Coordinator]bool),
+		coords:              make(map[net.Conn]*Coordinator),
 		registerShard:       make(chan *Shard),
 		unregisterShard:     make(chan *Shard),
 		registerCoord:       make(chan *Coordinator),
@@ -166,16 +168,17 @@ func (coord *Coordinator) Start() {
 			}
 
 		// Register a new connected coordinator
-		case connection := <-coord.registerCoord:
-			coord.coords[connection] = true
-			fmt.Println("Added new peer!", connection.Socket.RemoteAddr())
-			// Saves the message in the channel in "message"
+		case c := <-coord.registerCoord:
+			coord.coords[c.Socket] = c
+			fmt.Println("Added new peer!", c.Socket.RemoteAddr())
+			// Unlock when add to map finished
+			coord.Connected <- true
 		}
 	}
 }
 
-// HandleSmartMessages decodes received messages with command and data
-func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
+// HandleShardMessages decodes received messages with command and data
+func (coord *Coordinator) HandleShardMessages(conn net.Conn) {
 	// Register the special types for decode to work
 
 	gob.Register(RawBlockGob{})
@@ -184,8 +187,8 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 	gob.Register(FilterGob{})
 	gob.Register(MissingTxOutsGob{})
 
+	dec := coord.shards[conn].Dec
 	for {
-		dec := gob.NewDecoder(conn)
 		var msg Message
 		err := dec.Decode(&msg)
 		if err != nil {
@@ -199,6 +202,40 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 		switch cmd {
 		case "SHARDDONE":
 			coord.handleShardDone(conn)
+		case "CONCTDONE":
+			coord.handleConnectDone(conn)
+		case "BADBLOCK":
+			coord.handleBadBlock(conn)
+		default:
+			logging.Println("Command '", cmd, "' is not registered.")
+		}
+	}
+
+}
+
+// HandleCoordMessages decodes received messages with command and data
+func (coord *Coordinator) HandleCoordMessages(conn net.Conn) {
+	// Register the special types for decode to work
+
+	gob.Register(RawBlockGob{})
+	gob.Register(HeaderGob{})
+	gob.Register(AddressesGob{})
+	gob.Register(FilterGob{})
+	gob.Register(MissingTxOutsGob{})
+
+	dec := gob.NewDecoder(conn)
+	for {
+		var msg Message
+		err := dec.Decode(&msg)
+		if err != nil {
+			logging.Println("Error decoding GOB data:", err)
+			return
+		}
+		cmd := msg.Cmd
+		logging.Println("Got cmd ", cmd)
+
+		// handle according to received command
+		switch cmd {
 		case "GETSHARDS":
 			coord.handleGetShards(conn)
 		case "PROCBLOCK":
@@ -206,23 +243,9 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 			coord.handleProcessBlock(&block, conn)
 		case "REQBLOCKS":
 			coord.handleRequestBlocks(conn)
-		case "DEADBEAFS":
-			coord.handleDeadBeaf(conn)
-		case "CONCTDONE":
-			coord.handleConnectDone(conn)
-		case "BADBLOCK":
-			coord.handleBadBlock(conn)
 		case "BLOCKDONE":
 			logging.Println("Message BLOCKDONE")
 			coord.handleBlockDone(conn)
-		case "BLOOMFLT":
-			filter := msg.Data.(FilterGob)
-			coord.handleBloomFilter(conn, &filter)
-		case "MATCHTXS":
-			receivedTxOuts := msg.Data.(MissingTxOutsGob)
-			coord.handleMatcingMissingTxOuts(conn, receivedTxOuts.MatchingTxOuts, receivedTxOuts.RetrievedTxOuts)
-		// Receive shard information on incoming ports
-
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
 		}
@@ -232,14 +255,14 @@ func (coord *Coordinator) HandleSmartMessages(conn net.Conn) {
 
 // ReceiveIntraShard receives a shard and handle messages from shard
 func (coord *Coordinator) ReceiveIntraShard(shard *Shard) {
-	coord.HandleSmartMessages(shard.Socket)
+	coord.HandleShardMessages(shard.Socket)
 }
 
 // NotifyShards function sends a message to each of the shards connected to the coordinator
 // informing it of the connections to other shards it needs to establish
 func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
-	for cons := range coord.shards {
-		enc := gob.NewEncoder(cons)
+	for _, shard := range coord.shards {
+		enc := shard.Enc
 
 		// TODO here there should be some logic to sort which shard gets what
 		msg := Message{
@@ -261,8 +284,8 @@ func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
 // Sends a BADBLOCK message to all shards, instructing to move on
 func (coord *Coordinator) sendBadBlockToAll() {
 	logging.Println("Sending BADBLOCK to all")
-	for con := range coord.shards {
-		enc := gob.NewEncoder(con)
+	for _, shard := range coord.shards {
+		enc := shard.Enc
 
 		msg := Message{
 			Cmd: "BADBLOCK",
@@ -278,8 +301,8 @@ func (coord *Coordinator) sendBadBlockToAll() {
 	coord.shardDone <- true
 
 	// TODO: Only send to the relevant coord
-	for c := range coord.coords {
-		enc := gob.NewEncoder(c.Socket)
+	for _, c := range coord.coords {
+		enc := c.Enc
 
 		msg := Message{
 			Cmd: "BADBLOCK",
@@ -291,7 +314,6 @@ func (coord *Coordinator) sendBadBlockToAll() {
 		}
 	}
 	return
-
 }
 
 func (coord *Coordinator) handleBadBlock(conn net.Conn) {
@@ -301,7 +323,7 @@ func (coord *Coordinator) handleBadBlock(conn net.Conn) {
 // ReceiveCoord receives messages from a coordinator
 // TODO: possiblly make shard/coordinator fit an interface
 func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
-	coord.HandleSmartMessages(c.Socket)
+	coord.HandleCoordMessages(c.Socket)
 }
 
 // Once a shards finishes processing a block this message is received
@@ -340,7 +362,7 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 	logging.Print("Shards gob", shardsToSend.Addresses[0])
 
 	//Actually write the GOB on the socket
-	enc := gob.NewEncoder(conn)
+	enc := coord.coords[conn].Enc
 	err := enc.Encode(shardsToSend)
 	if err != nil {
 		logging.Println("Error encoding addresses GOB data:", err)
@@ -368,7 +390,7 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 func (coord *Coordinator) sendBlockDone(conn net.Conn) {
 	logging.Println("Sending BLOCKDONE")
 	// TODO: This should be sent to a specific coordinator
-	enc := gob.NewEncoder(conn)
+	enc := coord.coords[conn].Enc
 
 	msg := Message{
 		Cmd: "BLOCKDONE",
@@ -413,7 +435,7 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 
 		// Send block to coordinator
 
-		coordEnc := gob.NewEncoder(conn)
+		coordEnc := coord.coords[conn].Enc
 		// Generate a header gob to send to coordinator
 		msg := Message{
 			Cmd: "PROCBLOCK",
@@ -467,8 +489,8 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	}
 
 	// Send block header to request to all shards
-	for con := range coord.shards {
-		enc := gob.NewEncoder(con)
+	for _, shard := range coord.shards {
+		enc := shard.Enc
 		// Generate a header gob to send to coordinator
 		msg := Message{
 			Cmd: "REQBLOCK",
@@ -509,213 +531,6 @@ func (coord *Coordinator) waitForShardsDone() {
 	coord.allShardsDone <- true
 }
 
-// waitForBloomFilters waits for bloom filters according the number of shards
-// Then process the union of the bloom filters and send them back to the shards
-func (coord *Coordinator) waitForBloomFilters() {
-	inputFilters := make(map[net.Conn]*wire.MsgFilterLoad)
-	txFilters := make(map[net.Conn]*wire.MsgFilterLoad)
-	coord.missingInputs = make(map[net.Conn][]*wire.OutPoint)
-	//coord.shardsToWaitFor = make(map[net.Conn]bool)
-
-	for i := 0; i < len(coord.shards); i++ {
-
-		connAndFilters := <-coord.registerBloomFilter
-		inputFilters[connAndFilters.Conn] = connAndFilters.Filters.InputFilter
-		txFilters[connAndFilters.Conn] = connAndFilters.Filters.TxFilter
-		coord.missingInputs[connAndFilters.Conn] = connAndFilters.Filters.MissingTxOuts
-
-		//if connAndFilters.Filters.TxFilter == nil {
-		//	logging.Println("Filter is empty, shardDone")
-		//	coord.shardDone <- true
-		//	continue
-		//} else {
-		//	logging.Println("Waiting for shard", connAndFilters.Conn)
-		//	coord.shardsToWaitFor[connAndFilters.Conn] = true
-		//}
-
-		logging.Println("Logged new filter ")
-	}
-	logging.Println("Done receiving filters")
-	//logging.Println("Expecting", len(coord.shardsToWaitFor), " answers")
-	coord.sendCombinedFilters(inputFilters, txFilters, coord.missingInputs)
-}
-
-// waitForMatchingTxs waits for each shard to send then tx inputs that have
-// matched the bloom filter it received. Am empty list means no transactions
-// are in possible violation
-func (coord *Coordinator) waitForMatchingTxs() {
-	matchingTxsMap := make(map[net.Conn][]*wire.OutPoint)
-	availableTxOuts := make(map[wire.OutPoint]*UtxoEntry)
-	logging.Println("Waiting for matches from", len(coord.shards), " shards")
-	for i := 0; i < len(coord.shards); i++ {
-		connAndTxs := <-coord.registerMatchingTxs
-		matchingTxsMap[connAndTxs.Conn] = connAndTxs.MatchingTxOuts
-		// Add all available TxOuts to the map of available ones
-		for txOut, utxoEnry := range connAndTxs.MissingTxOuts {
-			availableTxOuts[txOut] = utxoEnry
-		}
-
-		logging.Println("Registered maps of matching Txs")
-		//logging.Println("Registered list ", connAndTxs.MatchingTxOuts)
-	}
-	// Once all the shards have sent the transactions that collide,
-	// Go over the colliding list and see if these are actually the same transaction
-	for name, list := range matchingTxsMap {
-		// Create a combined list of all the rest
-		var combinedColliding []*wire.OutPoint
-		for n, l := range matchingTxsMap {
-			// Do not include the txs of the the current name being checked
-			if name == n {
-				continue
-			}
-			combinedColliding = append(combinedColliding, l...)
-		}
-		// Search the combined list for transactions of each shard
-		for _, tx := range list {
-			for _, comparedTx := range combinedColliding {
-				//logging.Println("Comapred ", comparedTx)
-				//logging.Println("tx", tx)
-				if *tx == *comparedTx {
-					logging.Println("Tx,", tx, "Is double spending")
-					coord.sendBadBlockToAll()
-					return
-				}
-			}
-		}
-	}
-
-	// Deal with missing Tx outputs
-	// missingTxOutsMap will hold the map of UTXo to send to each shard
-	missingTxOutsToSend := make(map[net.Conn]map[wire.OutPoint]*UtxoEntry)
-	for shardConn, missingTxOuts := range coord.missingInputs {
-		for _, txOut := range missingTxOuts {
-			if utxoEntry, ok := availableTxOuts[*txOut]; ok {
-				logging.Println("Missing TxOut", *txOut, "is available")
-				if _, ok := missingTxOutsToSend[shardConn]; !ok {
-					missingTxOutsToSend[shardConn] = make(map[wire.OutPoint]*UtxoEntry)
-				}
-				missingTxOutsToSend[shardConn][*txOut] = utxoEntry
-				logging.Println("Added missing tx", *txOut, utxoEntry, "to conn", shardConn)
-			}
-		}
-	}
-	coord.sendMissingOutsToAll(missingTxOutsToSend)
-
-}
-
-// sendMissingOutsToAll sends OK to all shards, indicating no collisions
-func (coord *Coordinator) sendMissingOutsToAll(missingMap map[net.Conn]map[wire.OutPoint]*UtxoEntry) {
-	logging.Println("Sending missing Outs to all")
-
-	for con := range missingMap {
-		for missingOut := range missingMap[con] {
-			logging.Println("Sending missingTx", missingOut)
-		}
-	}
-	// TODO: do not send to shards that do not need it
-	for con := range coord.shards {
-		enc := gob.NewEncoder(con)
-
-		msg := Message{
-			Cmd: "MISSOUTS",
-			Data: MissingTxOutsGob{
-				RetrievedTxOuts: missingMap[con],
-			},
-		}
-		err := enc.Encode(msg)
-		if err != nil {
-			logging.Println("Error encoding addresses GOB data:", err)
-			return
-		}
-	}
-}
-
-// sendCombinedFilters sends to each shard, the union of all other bloom filters
-// The shard will then calculate the intersection of his own with the union of
-// all the rest
-// For missing TXs: Find which shard is holding which missing TX, construct a
-// list per shard with missing TXs to send
-func (coord *Coordinator) sendCombinedFilters(inputFilters map[net.Conn]*wire.MsgFilterLoad,
-	txFilters map[net.Conn]*wire.MsgFilterLoad, missingInputs map[net.Conn][]*wire.OutPoint) {
-	combinedFilters := make(map[net.Conn]*wire.MsgFilterLoad)
-	// Here we create the combined union inputFilters
-	for con, inFilter := range inputFilters {
-		if inFilter == nil {
-			continue
-		}
-		emptyFilter := bloom.NewFilter(1000, 0, 0.001, wire.BloomUpdateNone)
-		// The empty filter load will be used to create the union with
-		emptyFilterLoad := emptyFilter.MsgFilterLoad()
-		combinedFilters[con] = emptyFilterLoad
-		for conC, filterC := range inputFilters {
-			if conC == con {
-				continue // We want to union all but the the filter itself
-			}
-			if filterC == nil {
-				continue
-			}
-			combinedFilter, err := bloom.FilterUnion(combinedFilters[con], filterC)
-			if err != nil {
-				fmt.Printf("%v\n", err)
-			}
-			combinedFilters[con] = combinedFilter.MsgFilterLoad()
-		}
-	}
-	// Print all missing inputs
-	for conn, missing := range missingInputs {
-		logging.Println("Shard", conn, "is missing:")
-		for _, input := range missing {
-			logging.Println(input)
-		}
-	}
-
-	missingToSend := make(map[net.Conn][]*wire.OutPoint)
-	shardIndexMap := make(map[int]net.Conn)
-
-	// generate shardIndex-> conn map
-	for conn, shard := range coord.shards {
-		shardIndexMap[shard.Index] = conn
-	}
-
-	// Find missing TXs per shard
-	// Iterate over all shards
-	for _, missing := range missingInputs {
-		// Iterate over list of all missing Txs
-		for _, input := range missing {
-			// Index this should belong to
-			shardNum := binary.BigEndian.Uint64(input.Hash[:]) % uint64(len(coord.shards))
-			logging.Println("ShardNum", shardNum)
-			missingToSend[shardIndexMap[int(shardNum)]] = append(missingToSend[shardIndexMap[int(shardNum)]], input)
-			logging.Println("Added", input, "to shard", shardNum)
-		}
-	}
-
-	// Once the inputFilters are created, send a message to each shard with its combination,
-	// unless the original filter is empty, then the shard will not be waiting for
-	// a reply
-
-	for con, filter := range combinedFilters {
-		// No need to send if the original bloom filter is empty, i.e. no TXs
-		// testFilter := bloom.LoadFilter(inputFilters[con])
-		if filter == nil {
-			continue
-		}
-		logging.Println("Sending combined bloom filter back to shard")
-		enc := gob.NewEncoder(con)
-		err := enc.Encode(
-			Message{
-				Cmd: "BLOOMCOM",
-				Data: FilterGob{
-					InputFilter:   filter,
-					MissingTxOuts: missingToSend[con],
-				},
-			})
-		if err != nil {
-			logging.Println(err, "Encode failed for struct: %#v", filter)
-		}
-	}
-}
-
 // ListenToCoordinators is go routine to listen for other coordinator (peers) to connect
 func (coord *Coordinator) ListenToCoordinators() error {
 	// Wait for connections from other coordinators
@@ -723,9 +538,12 @@ func (coord *Coordinator) ListenToCoordinators() error {
 	for {
 		connection, _ := coord.CoordListener.Accept()
 		fmt.Println("Received connection from", connection.RemoteAddr())
-		c := NewCoordConnection(connection)
+		enc := gob.NewEncoder(connection)
+		dec := gob.NewDecoder(connection)
+		c := NewCoordConnection(connection, enc, dec)
 		coord.RegisterCoord(c)
 		go coord.ReceiveCoord(c)
+		<-coord.Connected
 	}
 }
 
@@ -733,8 +551,8 @@ func (coord *Coordinator) ListenToCoordinators() error {
 // This only needs to request the blocks, and ProcessBlock should handle receiving them
 func (coord *Coordinator) SendBlocksRequest() {
 	logging.Println("Sending blocks request")
-	for c := range coord.coords {
-		enc := gob.NewEncoder(c.Socket)
+	for _, c := range coord.coords {
+		enc := c.Enc
 
 		msg := Message{
 			Cmd: "REQBLOCKS",
@@ -767,7 +585,7 @@ func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
 	logging.Println("Requesting Shard Info")
 	gob.Register(AddressesGob{})
 
-	enc := gob.NewEncoder(conn)
+	enc := coord.shards[conn].Enc
 
 	msg := Message{
 		Cmd:  "REQINFO",
@@ -779,7 +597,7 @@ func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
 		return
 	}
 	// Wait for shard to reply info
-	dec := gob.NewDecoder(conn)
+	dec := coord.shards[conn].Dec
 	err = dec.Decode(&msg)
 	if err != nil {
 		logging.Panicln("Error decoding GOB data:", err)
@@ -793,9 +611,9 @@ func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
 }
 
 // SendDHT sends the map between index and IP to each shard
-func (coord *Coordinator) SendDHT(con net.Conn) {
+func (coord *Coordinator) SendDHT(conn net.Conn) {
 	gob.Register(DHTGob{})
-	enc := gob.NewEncoder(con)
+	enc := coord.shards[conn].Enc
 
 	// Shards will get the DHT of all who is current connected
 	msg := Message{
