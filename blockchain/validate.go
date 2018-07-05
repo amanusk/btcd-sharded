@@ -1310,24 +1310,21 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	shard.SendRequestedTxOuts(retreivedTxOuts)
 
 	// Wait to get responds from all shards before continuing with validation
-	//<-shard.receiveAllRetrieved
+	<-shard.receiveAllRetrieved
 
-	//for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap {
-	//	for txOut := range reqTxOuts {
-	//		logging.Println("Got", txOut, "from", shardIdx)
-	//	}
-	//}
+	for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap {
+		for txOut := range reqTxOuts {
+			logging.Println("Got", txOut, "from", shardIdx)
+		}
+	}
 
-	// At this point, all the retrived Tx outs should be received
-
-	//logging.Println(missingTxOuts)
-
-	// receivedMissingTxOuts := shard.SendMatchingAndMissingTxOuts(matchingTxOuts, missingTxOuts)
-	//logging.Println("The shard received the missing TxOuts:")
-	//for txOut, utxoEntry := range receivedMissingTxOuts {
-	//	logging.Println(txOut)
-	//	view.AddExplicitTxOut(txOut, utxoEntry)
-	//}
+	for _, reqTxOuts := range shard.retrievedTxOutsMap {
+		for txOut, utxoEntry := range reqTxOuts {
+			view.AddExplicitTxOut(txOut, utxoEntry)
+		}
+	}
+	// TODO TODO TODO: If all is well, remove the utxo from the sender!!
+	// Now we can start validating the block
 
 	for txIdx, tx := range transactions {
 		logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
