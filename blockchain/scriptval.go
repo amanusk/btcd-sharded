@@ -302,7 +302,9 @@ func checkBlockScripts(block btcutil.Block, utxoView UtxoView,
 	}
 	elapsed := time.Since(start)
 
-	log.Tracef("block %v took %v to verify", block.Hash(), elapsed)
+	//log.Tracef("block %v took %v to verify", block.Hash(), elapsed)
+	fmt.Printf("block %v took %v to verify\n", block.Hash(), elapsed)
+	//logging.Printf("block %v took %v to verify", block.Hash(), elapsed)
 
 	// If the HashCache is present, once we have validated the block, we no
 	// longer need the cached hashes for these transactions, so we purge

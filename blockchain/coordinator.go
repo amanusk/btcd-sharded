@@ -23,26 +23,11 @@ type DHTGob struct {
 	DHTTable map[int]net.TCPAddr
 }
 
-// MissingTxOutsGob  is a struct to send a map of missing TxInputs
-type MissingTxOutsGob struct {
-	// TODO: Remove MatchingTxOuts
-	MatchingTxOuts  []*wire.OutPoint
-	MissingTxOuts   map[wire.OutPoint]struct{}
-	RetrievedTxOuts map[wire.OutPoint]*UtxoEntry
-}
-
 // HeaderGob is a struct to send headers over tcp connections
 type HeaderGob struct {
 	Header *wire.BlockHeader
 	Flags  BehaviorFlags
 	Height int32
-}
-
-// FilterGob struct to send bloomFilters. The regular does not register
-type FilterGob struct {
-	InputFilter   *wire.MsgFilterLoad
-	TxFilter      *wire.MsgFilterLoad
-	MissingTxOuts []*wire.OutPoint
 }
 
 // RawBlockGob is a struct to send full blocks
@@ -59,43 +44,27 @@ type Message struct {
 	Data interface{}
 }
 
-// ConnAndFilter is used to pass the connection and the filter, the coordinator
-// Creates a map between connections and filters received
-type ConnAndFilter struct {
-	Conn    net.Conn
-	Filters *FilterGob
-}
-
-// ConnAndMatchingTxs is used to pass the connection and the matching transactions
-// Creates a map between connections and transactions list
-type ConnAndMatchingTxs struct {
-	Conn           net.Conn
-	MatchingTxOuts []*wire.OutPoint
-	MissingTxOuts  map[wire.OutPoint]*UtxoEntry
-}
-
 // Coordinator is the coordinator in a sharded bitcoin cluster
 type Coordinator struct {
-	shards              map[net.Conn]*Shard           // A map of shards connected to this coordinator
-	dht                 map[int]net.Conn              // Mapping  between dht index and connection
-	shardsIntraAddr     map[int]net.TCPAddr           // Mapping  between shard index and intra address
-	coords              map[net.Conn]*Coordinator     // A map of coords connected to this coordinator
-	missingInputs       map[net.Conn][]*wire.OutPoint // A map between connections and missing Txs
-	registerShard       chan *Shard
-	unregisterShard     chan *Shard
-	registerCoord       chan *Coordinator
-	unregisterCoord     chan *Coordinator
-	registerBloomFilter chan *ConnAndFilter      // A channel to receive bloom filters on
-	registerMatchingTxs chan *ConnAndMatchingTxs // A channel to receive lists of matching transactions
-	shardDone           chan bool
-	allShardsDone       chan bool
-	ConnectectionAdded  chan bool // Sends a sigal that a shard connection completed
-	ConnectedOut        chan bool // Sends shards finished connecting to shards
-	BlockDone           chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
-	KeepAlive           chan interface{}
-	ShardListener       net.Listener
-	CoordListener       net.Listener
-	Chain               *BlockChain
+	shards             map[net.Conn]*Shard           // A map of shards connected to this coordinator
+	dht                map[int]net.Conn              // Mapping  between dht index and connection
+	shardsIntraAddr    map[int]net.TCPAddr           // Mapping  between shard index and intra address
+	coords             map[net.Conn]*Coordinator     // A map of coords connected to this coordinator
+	missingInputs      map[net.Conn][]*wire.OutPoint // A map between connections and missing Txs
+	registerShard      chan *Shard
+	unregisterShard    chan *Shard
+	registerCoord      chan *Coordinator
+	unregisterCoord    chan *Coordinator
+	shardDone          chan bool
+	allShardsDone      chan bool
+	ConnectectionAdded chan bool // Sends a sigal that a shard connection completed
+	ConnectedOut       chan bool // Sends shards finished connecting to shards
+	BlockDone          chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
+	KeepAlive          chan interface{}
+	ShardListener      net.Listener
+	CoordListener      net.Listener
+	Chain              *BlockChain
+	numShards          int
 	// For Coordinator Connection only!
 	Socket net.Conn     // Connection to the shard you connected to
 	Enc    *gob.Encoder // Used to send information to this connection
@@ -114,25 +83,25 @@ func NewCoordConnection(connection net.Conn, enc *gob.Encoder, dec *gob.Decoder)
 }
 
 // NewCoordinator Cerates and returns a new coordinator
-func NewCoordinator(shardListener net.Listener, coordListener net.Listener, blockchain *BlockChain) *Coordinator {
+func NewCoordinator(shardListener net.Listener, coordListener net.Listener, blockchain *BlockChain, numShards int) *Coordinator {
 	coord := Coordinator{
-		shards:              make(map[net.Conn]*Shard),
-		dht:                 make(map[int]net.Conn),
-		shardsIntraAddr:     make(map[int]net.TCPAddr),
-		coords:              make(map[net.Conn]*Coordinator),
-		registerShard:       make(chan *Shard),
-		unregisterShard:     make(chan *Shard),
-		registerCoord:       make(chan *Coordinator),
-		unregisterCoord:     make(chan *Coordinator),
-		registerBloomFilter: make(chan *ConnAndFilter),
-		registerMatchingTxs: make(chan *ConnAndMatchingTxs),
-		allShardsDone:       make(chan bool),
-		ConnectectionAdded:  make(chan bool),
-		ConnectedOut:        make(chan bool),
-		BlockDone:           make(chan bool),
-		Chain:               blockchain,
-		ShardListener:       shardListener,
-		CoordListener:       coordListener,
+		shards:             make(map[net.Conn]*Shard),
+		dht:                make(map[int]net.Conn),
+		shardsIntraAddr:    make(map[int]net.TCPAddr),
+		coords:             make(map[net.Conn]*Coordinator),
+		registerShard:      make(chan *Shard),
+		unregisterShard:    make(chan *Shard),
+		registerCoord:      make(chan *Coordinator),
+		unregisterCoord:    make(chan *Coordinator),
+		allShardsDone:      make(chan bool),
+		shardDone:          make(chan bool),
+		ConnectectionAdded: make(chan bool),
+		ConnectedOut:       make(chan bool),
+		BlockDone:          make(chan bool),
+		Chain:              blockchain,
+		ShardListener:      shardListener,
+		CoordListener:      coordListener,
+		numShards:          numShards,
 	}
 	return &coord
 }
@@ -184,8 +153,6 @@ func (coord *Coordinator) HandleShardMessages(conn net.Conn) {
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
-	gob.Register(FilterGob{})
-	gob.Register(MissingTxOutsGob{})
 
 	dec := coord.shards[conn].Dec
 	for {
@@ -220,8 +187,6 @@ func (coord *Coordinator) HandleCoordMessages(conn net.Conn) {
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
-	gob.Register(FilterGob{})
-	gob.Register(MissingTxOutsGob{})
 
 	dec := gob.NewDecoder(conn)
 	for {
@@ -482,6 +447,9 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 
 	logging.Println("Processing block ", header.BlockHash(), " height ", height)
 
+	// Start waiting for shards done before telling them to request it
+	go coord.waitForShardsDone()
+
 	// TODO add more checks as per btcd + coinbase checks
 	err := CheckBlockHeaderSanity(&header, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
 	if err != nil {
@@ -505,27 +473,18 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 			logging.Println(err, "Encode failed for struct: %#v", msg)
 		}
 	}
-
-	go coord.waitForShardsDone()
-
-	// Handle bloom filters
-	//coord.waitForBloomFilters()
-
-	// Wait for matching TXs in bloom filters
-	//coord.waitForMatchingTxs()
-
-	// All shards must be done to unlock this channel
+	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone
-	logging.Println("Done processing block")
+	logging.Println("All shards finished")
 
 	coord.Chain.CoordMaybeAcceptBlock(headerBlock, flags)
+	logging.Println("Done processing block")
 	return nil
 }
 
 func (coord *Coordinator) waitForShardsDone() {
-	coord.shardDone = make(chan bool, len(coord.shards))
 	// Wait for all the shards to send finish report
-	for i := 0; i < len(coord.shards); i++ {
+	for i := 0; i < coord.numShards; i++ {
 		<-coord.shardDone
 	}
 	coord.allShardsDone <- true
@@ -563,20 +522,6 @@ func (coord *Coordinator) SendBlocksRequest() {
 			return
 		}
 	}
-}
-
-// Receive bloom filters from shards
-func (coord *Coordinator) handleBloomFilter(conn net.Conn, filterGob *FilterGob) {
-	logging.Print("Received bloom filter to process")
-
-	coord.registerBloomFilter <- &ConnAndFilter{conn, filterGob}
-}
-
-// Receive bloom filters from shards
-func (coord *Coordinator) handleMatcingMissingTxOuts(conn net.Conn, matchingTxOuts []*wire.OutPoint, missingTxOuts map[wire.OutPoint]*UtxoEntry) {
-	logging.Print("Received bloom filter to process and missing Tx outs")
-
-	coord.registerMatchingTxs <- &ConnAndMatchingTxs{conn, matchingTxOuts, missingTxOuts}
 }
 
 // RequestShardsInfo sends a request to the shards for their IP and port number

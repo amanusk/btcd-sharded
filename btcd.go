@@ -532,7 +532,7 @@ func main() {
 			fmt.Println(error)
 		}
 
-		coord := blockchain.NewCoordinator(shardListener, coordListener, chain)
+		coord := blockchain.NewCoordinator(shardListener, coordListener, chain, numShards)
 		go coord.Start()
 
 		// Wait for all the shards to get connected
@@ -675,6 +675,13 @@ func main() {
 			enc := gob.NewEncoder(connection)
 			dec := gob.NewDecoder(connection)
 			shardConn[1] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+		}
+		if numShards > 2 {
+			shardDial = "localhost:12353"
+			connection, err = net.Dial("tcp", shardDial)
+			enc := gob.NewEncoder(connection)
+			dec := gob.NewDecoder(connection)
+			shardConn[2] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
 		}
 
 		if err != nil {

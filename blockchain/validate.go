@@ -1091,44 +1091,27 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 	return txFeeInSatoshi, nil
 }
 
-// CalculateFilterIntersection returns a list of transactions that might be
-// included in the passed filter
-func CalculateFilterIntersection(filters *FilterGob, transactions map[int]*btcutil.Tx) []*wire.OutPoint {
-	// Find the possible double spending transactions
-	var matchingTxOuts []*wire.OutPoint
-	filter := bloom.LoadFilter(filters.InputFilter)
-	for _, tx := range transactions {
-		for _, txIn := range tx.MsgTx().TxIn {
-			if filter.MatchesOutPoint(&txIn.PreviousOutPoint) {
-				matchingTxOuts = append(matchingTxOuts, &txIn.PreviousOutPoint)
-				logging.Println("Transaction input ", &txIn.PreviousOutPoint, " could be a double spend")
-
-			}
-		}
-	}
-
-	// Create a list of the missing transactions
-	return matchingTxOuts
-}
-
 // GetRequestedMissingTxOuts goes over the list of missing inputs of other shards passed by
 // the coordinator and return a slice containing these outputs
 // included in the passed filter
-func GetRequestedMissingTxOuts(requestedTxOuts map[int]map[wire.OutPoint]struct{}, view UtxoView, blockHeight int32, db database.DB) map[int]map[wire.OutPoint]*UtxoEntry {
+func GetRequestedMissingTxOuts(requestedTxOuts *TxOutsLockedMap, view UtxoView, blockHeight int32, db database.DB) map[int]map[wire.OutPoint]*UtxoEntry {
 	// TODO: remove and replace with function to save this loop
 	neededSet := make(map[wire.OutPoint]struct{})
-	for _, reqTxOuts := range requestedTxOuts {
+	requestedTxOuts.RLock()
+	for _, reqTxOuts := range requestedTxOuts.TxOutsMap {
 		for reqTxOut := range reqTxOuts {
 			neededSet[reqTxOut] = struct{}{}
 		}
 	}
+	requestedTxOuts.RUnlock()
 	view.FetchUtxosMain(db, neededSet)
 
 	// Craete the map of TxOuts to send back
 	// They should all be present
 	txOutsToSend := make(map[int]map[wire.OutPoint]*UtxoEntry)
 
-	for shardIdx, reqTxOuts := range requestedTxOuts {
+	requestedTxOuts.RLock()
+	for shardIdx, reqTxOuts := range requestedTxOuts.TxOutsMap {
 		for reqTxOut := range reqTxOuts {
 			if txOutsToSend[shardIdx] == nil {
 				txOutsToSend[shardIdx] = make(map[wire.OutPoint]*UtxoEntry)
@@ -1141,6 +1124,7 @@ func GetRequestedMissingTxOuts(requestedTxOuts map[int]map[wire.OutPoint]struct{
 			txOutsToSend[shardIdx][reqTxOut] = lookedup
 		}
 	}
+	requestedTxOuts.RUnlock()
 
 	// Create a list of the missing transactions
 	return txOutsToSend
@@ -1250,11 +1234,12 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// TODO: pass block height to shard.
 	// Only relevant for checking if TX is older than CoinBase
 	logging.Println("Transactions in blockShard:")
-	for txIdx, tx := range transactions {
-		logging.Println("Tx id ", txIdx, " TX ", tx)
-	}
+	// NOTE: debut info
+	//for txIdx, tx := range transactions {
+	//	logging.Println("Tx id ", txIdx, " TX ", tx)
+	//}
 	// Create map between txs and the shards responsible
-	localMissingTxOuts := make(map[int]map[wire.OutPoint]struct{})
+	localMissingTxOuts := make(map[int]map[wire.OutPoint]*UtxoEntry)
 
 	for _, tx := range transactions {
 		// Coinbase does not need to have inputs
@@ -1275,9 +1260,10 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 				owner := binary.BigEndian.Uint64(previousHash[:]) % uint64(shard.NumShards)
 				// Add missing to map of that perticular shard
 				if localMissingTxOuts[int(owner)] == nil {
-					localMissingTxOuts[int(owner)] = make(map[wire.OutPoint]struct{})
+					localMissingTxOuts[int(owner)] = make(map[wire.OutPoint]*UtxoEntry)
 				}
-				localMissingTxOuts[int(owner)][txIn.PreviousOutPoint] = struct{}{}
+				// Fill with empty Utxo, so we don't send nils
+				localMissingTxOuts[int(owner)][txIn.PreviousOutPoint] = &UtxoEntry{}
 				logging.Println(str)
 				logging.Println("Append", &txIn.PreviousOutPoint, "to missing")
 				continue
@@ -1290,7 +1276,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// before we continue to find them in the view
 	<-shard.receiveAllMissingRequests
 	// At this point we should have all requested maps from each shard
-	for shardIdx, reqTxOuts := range shard.requestedTxOutsMap {
+	for shardIdx, reqTxOuts := range shard.requestedTxOutsMap.TxOutsMap {
 		for txOut := range reqTxOuts {
 			logging.Println("From shard ", shardIdx, "got", txOut)
 		}
@@ -1312,13 +1298,13 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// Wait to get responds from all shards before continuing with validation
 	<-shard.receiveAllRetrieved
 
-	for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap {
+	for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap.TxOutsMap {
 		for txOut := range reqTxOuts {
 			logging.Println("Got", txOut, "from", shardIdx)
 		}
 	}
 
-	for _, reqTxOuts := range shard.retrievedTxOutsMap {
+	for _, reqTxOuts := range shard.retrievedTxOutsMap.TxOutsMap {
 		for txOut, utxoEntry := range reqTxOuts {
 			view.AddExplicitTxOut(txOut, utxoEntry)
 		}
@@ -1326,8 +1312,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// TODO TODO TODO: If all is well, remove the utxo from the sender!!
 	// Now we can start validating the block
 
-	for txIdx, tx := range transactions {
-		logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
+	for _, tx := range transactions {
+		// logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
 		txFee, err := CheckTransactionInputs(tx, node.height, view,
 			params)
 		if err != nil {
@@ -1575,31 +1561,32 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 	// signature operations in each of the input transaction public key
 	// scripts.
 	transactions := block.Transactions()
-	totalSigOpCost := 0
-	for i, tx := range transactions {
-		// Since the first (and only the first) transaction has
-		// already been verified to be a coinbase transaction,
-		// use i == 0 as an optimization for the flag to
-		// countP2SHSigOps for whether or not the transaction is
-		// a coinbase transaction rather than having to do a
-		// full coinbase check again.
-		sigOpCost, err := GetSigOpCost(tx, i == 0, view, enforceBIP0016,
-			enforceSegWit)
-		if err != nil {
-			return err
-		}
+	// NOTE: removed for tests
+	//totalSigOpCost := 0
+	//for i, tx := range transactions {
+	//	// Since the first (and only the first) transaction has
+	//	// already been verified to be a coinbase transaction,
+	//	// use i == 0 as an optimization for the flag to
+	//	// countP2SHSigOps for whether or not the transaction is
+	//	// a coinbase transaction rather than having to do a
+	//	// full coinbase check again.
+	//	sigOpCost, err := GetSigOpCost(tx, i == 0, view, enforceBIP0016,
+	//		enforceSegWit)
+	//	if err != nil {
+	//		return err
+	//	}
 
-		// Check for overflow or going over the limits.  We have to do
-		// this on every loop iteration to avoid overflow.
-		lastSigOpCost := totalSigOpCost
-		totalSigOpCost += sigOpCost
-		if totalSigOpCost < lastSigOpCost || totalSigOpCost > MaxBlockSigOpsCost {
-			str := fmt.Sprintf("block contains too many "+
-				"signature operations - got %v, max %v",
-				totalSigOpCost, MaxBlockSigOpsCost)
-			return ruleError(ErrTooManySigOps, str)
-		}
-	}
+	//	// Check for overflow or going over the limits.  We have to do
+	//	// this on every loop iteration to avoid overflow.
+	//	lastSigOpCost := totalSigOpCost
+	//	totalSigOpCost += sigOpCost
+	//	if totalSigOpCost < lastSigOpCost || totalSigOpCost > MaxBlockSigOpsCost {
+	//		str := fmt.Sprintf("block contains too many "+
+	//			"signature operations - got %v, max %v",
+	//			totalSigOpCost, MaxBlockSigOpsCost)
+	//		return ruleError(ErrTooManySigOps, str)
+	//	}
+	//}
 
 	// Perform several checks on the inputs for each transaction.  Also
 	// accumulate the total fees.  This could technically be combined with

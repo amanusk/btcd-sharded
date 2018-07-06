@@ -6,30 +6,36 @@ import (
 	logging "log"
 	"net"
 	"strconv"
+	"sync"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 )
 
+// TxOutsLockedMap save a map between output and UtxoEntry,
+// The lock is used to prevent 2 threads writing to the map
+type TxOutsLockedMap struct {
+	*sync.RWMutex
+	TxOutsMap map[int]map[wire.OutPoint]*UtxoEntry
+}
+
 // Shard is a single node in a sharded bitcoin client cluster
 type Shard struct {
-	Chain                  *BlockChain
-	CoordConn              *Coordinator        // Hold coordinator connection + enc + dec
-	interShards            map[net.Conn]*Shard // A map of shards connected to this shard
-	ShardNumToShard        map[int]*Shard      // A map between shard index and shard connection
-	intraShards            map[net.Conn]*Shard // A reverse map between sockent and shard number
-	registerShard          chan *Shard
-	unregisterShard        chan *Shard
-	Port                   int // Saves the port the shard is listening to other shards
-	Index                  int // Save the shard index in the coords array
-	ShardInterListener     net.Listener
-	ShardIntraListener     net.Listener
-	intersectFilter        chan *FilterGob
-	missingTxOuts          chan (map[wire.OutPoint]*UtxoEntry)
-	ReceivedCombinedFilter *FilterGob
-	requestedTxOutsMap     map[int]map[wire.OutPoint]struct{}
-	retrievedTxOutsMap     map[int]map[wire.OutPoint]*UtxoEntry
-	NumShards              int // Save the number of shards in total, needed to calc the mod
+	Chain              *BlockChain
+	CoordConn          *Coordinator        // Hold coordinator connection + enc + dec
+	interShards        map[net.Conn]*Shard // A map of shards connected to this shard
+	ShardNumToShard    map[int]*Shard      // A map between shard index and shard connection
+	intraShards        map[net.Conn]*Shard // A reverse map between sockent and shard number
+	registerShard      chan *Shard
+	unregisterShard    chan *Shard
+	Port               int // Saves the port the shard is listening to other shards
+	Index              int // Save the shard index in the coords array
+	ShardInterListener net.Listener
+	ShardIntraListener net.Listener
+	missingTxOuts      chan (map[wire.OutPoint]*UtxoEntry)
+	requestedTxOutsMap *TxOutsLockedMap
+	retrievedTxOutsMap *TxOutsLockedMap
+	NumShards          int // Save the number of shards in total, needed to calc the mod
 	// Shard-to-shard comms
 	connected                 chan bool // Pass true once you finshed connecting to a shard from dht
 	ConnectionAdded           chan bool // Lock to wait for write to connections map to finish
@@ -66,7 +72,6 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		Chain:           blockchain,
 		registerShard:   make(chan *Shard),
 		unregisterShard: make(chan *Shard),
-		intersectFilter: make(chan *FilterGob),
 		missingTxOuts:   make(chan map[wire.OutPoint]*UtxoEntry),
 		CoordConn:       coordConn,
 		// Shard-to-shard comms
@@ -86,8 +91,8 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		receiveAllMissingRequests: make(chan bool),
 		receiveRetrieved:          make(chan bool),
 		receiveAllRetrieved:       make(chan bool),
-		requestedTxOutsMap:        make(map[int]map[wire.OutPoint]struct{}),
-		retrievedTxOutsMap:        make(map[int]map[wire.OutPoint]*UtxoEntry),
+		requestedTxOutsMap:        &TxOutsLockedMap{&sync.RWMutex{}, map[int]map[wire.OutPoint]*UtxoEntry{}},
+		retrievedTxOutsMap:        &TxOutsLockedMap{&sync.RWMutex{}, map[int]map[wire.OutPoint]*UtxoEntry{}},
 	}
 	return shard
 }
@@ -117,13 +122,6 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 		}
 
 	}
-}
-
-// Handle the received combined filter and missing Txs from coordinator
-func (shard *Shard) handleFilterCombined(filterData *FilterGob, conn net.Conn) {
-	logging.Println("Recived filter", filterData)
-	shard.intersectFilter <- filterData
-
 }
 
 // Handle request for a block shard by another shard
@@ -229,11 +227,8 @@ func (shard *Shard) receive() {
 
 func (shard *Shard) handleCoordMessages() {
 
-	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
-	gob.Register(FilterGob{})
-	gob.Register(MissingTxOutsGob{})
 	gob.Register(DHTGob{})
 
 	dec := shard.CoordConn.Dec
@@ -275,10 +270,6 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
-	gob.Register(AddressesGob{})
-	gob.Register(FilterGob{})
-	gob.Register(MissingTxOutsGob{})
-	gob.Register(DHTGob{})
 
 	dec := shard.interShards[conn].Dec
 	for {
@@ -313,12 +304,7 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 // Handle messages from intra shards
 func (shard *Shard) handleIntraShardMessages(conn net.Conn) {
 
-	gob.Register(RawBlockGob{})
-	gob.Register(HeaderGob{})
-	gob.Register(AddressesGob{})
-	gob.Register(FilterGob{})
-	gob.Register(MissingTxOutsGob{})
-	gob.Register(DHTGob{})
+	gob.Register(map[wire.OutPoint]*UtxoEntry{})
 
 	dec := shard.intraShards[conn].Dec
 	for {
@@ -334,12 +320,12 @@ func (shard *Shard) handleIntraShardMessages(conn net.Conn) {
 		// handle according to received command
 		switch cmd {
 		case "REQOUTS":
-			missingTxOutsGob := msg.Data.(MissingTxOutsGob)
-			shard.handleRequestedOuts(conn, missingTxOutsGob.MissingTxOuts)
+			missingTxOuts := msg.Data.(map[wire.OutPoint]*UtxoEntry)
+			shard.handleRequestedOuts(conn, missingTxOuts)
 		// handle received requested TxOuts
 		case "RETOUTS":
-			missingTxOutsGob := msg.Data.(MissingTxOutsGob)
-			shard.handleRetreivedTxOuts(conn, missingTxOutsGob.RetrievedTxOuts)
+			retrievedTxOuts := msg.Data.(map[wire.OutPoint]*UtxoEntry)
+			shard.handleRetreivedTxOuts(conn, retrievedTxOuts)
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
 		}
@@ -557,7 +543,7 @@ func (shard *Shard) handleConnectIntraShards(index int, dhtTable map[int]net.TCP
 
 // SendMissingTxOuts sends each shard a map of all the outputs the sending shard is missing
 // It then awaits for a response from all shards (Response can be empty)
-func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]struct{}) {
+func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]*UtxoEntry) {
 	for shardNum, intraShard := range shard.ShardNumToShard {
 		// Send on the open socket with the relevant shard
 		logging.Println("Sending missing outs to", shardNum)
@@ -568,15 +554,12 @@ func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]st
 		logging.Println("Sending info on", intraShard.Socket)
 
 		msg := Message{
-			Cmd: "REQOUTS",
-			Data: MissingTxOutsGob{
-				// This can be nil, but needs to be sent
-				MissingTxOuts: missingTxOuts[shardNum],
-			},
+			Cmd:  "REQOUTS",
+			Data: missingTxOuts[shardNum],
 		}
 		err := enc.Encode(msg)
 		if err != nil {
-			logging.Println("Error encoding addresses GOB data:", err)
+			logging.Println("Error encoding missing TxOuts:", err)
 			return
 		}
 	}
@@ -592,10 +575,8 @@ func (shard *Shard) SendRequestedTxOuts(requestedTxOuts map[int]map[wire.OutPoin
 
 		msg := Message{
 			Cmd: "RETOUTS",
-			Data: MissingTxOutsGob{
-				// This can be nil, but needs to be sent
-				RetrievedTxOuts: requestedTxOuts[shardNum],
-			},
+			// A Gob struct is needed so nil maps can also be sent
+			Data: requestedTxOuts[shardNum],
 		}
 		err := enc.Encode(msg)
 		if err != nil {
@@ -630,10 +611,12 @@ func (shard *Shard) AwaitRetrievedTxOuts() {
 	shard.receiveAllRetrieved <- true
 }
 
-func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.OutPoint]struct{}) {
+func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.OutPoint]*UtxoEntry) {
 	logging.Println("Got request from shard", shard.intraShards[conn].Index)
 	// socketToShard maps sockets to shard indexes
-	shard.requestedTxOutsMap[shard.intraShards[conn].Index] = missingTxOuts
+	shard.requestedTxOutsMap.Lock()
+	shard.requestedTxOutsMap.TxOutsMap[shard.intraShards[conn].Index] = missingTxOuts
+	shard.requestedTxOutsMap.Unlock()
 	for txOut := range missingTxOuts {
 		logging.Println("Got missing out", txOut)
 	}
@@ -644,36 +627,12 @@ func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.Ou
 func (shard *Shard) handleRetreivedTxOuts(conn net.Conn, retreivedTxOuts map[wire.OutPoint]*UtxoEntry) {
 	logging.Println("Got retrived from shard", shard.intraShards[conn].Index)
 	// socketToShard maps sockets to shard indexes
-	shard.retrievedTxOutsMap[shard.intraShards[conn].Index] = retreivedTxOuts
+	shard.retrievedTxOutsMap.Lock()
+	shard.retrievedTxOutsMap.TxOutsMap[shard.intraShards[conn].Index] = retreivedTxOuts
+	shard.retrievedTxOutsMap.Unlock()
 	for txOut := range retreivedTxOuts {
 		logging.Println("Got the retreived TxOut", txOut)
 	}
 	// Unlock wait for each shard to send missing
 	shard.receiveRetrieved <- true
-}
-
-// SendDeadToShards sends DEADBEEF
-func (shard *Shard) SendDeadToShards() {
-	//for shardNum, shardConn := range shard.ShardNumToShard {
-	//	logging.Println("Sending dead to", shardNum, "on", shardConn.Socket)
-	//	enc := shardConn.Enc
-
-	//	err := enc.Encode(
-	//		Message{
-	//			Cmd: "DEADBEEF",
-	//		})
-	//	if err != nil {
-	//		logging.Panicln(err, "Encode failed for struct DEADBEE")
-	//	}
-	//}
-	//logging.Println("Sending dead to coord", "on", shard.Socket)
-	//enc := gob.NewEncoder(shard.Socket)
-
-	//err := enc.Encode(
-	//	Message{
-	//		Cmd: "DEADBEEF",
-	//	})
-	//if err != nil {
-	//	logging.Panicln(err, "Encode failed for struct DEADBEE")
-	//}
 }

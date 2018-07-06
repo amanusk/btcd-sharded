@@ -762,7 +762,7 @@ func sqlConnectBlock(db database.DB, block btcutil.Block, view UtxoView, stxos [
 	if err != nil {
 		return err
 	}
-	view.PrintToLog()
+	// view.PrintToLog()
 
 	//	// Update the transaction spend journal by adding a record for
 	//	// the block that contains all txos spent by it.
