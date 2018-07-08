@@ -2267,7 +2267,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//
 	//   genesis -> bm0 -> bm1 -> ... -> bm99
 	// ---------------------------------------------------------------------
-	extraTxs := uint16(20)
+	extraTxs := uint16(110)
 	coinbaseMaturity := g.params.CoinbaseMaturity
 	fmt.Println("Coin base maturity", coinbaseMaturity)
 	var testInstances []TestInstance
@@ -2467,68 +2467,29 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//// max allowed signature operations per block.
 	////
 	////   ... -> b35(10) -> b39(11)1
-	//txnsNeeded := 10000
-	//b39 := g.nextBlock("b39", outs[12], func(b *wire.MsgBlock) {
-	//	// Create a chain of transactions each spending from the
-	//	// previous one such that each contains an output that pays to
-	//	// the redeem script and the total number of signature
-	//	// operations in those redeem scripts will be more than the
-	//	// max allowed per block.
-	//	p2shScript := payToScriptHashScript(redeemScript)
-	//	prevTx := b.Transactions[1]
-	//	for i := 0; i < txnsNeeded; i++ {
-	//		prevTx = createSpendTxForTx(prevTx, lowFee)
-	//		prevTx.TxOut[0].Value -= 1
-	//		prevTx.AddTxOut(wire.NewTxOut(1, p2shScript))
-	//		b.AddTransaction(prevTx)
-	//	}
-	//})
-	//g.assertTipBlockNumTxns(txnsNeeded + 2)
-	//accepted()
-
-	//// Create a block with the max allowed signature operations where the
-	//// majority of them are in pay-to-script-hash scripts.
-	////
-	////   ... -> b35(10) -> b39(11) -> b41(12)
-	//g.nextBlock("b41", outs[13], func(b *wire.MsgBlock) {
-	//	for i := 0; i < txnsNeeded; i++ {
-	//		spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
-	//		tx := createSpendTx(&spend, lowFee)
-	//		sig, err := txscript.RawTxInSignature(tx, 0,
-	//			redeemScript, txscript.SigHashAll, g.privKey)
-	//		if err != nil {
-	//			panic(err)
-	//		}
-	//		tx.TxIn[0].SignatureScript = pushDataScript(sig,
-	//			redeemScript)
-	//		b.AddTransaction(tx)
-	//	}
-	//})
-	//accepted()
-
-	//// Try to make transactions that do not require inner block dependancies
-	txnsNeeded := 2
-	b39 := g.nextBlock("b39", outs[12], func(b *wire.MsgBlock) {
+	txnsNeeded := 20000
+	b39 := g.nextBlock("b39", outs[9], func(b *wire.MsgBlock) {
 		// Create a chain of transactions each spending from the
 		// previous one such that each contains an output that pays to
 		// the redeem script and the total number of signature
 		// operations in those redeem scripts will be more than the
 		// max allowed per block.
 		p2shScript := payToScriptHashScript(redeemScript)
+		prevTx := b.Transactions[1]
 		for i := 0; i < txnsNeeded; i++ {
-			prevTx := createSpendTx(outs[15+i], btcutil.Amount(2))
-			//fmt.Println("Txout", 15+i, " ", outs[15+i].amount)
-			//fmt.Println("Txout0 value before", prevTx.TxOut[0].Value)
+			prevTx = createSpendTxForTx(prevTx, lowFee)
 			prevTx.TxOut[0].Value -= 2
 			prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
-			//fmt.Println("Txout0 value", prevTx.TxOut[0].Value)
-			//fmt.Println("Txout1 value", prevTx.TxOut[2].Value)
 			b.AddTransaction(prevTx)
 		}
 	})
 	g.assertTipBlockNumTxns(txnsNeeded + 2)
 	accepted()
 
+	// Create a block with the max allowed signature operations where the
+	// majority of them are in pay-to-script-hash scripts.
+	//
+	//   ... -> b35(10) -> b39(11) -> b41(12)
 	g.nextBlock("b41", outs[13], func(b *wire.MsgBlock) {
 		for i := 0; i < txnsNeeded; i++ {
 			spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
@@ -2544,6 +2505,78 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 		}
 	})
 	accepted()
+
+	//// Try to make transactions that do not require inner block dependancies
+	//	txnsNeeded := 10000
+	//	b39 := g.nextBlock("b39", outs[12], func(b *wire.MsgBlock) {
+	//		// Create a chain of transactions each spending from the
+	//		// previous one such that each contains an output that pays to
+	//		// the redeem script and the total number of signature
+	//		// operations in those redeem scripts will be more than the
+	//		// max allowed per block.
+	//		p2shScript := payToScriptHashScript(redeemScript)
+	//		for i := 0; i < txnsNeeded; i++ {
+	//			prevTx := createSpendTx(outs[15+i], btcutil.Amount(2))
+	//			//fmt.Println("Txout", 15+i, " ", outs[15+i].amount)
+	//			//fmt.Println("Txout0 value before", prevTx.TxOut[0].Value)
+	//			prevTx.TxOut[0].Value -= 6
+	//			prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
+	//			prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
+	//			prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
+	//			b.AddTransaction(prevTx)
+	//		}
+	//	})
+	//	g.assertTipBlockNumTxns(txnsNeeded + 2)
+	//	accepted()
+	//
+	//	g.nextBlock("b41", outs[13], func(b *wire.MsgBlock) {
+	//		for i := 0; i < txnsNeeded; i++ {
+	//			spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
+	//			tx := createSpendTx(&spend, lowFee)
+	//			sig, err := txscript.RawTxInSignature(tx, 0,
+	//				redeemScript, txscript.SigHashAll, g.privKey)
+	//			if err != nil {
+	//				panic(err)
+	//			}
+	//			tx.TxIn[0].SignatureScript = pushDataScript(sig,
+	//				redeemScript)
+	//			b.AddTransaction(tx)
+	//		}
+	//	})
+	//	accepted()
+	//
+	//	g.nextBlock("b42", outs[14], func(b *wire.MsgBlock) {
+	//		for i := 0; i < txnsNeeded; i++ {
+	//			spend := makeSpendableOutForTx(b39.Transactions[i+2], 3)
+	//			tx := createSpendTx(&spend, lowFee)
+	//			sig, err := txscript.RawTxInSignature(tx, 0,
+	//				redeemScript, txscript.SigHashAll, g.privKey)
+	//			if err != nil {
+	//				panic(err)
+	//			}
+	//			tx.TxIn[0].SignatureScript = pushDataScript(sig,
+	//				redeemScript)
+	//			b.AddTransaction(tx)
+	//		}
+	//	})
+	//	accepted()
+	//
+	//	g.nextBlock("b43", outs[9], func(b *wire.MsgBlock) {
+	//		for i := 0; i < txnsNeeded; i++ {
+	//			spend := makeSpendableOutForTx(b39.Transactions[i+2], 4)
+	//			tx := createSpendTx(&spend, lowFee)
+	//			sig, err := txscript.RawTxInSignature(tx, 0,
+	//				redeemScript, txscript.SigHashAll, g.privKey)
+	//			if err != nil {
+	//				panic(err)
+	//			}
+	//			// Check that sigs matter
+	//			tx.TxIn[0].SignatureScript = pushDataScript(sig,
+	//				redeemScript)
+	//			b.AddTransaction(tx)
+	//		}
+	//	})
+	//	accepted()
 
 	return tests, nil
 }

@@ -1097,6 +1097,7 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView UtxoView, c
 func GetRequestedMissingTxOuts(requestedTxOuts *TxOutsLockedMap, view UtxoView, blockHeight int32, db database.DB) map[int]map[wire.OutPoint]*UtxoEntry {
 	// TODO: remove and replace with function to save this loop
 	neededSet := make(map[wire.OutPoint]struct{})
+
 	requestedTxOuts.RLock()
 	for _, reqTxOuts := range requestedTxOuts.TxOutsMap {
 		for reqTxOut := range reqTxOuts {
@@ -1104,7 +1105,8 @@ func GetRequestedMissingTxOuts(requestedTxOuts *TxOutsLockedMap, view UtxoView, 
 		}
 	}
 	requestedTxOuts.RUnlock()
-	view.FetchUtxosMain(db, neededSet)
+
+	view.FetchUtxos(db, neededSet)
 
 	// Craete the map of TxOuts to send back
 	// They should all be present
@@ -1119,7 +1121,7 @@ func GetRequestedMissingTxOuts(requestedTxOuts *TxOutsLockedMap, view UtxoView, 
 			// Find the missing TxOut in the view
 			lookedup := view.LookupEntry(reqTxOut)
 			if lookedup == nil {
-				logging.Panicln("The requested txOut was not found in view")
+				logging.Panicln("The requested txOut", reqTxOut, "was not found in view")
 			}
 			txOutsToSend[shardIdx][reqTxOut] = lookedup
 		}
@@ -1182,6 +1184,12 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	if err != nil {
 		return err
 	}
+
+	// Print all of the view
+	// logging.Println("All of the view")
+	// for txOut, utxo := range view.Entries() {
+	// 	logging.Println(txOut, " UTXO", utxo)
+	// }
 
 	// TODO deal with segwit
 	enforceBIP0016 := false
@@ -1276,21 +1284,21 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// before we continue to find them in the view
 	<-shard.receiveAllMissingRequests
 	// At this point we should have all requested maps from each shard
-	for shardIdx, reqTxOuts := range shard.requestedTxOutsMap.TxOutsMap {
-		for txOut := range reqTxOuts {
-			logging.Println("From shard ", shardIdx, "got", txOut)
-		}
-	}
+	//for shardIdx, reqTxOuts := range shard.requestedTxOutsMap.TxOutsMap {
+	//	for txOut := range reqTxOuts {
+	//		logging.Println("Shard ", shardIdx, "requested", txOut)
+	//	}
+	//}
 
 	// Now we fetch the utxos others are missing and populate them with
 	// output information
 	retreivedTxOuts := GetRequestedMissingTxOuts(shard.requestedTxOutsMap, view, node.height, shard.Chain.db)
 
-	for shardIdx, reqTxOuts := range retreivedTxOuts {
-		for txOut := range reqTxOuts {
-			logging.Println("Fetched", txOut, "for", shardIdx)
-		}
-	}
+	//for shardIdx, reqTxOuts := range retreivedTxOuts {
+	//	for txOut := range reqTxOuts {
+	//		logging.Println("Fetched", txOut, "for", shardIdx)
+	//	}
+	//}
 
 	// Send all TxOuts requested from you
 	shard.SendRequestedTxOuts(retreivedTxOuts)
@@ -1298,11 +1306,11 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// Wait to get responds from all shards before continuing with validation
 	<-shard.receiveAllRetrieved
 
-	for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap.TxOutsMap {
-		for txOut := range reqTxOuts {
-			logging.Println("Got", txOut, "from", shardIdx)
-		}
-	}
+	//for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap.TxOutsMap {
+	//	for txOut := range reqTxOuts {
+	//		logging.Println("Got", txOut, "from", shardIdx)
+	//	}
+	//}
 
 	for _, reqTxOuts := range shard.retrievedTxOutsMap.TxOutsMap {
 		for txOut, utxoEntry := range reqTxOuts {
@@ -1775,118 +1783,4 @@ func (b *BlockChain) CheckConnectBlockTemplate(block btcutil.Block) error {
 	view.SetBestHash(&tip.hash)
 	newNode := NewBlockNode(header, tip)
 	return b.checkConnectBlock(newNode, block, view, nil)
-}
-
-// SQLCheckBlockSanity performs some preliminary checks on a block to ensure it is
-// sane before continuing with block processing.  These checks are context free.
-//
-// The flags do not modify the behavior of this function directly, however they
-// are needed to pass along to CheckBlockHeaderSanity.
-// TODO TODO TODO: use this to check merkle tree etc
-func SQLCheckBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
-	msgBlock := block.MsgBlock()
-	header := block.Header()
-	err := CheckBlockHeaderSanity(header, powLimit, timeSource, flags)
-	if err != nil {
-		return err
-	}
-
-	// A block must have at least one transaction.
-	numTx := len(msgBlock.(*wire.MsgBlockShard).Transactions)
-	if numTx == 0 {
-		return ruleError(ErrNoTransactions, "block does not contain "+
-			"any transactions")
-	}
-
-	// A block must not have more transactions than the max block payload or
-	// else it is certainly over the weight limit.
-	if numTx > MaxBlockBaseSize {
-		str := fmt.Sprintf("block contains too many transactions - "+
-			"got %d, max %d", numTx, MaxBlockBaseSize)
-		return ruleError(ErrBlockTooBig, str)
-	}
-
-	// A block must not exceed the maximum allowed block payload when
-	// serialized.
-	serializedSize := msgBlock.(*wire.MsgBlockShard).SerializeSizeStripped()
-	if serializedSize > MaxBlockBaseSize {
-		str := fmt.Sprintf("serialized block is too big - got %d, "+
-			"max %d", serializedSize, MaxBlockBaseSize)
-		return ruleError(ErrBlockTooBig, str)
-	}
-
-	// The first transaction in a block must be a coinbase.
-	transactions := block.Transactions()
-	if !IsCoinBase(transactions[0]) {
-		return ruleError(ErrFirstTxNotCoinbase, "first transaction in "+
-			"block is not a coinbase")
-	}
-
-	// A block must not have more than one coinbase.
-	for i, tx := range transactions[1:] {
-		if IsCoinBase(tx) {
-			str := fmt.Sprintf("block contains second coinbase at "+
-				"index %d", i+1)
-			return ruleError(ErrMultipleCoinbases, str)
-		}
-	}
-
-	// Do some preliminary checks on each transaction to ensure they are
-	// sane before continuing.
-	for _, tx := range transactions {
-		// Import log as reallog
-		logging.Println("Sanity check on tx", tx)
-		err := CheckTransactionSanity(tx)
-		if err != nil {
-			return err
-		}
-	}
-
-	// NOTE: We do not do the merkle root at this moment
-	// Build merkle tree and ensure the calculated merkle root matches the
-	// entry in the block header.  This also has the effect of caching all
-	// of the transaction hashes in the block to speed up future hash
-	// checks.  Bitcoind builds the tree here and checks the merkle root
-	// after the following checks, but there is no reason not to check the
-	// merkle root matches here.
-	//merkles := BuildMerkleTreeStore(block.Transactions(), false)
-	//calculatedMerkleRoot := merkles[len(merkles)-1]
-	//if !header.MerkleRoot.IsEqual(calculatedMerkleRoot) {
-	//	str := fmt.Sprintf("block merkle root is invalid - block "+
-	//		"header indicates %v, but calculated value is %v",
-	//		header.MerkleRoot, calculatedMerkleRoot)
-	//	return ruleError(ErrBadMerkleRoot, str)
-	//}
-
-	// Check for duplicate transactions.  This check will be fairly quick
-	// since the transaction hashes are already cached due to building the
-	// merkle tree above.
-	existingTxHashes := make(map[chainhash.Hash]struct{})
-	for _, tx := range transactions {
-		hash := tx.Hash()
-		if _, exists := existingTxHashes[*hash]; exists {
-			str := fmt.Sprintf("block contains duplicate "+
-				"transaction %v", hash)
-			return ruleError(ErrDuplicateTx, str)
-		}
-		existingTxHashes[*hash] = struct{}{}
-	}
-
-	// The number of signature operations must be less than the maximum
-	// allowed per block.
-	totalSigOps := 0
-	for _, tx := range transactions {
-		// We could potentially overflow the accumulator so check for
-		// overflow.
-		lastSigOps := totalSigOps
-		totalSigOps += (CountSigOps(tx) * WitnessScaleFactor)
-		if totalSigOps < lastSigOps || totalSigOps > MaxBlockSigOpsCost {
-			str := fmt.Sprintf("block contains too many signature "+
-				"operations - got %v, max %v", totalSigOps,
-				MaxBlockSigOpsCost)
-			return ruleError(ErrTooManySigOps, str)
-		}
-	}
-
-	return nil
 }

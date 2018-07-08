@@ -929,7 +929,7 @@ func (b *BlockChain) disconnectBlock(node *BlockNode, block btcutil.Block, view 
 func countSpentOutputs(block btcutil.Block) int {
 	// Exclude the coinbase transaction since it can't spend anything.
 	var numSpent int
-	for _, tx := range block.Transactions() {
+	for _, tx := range block.TransactionsMap() {
 		if !IsCoinBase(tx) {
 			numSpent += len(tx.MsgTx().TxIn)
 		}
@@ -1400,7 +1400,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 		view := NewUtxoViewpoint()
 		//view.SetBestHash(parentHash)
 		numStxos := 0
-		if len(block.Transactions()) > 0 {
+		if len(block.TransactionsMap()) > 0 {
 			numStxos = countSpentOutputs(block)
 		}
 		stxos := make([]spentTxOut, 0, numStxos)
@@ -1448,14 +1448,6 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 		return true, nil
 	}
 	return true, nil
-}
-
-// StoreBlockShard stores the blockshard passed in the SQL database
-func StoreBlockShard(db *SQLBlockDB, block *wire.MsgBlockShard) {
-	for _, tx := range block.Transactions {
-		bhash := block.BlockHash()
-		db.AddTX(bhash[:], tx.TxIndex, &tx.MsgTx)
-	}
 }
 
 // isCurrent returns whether or not the chain believes it is current.  Several

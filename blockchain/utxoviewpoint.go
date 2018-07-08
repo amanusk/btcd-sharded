@@ -6,7 +6,7 @@ package blockchain
 
 import (
 	"fmt"
-	reallog "log"
+	logging "log"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
@@ -158,7 +158,7 @@ func (view *UtxoViewpoint) BestHash() *chainhash.Hash {
 // PrintToLog utxos in view to log
 func (view *UtxoViewpoint) PrintToLog() {
 	for idx, utxo := range view.entries {
-		reallog.Println("Utxo id,", idx, "Val: ", utxo)
+		logging.Println("Utxo id,", idx, "Val: ", utxo)
 	}
 }
 
@@ -310,7 +310,7 @@ func (view *UtxoViewpoint) ConnectTransactions(block btcutil.Block, stxos *[]spe
 
 		//reallog.Printf("Connected tx", tx)
 		if err != nil {
-			reallog.Print("Error connecting", tx)
+			logging.Print("Error connecting", tx)
 			return err
 		}
 	}
@@ -533,7 +533,6 @@ func (view *UtxoViewpoint) FetchUtxosMain(db database.DB, outpoints map[wire.Out
 			if err != nil {
 				return err
 			}
-
 			view.entries[outpoint] = entry
 		}
 
@@ -575,7 +574,7 @@ func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) 
 	// this block could be referencing other transactions earlier in this
 	// block which are not yet in the chain.
 	txInFlight := map[chainhash.Hash]int{}
-	transactions := block.Transactions()
+	transactions := block.TransactionsMap()
 	for i, tx := range transactions {
 		txInFlight[*tx.Hash()] = i
 	}
@@ -584,7 +583,14 @@ func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) 
 	// which has no inputs) collecting them into sets of what is needed and
 	// what is already known (in-flight).
 	neededSet := make(map[wire.OutPoint]struct{})
-	for i, tx := range transactions {
+	for _, tx := range transactions {
+		if IsCoinBase(tx) {
+			continue
+		}
+		view.AddTxOuts(tx, block.Height())
+	}
+
+	for _, tx := range transactions {
 		if IsCoinBase(tx) {
 			continue
 		}
@@ -596,18 +602,19 @@ func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) 
 			// referenced transaction as available utxos when this
 			// is the case.  Otherwise, the utxo details are still
 			// needed.
-			//
-			// NOTE: The >= is correct here because i is one less
-			// than the actual position of the transaction within
-			// the block due to skipping the coinbase.
-			originHash := &txIn.PreviousOutPoint.Hash
-			if inFlightIndex, ok := txInFlight[*originHash]; ok &&
-				i >= inFlightIndex {
+			// NOTE: with cross shards, we store all, as some might be
+			// needed later by otheres
+			// TODO: probably need to pass index of the requesting Tx
+			// to deal with inFlight requesting Txs
 
-				originTx := transactions[inFlightIndex]
-				view.AddTxOuts(originTx, block.Height())
-				continue
-			}
+			//originHash := &txIn.PreviousOutPoint.Hash
+			//if inFlightIndex, ok := txInFlight[*originHash]; ok &&
+			//	i > inFlightIndex {
+			//	originTx := transactions[inFlightIndex]
+			//	logging.Println("Added inFlight", originTx.Hash(), "to view")
+			//	view.AddTxOuts(originTx, block.Height())
+			//	continue
+			//}
 
 			// Don't request entries that are already in the view
 			// from the database.

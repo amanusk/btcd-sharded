@@ -347,9 +347,10 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 	if err != nil {
 		logging.Fatal("Coordinator unable to process block")
 	}
-	go coord.sendBlockDone(conn)
+	coord.sendBlockDone(conn)
 	endTime := time.Since(startTime)
-	logging.Println("Block", headerBlock.Height, "took", endTime)
+	//logging.Println("Block", headerBlock.Height, "took", endTime)
+	fmt.Println("Block", headerBlock.Height, "took", endTime)
 }
 
 func (coord *Coordinator) sendBlockDone(conn net.Conn) {

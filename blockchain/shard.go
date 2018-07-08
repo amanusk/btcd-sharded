@@ -200,6 +200,13 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob) {
 	// Set node height to block height according to coordinator
 	blockNode.height = receivedBlock.Height
 
+	// TODO TODO TODO:
+	// Look at:
+	// ProcessBlock:
+	//	 *checkBlockSanity
+	//   *maybeAcceptBlock
+	//		*connectBestChain
+
 	_, err := shard.ShardConnectBestChain(blockNode, block)
 	if err != nil {
 		logging.Println(err)
@@ -617,9 +624,9 @@ func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.Ou
 	shard.requestedTxOutsMap.Lock()
 	shard.requestedTxOutsMap.TxOutsMap[shard.intraShards[conn].Index] = missingTxOuts
 	shard.requestedTxOutsMap.Unlock()
-	for txOut := range missingTxOuts {
-		logging.Println("Got missing out", txOut)
-	}
+	//for txOut := range missingTxOuts {
+	//	logging.Println("Got missing out", txOut)
+	//}
 	// Unlock wait for each shard to send missing
 	shard.receiveMissingRequest <- true
 }
@@ -630,9 +637,9 @@ func (shard *Shard) handleRetreivedTxOuts(conn net.Conn, retreivedTxOuts map[wir
 	shard.retrievedTxOutsMap.Lock()
 	shard.retrievedTxOutsMap.TxOutsMap[shard.intraShards[conn].Index] = retreivedTxOuts
 	shard.retrievedTxOutsMap.Unlock()
-	for txOut := range retreivedTxOuts {
-		logging.Println("Got the retreived TxOut", txOut)
-	}
+	//for txOut := range retreivedTxOuts {
+	//	logging.Println("Got the retreived TxOut", txOut)
+	//}
 	// Unlock wait for each shard to send missing
 	shard.receiveRetrieved <- true
 }
