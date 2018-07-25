@@ -155,12 +155,12 @@ func TestFullBlocks(t *testing.T) {
 		blockHeight := item.Height
 		block := btcutil.NewFullBlock(item.Block)
 		block.SetHeight(blockHeight)
-		//t.Logf("Testing block %s (hash %s, height %d)",
-		//	item.Name, block.Hash(), blockHeight)
+		// 	t.Logf("Testing block %s (hash %s, height %d)",
+		// 		item.Name, block.Hash(), blockHeight)
 
-		//for _, val := range block.Transactions() {
-		//	t.Logf("%s ", spew.Sdump(&val))
-		//}
+		// 	for _, val := range block.Transactions() {
+		// 		t.Logf("%s ", spew.Sdump(&val))
+		// 	}
 		startTime := time.Now()
 		isMainChain, isOrphan, err := chain.ProcessBlock(block,
 			blockchain.BFNone)

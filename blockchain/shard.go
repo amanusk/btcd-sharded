@@ -28,6 +28,7 @@ type Shard struct {
 	intraShards        map[net.Conn]*Shard // A reverse map between sockent and shard number
 	registerShard      chan *Shard
 	unregisterShard    chan *Shard
+	Finish             chan bool
 	Port               int // Saves the port the shard is listening to other shards
 	Index              int // Save the shard index in the coords array
 	ShardInterListener net.Listener
@@ -73,6 +74,7 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		registerShard:   make(chan *Shard),
 		unregisterShard: make(chan *Shard),
 		missingTxOuts:   make(chan map[wire.OutPoint]*UtxoEntry),
+		Finish:          make(chan bool),
 		CoordConn:       coordConn,
 		// Shard-to-shard comms
 		interShards:        make(map[net.Conn]*Shard),
@@ -192,8 +194,9 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob) {
 	// Create a new block node for the block and add it to the in-memory
 	block := btcutil.NewBlockShard(msgBlockShard)
 
-	// Store the txs in database, this could be postponed until after validation
-	//StoreBlockShard(shard.SQLDB, msgBlockShard)
+	// for _, tx := range block.TransactionsMap() {
+	// 	spew.Dump(tx)
+	// }
 
 	// shard does not need the parent node
 	blockNode := NewBlockNode(&msgBlockShard.Header, nil)
@@ -284,6 +287,8 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 		err := dec.Decode(&msg)
 		if err != nil {
 			logging.Println("Error decoding GOB data:", err)
+			// Clean terminate
+			shard.Finish <- true
 			return
 		}
 		cmd := msg.Cmd

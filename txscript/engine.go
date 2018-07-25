@@ -201,7 +201,7 @@ func (vm *Engine) executeOpcode(pop *parsedOpcode) error {
 			return err
 		}
 	}
-
+	// logging.Println("Executing", pop.opcode)
 	return pop.opcode.opfunc(pop, vm)
 }
 

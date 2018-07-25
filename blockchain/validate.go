@@ -1448,11 +1448,17 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		scriptFlags |= txscript.ScriptStrictMultiSig
 	}
 
+	// fmt.Println("Flags before verify:", scriptFlags)
+	// for _, tx := range block.TransactionsMap() {
+	// 	spew.Dump(tx)
+	// }
+
 	// TODO: Implement the sigCache and hashCashe for better performance
 	//// Now that the inexpensive checks are done and have passed, verify the
 	//// transactions are actually allowed to spend the coins by running the
 	//// expensive ECDSA signature check scripts.  Doing this last helps
 	//// prevent CPU exhaustion attacks.
+	scriptFlags = 1
 	if runScripts {
 		//err := checkBlockScripts(block, view, scriptFlags, b.sigCache,
 		//	b.hashCache)
@@ -1501,18 +1507,18 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 
 	// The coinbase for the Genesis block is not spendable, so just return
 	// an error now.
-	if node.hash.IsEqual(b.chainParams.GenesisHash) {
-		str := "the coinbase for the genesis block is not spendable"
-		return ruleError(ErrMissingTxOut, str)
-	}
+	// if node.hash.IsEqual(b.chainParams.GenesisHash) {
+	// 	str := "the coinbase for the genesis block is not spendable"
+	// 	return ruleError(ErrMissingTxOut, str)
+	// }
 
 	// Ensure the view is for the node being checked.
-	parentHash := &block.Header().PrevBlock
-	if !view.BestHash().IsEqual(parentHash) {
-		return AssertError(fmt.Sprintf("inconsistent view when "+
-			"checking block connection: best hash is %v instead "+
-			"of expected %v", view.BestHash(), parentHash))
-	}
+	// parentHash := &block.Header().PrevBlock
+	// if !view.BestHash().IsEqual(parentHash) {
+	// 	return AssertError(fmt.Sprintf("inconsistent view when "+
+	// 		"checking block connection: best hash is %v instead "+
+	// 		"of expected %v", view.BestHash(), parentHash))
+	// }
 
 	// BIP0030 added a rule to prevent blocks which contain duplicate
 	// transactions that 'overwrite' older transactions which are not fully
@@ -1530,12 +1536,12 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 	// BIP0034 is not yet active.  This is a useful optimization because the
 	// BIP0030 check is expensive since it involves a ton of cache misses in
 	// the utxoset.
-	if !isBIP0030Node(node) && (node.height < b.chainParams.BIP0034Height) {
-		err := b.checkBIP0030(node, block, view)
-		if err != nil {
-			return err
-		}
-	}
+	// if !isBIP0030Node(node) && (node.height < b.chainParams.BIP0034Height) {
+	// 	err := b.checkBIP0030(node, block, view)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
 
 	// Load all of the utxos referenced by the inputs for all transactions
 	// in the block don't already exist in the utxo view from the database.
@@ -1635,18 +1641,18 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 	// mining the block.  It is safe to ignore overflow and out of range
 	// errors here because those error conditions would have already been
 	// caught by checkTransactionSanity.
-	var totalSatoshiOut int64
-	for _, txOut := range transactions[0].MsgTx().TxOut {
-		totalSatoshiOut += txOut.Value
-	}
-	expectedSatoshiOut := CalcBlockSubsidy(node.height, b.chainParams) +
-		totalFees
-	if totalSatoshiOut > expectedSatoshiOut {
-		str := fmt.Sprintf("coinbase transaction for block pays %v "+
-			"which is more than expected value of %v",
-			totalSatoshiOut, expectedSatoshiOut)
-		return ruleError(ErrBadCoinbaseValue, str)
-	}
+	// var totalSatoshiOut int64
+	// for _, txOut := range transactions[0].MsgTx().TxOut {
+	// 	totalSatoshiOut += txOut.Value
+	// }
+	// expectedSatoshiOut := CalcBlockSubsidy(node.height, b.chainParams) +
+	// 	totalFees
+	// if totalSatoshiOut > expectedSatoshiOut {
+	// 	str := fmt.Sprintf("coinbase transaction for block pays %v "+
+	// 		"which is more than expected value of %v",
+	// 		totalSatoshiOut, expectedSatoshiOut)
+	// 	return ruleError(ErrBadCoinbaseValue, str)
+	// }
 
 	// Don't run scripts if this node is before the latest known good
 	// checkpoint since the validity is verified via the checkpoints (all
@@ -1654,11 +1660,11 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 	// will therefore be detected by the next checkpoint).  This is a huge
 	// optimization because running the scripts is the most time consuming
 	// portion of block handling.
-	checkpoint := b.LatestCheckpoint()
+	// checkpoint := b.LatestCheckpoint()
 	runScripts := true
-	if checkpoint != nil && node.height <= checkpoint.Height {
-		runScripts = false
-	}
+	// if checkpoint != nil && node.height <= checkpoint.Height {
+	// 	runScripts = false
+	// }
 
 	// Blocks created after the BIP0016 activation time need to have the
 	// pay-to-script-hash checks enabled.
@@ -1669,56 +1675,56 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 
 	// Enforce DER signatures for block versions 3+ once the historical
 	// activation threshold has been reached.  This is part of BIP0066.
-	blockHeader := block.Header()
-	if blockHeader.Version >= 3 && node.height >= b.chainParams.BIP0066Height {
-		scriptFlags |= txscript.ScriptVerifyDERSignatures
-	}
+	//blockHeader := block.Header()
+	//if blockHeader.Version >= 3 && node.height >= b.chainParams.BIP0066Height {
+	//scriptFlags |= txscript.ScriptVerifyDERSignatures
+	//}
 
 	// Enforce CHECKLOCKTIMEVERIFY for block versions 4+ once the historical
 	// activation threshold has been reached.  This is part of BIP0065.
-	if blockHeader.Version >= 4 && node.height >= b.chainParams.BIP0065Height {
-		scriptFlags |= txscript.ScriptVerifyCheckLockTimeVerify
-	}
+	//if blockHeader.Version >= 4 && node.height >= b.chainParams.BIP0065Height {
+	//scriptFlags |= txscript.ScriptVerifyCheckLockTimeVerify
+	//}
 
 	// Enforce CHECKSEQUENCEVERIFY during all block validation checks once
 	// the soft-fork deployment is fully active.
-	csvState, err := b.deploymentState(node.parent, chaincfg.DeploymentCSV)
-	if err != nil {
-		return err
-	}
-	if csvState == ThresholdActive {
-		// If the CSV soft-fork is now active, then modify the
-		// scriptFlags to ensure that the CSV op code is properly
-		// validated during the script checks bleow.
-		scriptFlags |= txscript.ScriptVerifyCheckSequenceVerify
-
-		// We obtain the MTP of the *previous* block in order to
-		// determine if transactions in the current block are final.
-		medianTime := node.parent.CalcPastMedianTime()
-
-		// Additionally, if the CSV soft-fork package is now active,
-		// then we also enforce the relative sequence number based
-		// lock-times within the inputs of all transactions in this
-		// candidate block.
-		for _, tx := range block.Transactions() {
-			// A transaction can only be included within a block
-			// once the sequence locks of *all* its inputs are
-			// active.
-			sequenceLock, err := b.calcSequenceLock(node, tx, view,
-				false)
-			if err != nil {
-				return err
-			}
-			if !SequenceLockActive(sequenceLock, node.height,
-				medianTime) {
-				str := fmt.Sprintf("block contains " +
-					"transaction whose input sequence " +
-					"locks are not met")
-				return ruleError(ErrUnfinalizedTx, str)
-			}
-		}
-	}
-
+	//csvState, err := b.deploymentState(node.parent, chaincfg.DeploymentCSV)
+	//if err != nil {
+	//return err
+	//}
+	//	if csvState == ThresholdActive {
+	//		// If the CSV soft-fork is now active, then modify the
+	//		// scriptFlags to ensure that the CSV op code is properly
+	//		// validated during the script checks bleow.
+	//		scriptFlags |= txscript.ScriptVerifyCheckSequenceVerify
+	//
+	//		// We obtain the MTP of the *previous* block in order to
+	//		// determine if transactions in the current block are final.
+	//		medianTime := node.parent.CalcPastMedianTime()
+	//
+	//		// Additionally, if the CSV soft-fork package is now active,
+	//		// then we also enforce the relative sequence number based
+	//		// lock-times within the inputs of all transactions in this
+	//		// candidate block.
+	//		for _, tx := range block.Transactions() {
+	//			// A transaction can only be included within a block
+	//			// once the sequence locks of *all* its inputs are
+	//			// active.
+	//			sequenceLock, err := b.calcSequenceLock(node, tx, view,
+	//				false)
+	//			if err != nil {
+	//				return err
+	//			}
+	//			if !SequenceLockActive(sequenceLock, node.height,
+	//				medianTime) {
+	//				str := fmt.Sprintf("block contains " +
+	//					"transaction whose input sequence " +
+	//					"locks are not met")
+	//				return ruleError(ErrUnfinalizedTx, str)
+	//			}
+	//		}
+	//	}
+	//
 	// Enforce the segwit soft-fork package once the soft-fork has shifted
 	// into the "active" version bits state.
 	if enforceSegWit {
@@ -1726,13 +1732,19 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 		scriptFlags |= txscript.ScriptStrictMultiSig
 	}
 
+	// fmt.Println("Flags before verify:", scriptFlags)
+	// for _, tx := range block.TransactionsMap() {
+	// 	spew.Dump(tx)
+	// }
+
 	// Now that the inexpensive checks are done and have passed, verify the
 	// transactions are actually allowed to spend the coins by running the
 	// expensive ECDSA signature check scripts.  Doing this last helps
 	// prevent CPU exhaustion attacks.
 	if runScripts {
-		err := checkBlockScripts(block, view, scriptFlags, b.sigCache,
-			b.hashCache)
+		//err := checkBlockScripts(block, view, scriptFlags, b.sigCache,
+		//	b.hashCache)
+		err := checkBlockScripts(block, view, scriptFlags, nil, nil)
 		if err != nil {
 			return err
 		}
@@ -1740,7 +1752,7 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 
 	// Update the best hash for view to include this block since all of its
 	// transactions have been connected.
-	view.SetBestHash(&node.hash)
+	// view.SetBestHash(&node.hash)
 
 	return nil
 }

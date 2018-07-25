@@ -2462,12 +2462,15 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 		txscript.OP_CHECKSIGVERIFY}, 1)...)
 	redeemScript = append(redeemScript, txscript.OP_CHECKSIG)
 
+	// Second redeem script, different from originatl priv key
+	// privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), []byte{0x02})
+
 	//// Create a block that has enough pay-to-script-hash outputs such that
 	//// another block can be created that consumes them all and exceeds the
 	//// max allowed signature operations per block.
 	////
 	////   ... -> b35(10) -> b39(11)1
-	txnsNeeded := 20000
+	txnsNeeded := 100000
 	b39 := g.nextBlock("b39", outs[9], func(b *wire.MsgBlock) {
 		// Create a chain of transactions each spending from the
 		// previous one such that each contains an output that pays to
