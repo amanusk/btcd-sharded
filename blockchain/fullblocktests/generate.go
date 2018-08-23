@@ -2470,7 +2470,7 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	//// max allowed signature operations per block.
 	////
 	////   ... -> b35(10) -> b39(11)1
-	txnsNeeded := 100000
+	txnsNeeded := 30000
 	b39 := g.nextBlock("b39", outs[9], func(b *wire.MsgBlock) {
 		// Create a chain of transactions each spending from the
 		// previous one such that each contains an output that pays to
@@ -2481,7 +2481,9 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 		prevTx := b.Transactions[1]
 		for i := 0; i < txnsNeeded; i++ {
 			prevTx = createSpendTxForTx(prevTx, lowFee)
-			prevTx.TxOut[0].Value -= 2
+			prevTx.TxOut[0].Value -= 6
+			prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
+			prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
 			prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
 			b.AddTransaction(prevTx)
 		}
@@ -2496,6 +2498,38 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	g.nextBlock("b41", outs[13], func(b *wire.MsgBlock) {
 		for i := 0; i < txnsNeeded; i++ {
 			spend := makeSpendableOutForTx(b39.Transactions[i+2], 2)
+			tx := createSpendTx(&spend, lowFee)
+			sig, err := txscript.RawTxInSignature(tx, 0,
+				redeemScript, txscript.SigHashAll, g.privKey)
+			if err != nil {
+				panic(err)
+			}
+			tx.TxIn[0].SignatureScript = pushDataScript(sig,
+				redeemScript)
+			b.AddTransaction(tx)
+		}
+	})
+	accepted()
+
+	g.nextBlock("b42", outs[14], func(b *wire.MsgBlock) {
+		for i := 0; i < txnsNeeded; i++ {
+			spend := makeSpendableOutForTx(b39.Transactions[i+2], 3)
+			tx := createSpendTx(&spend, lowFee)
+			sig, err := txscript.RawTxInSignature(tx, 0,
+				redeemScript, txscript.SigHashAll, g.privKey)
+			if err != nil {
+				panic(err)
+			}
+			tx.TxIn[0].SignatureScript = pushDataScript(sig,
+				redeemScript)
+			b.AddTransaction(tx)
+		}
+	})
+	accepted()
+
+	g.nextBlock("b42", outs[15], func(b *wire.MsgBlock) {
+		for i := 0; i < txnsNeeded; i++ {
+			spend := makeSpendableOutForTx(b39.Transactions[i+2], 4)
 			tx := createSpendTx(&spend, lowFee)
 			sig, err := txscript.RawTxInSignature(tx, 0,
 				redeemScript, txscript.SigHashAll, g.privKey)

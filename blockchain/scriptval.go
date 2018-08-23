@@ -7,6 +7,7 @@ package blockchain
 import (
 	"fmt"
 	"math"
+	_ "runtime"
 	"time"
 
 	"github.com/btcsuite/btcd/txscript"

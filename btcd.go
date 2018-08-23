@@ -703,6 +703,20 @@ func main() {
 			dec := gob.NewDecoder(connection)
 			shardConn[3] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
 		}
+		if numShards > 4 {
+			shardDial = "localhost:12355"
+			connection, err = net.Dial("tcp", shardDial)
+			enc := gob.NewEncoder(connection)
+			dec := gob.NewDecoder(connection)
+			shardConn[4] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+		}
+		if numShards > 5 {
+			shardDial = "localhost:12356"
+			connection, err = net.Dial("tcp", shardDial)
+			enc := gob.NewEncoder(connection)
+			dec := gob.NewDecoder(connection)
+			shardConn[5] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+		}
 
 		if err != nil {
 			fmt.Println(err)
