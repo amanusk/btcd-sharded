@@ -487,7 +487,7 @@ func init() {
 	loadConfig()
 
 	flagMode = flag.String("mode", "server", "start in shard or server mode")
-	flagConfig = flag.String("conf", "config.json", "Select config file to use")
+	flagConfig = flag.String("conf", "config1.json", "Select config file to use")
 	flagBoot = flag.Bool("bootstrap", false, "Toggle if this is the first node on the network")
 	flagNumShards = flag.Int("n", 1, "Select number of shards")
 	flag.Parse()
@@ -558,7 +558,7 @@ func main() {
 			dec := gob.NewDecoder(connection)
 			// NOTE: this should be either a constant, or sent to the coord
 			// once connection is established
-			shard := blockchain.NewShardConnection(connection, 0, shardCount, enc, dec)
+			shard := blockchain.NewShardConnection(connection, 0, enc, dec)
 			coord.RegisterShard(shard)
 			// Wait for write to map to finish
 			<-coord.ConnectectionAdded
@@ -580,8 +580,9 @@ func main() {
 
 		if !(*flagBoot) {
 			// connect to the already running server
-			connection, err := net.Dial("tcp", config.Server.ServerTargetServer)
+			connection, err := net.Dial("tcp", "localhost:"+config.Server.ServerTargetServer)
 			if err != nil {
+
 				fmt.Println(err)
 			}
 			enc := gob.NewEncoder(connection)
@@ -656,6 +657,7 @@ func main() {
 
 		coordEnc := coordConn.Enc
 
+		// Send request for shards
 		msg := blockchain.Message{
 			Cmd: "GETSHARDS",
 		}
@@ -673,13 +675,14 @@ func main() {
 			logging.Println("Error decoding GOB data:", err)
 			return
 		}
+		// Receive peer shards, and create connection with it
 		shardConn := make([]*blockchain.Shard, numShards)
 
 		shardDial := receivedShards.Addresses[0].IP.String() + ":12351"
 		connection, err = net.Dial("tcp", shardDial)
 		enc = gob.NewEncoder(connection)
 		dec = gob.NewDecoder(connection)
-		shardConn[0] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+		shardConn[0] = blockchain.NewShardConnection(connection, 0, enc, dec)
 
 		// NOTE: change if running on multiple machines
 		if numShards > 1 {
@@ -687,35 +690,35 @@ func main() {
 			connection, err = net.Dial("tcp", shardDial)
 			enc := gob.NewEncoder(connection)
 			dec := gob.NewDecoder(connection)
-			shardConn[1] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+			shardConn[1] = blockchain.NewShardConnection(connection, 0, enc, dec)
 		}
 		if numShards > 2 {
 			shardDial = "localhost:12353"
 			connection, err = net.Dial("tcp", shardDial)
 			enc := gob.NewEncoder(connection)
 			dec := gob.NewDecoder(connection)
-			shardConn[2] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+			shardConn[2] = blockchain.NewShardConnection(connection, 0, enc, dec)
 		}
 		if numShards > 3 {
 			shardDial = "localhost:12354"
 			connection, err = net.Dial("tcp", shardDial)
 			enc := gob.NewEncoder(connection)
 			dec := gob.NewDecoder(connection)
-			shardConn[3] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+			shardConn[3] = blockchain.NewShardConnection(connection, 0, enc, dec)
 		}
 		if numShards > 4 {
 			shardDial = "localhost:12355"
 			connection, err = net.Dial("tcp", shardDial)
 			enc := gob.NewEncoder(connection)
 			dec := gob.NewDecoder(connection)
-			shardConn[4] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+			shardConn[4] = blockchain.NewShardConnection(connection, 0, enc, dec)
 		}
 		if numShards > 5 {
 			shardDial = "localhost:12356"
 			connection, err = net.Dial("tcp", shardDial)
 			enc := gob.NewEncoder(connection)
 			dec := gob.NewDecoder(connection)
-			shardConn[5] = blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+			shardConn[5] = blockchain.NewShardConnection(connection, 0, enc, dec)
 		}
 
 		if err != nil {
@@ -962,18 +965,18 @@ func main() {
 		}
 
 		fmt.Println("Waiting for shards to connect")
-		//for {
-		for i := 0; i < 1; i++ {
+		for {
+			//for i := 0; i < 1; i++ {
 			connection, _ := s.ShardInterListener.Accept()
 			enc := gob.NewEncoder(connection)
 			dec := gob.NewDecoder(connection)
-			shardConn := blockchain.NewShardConnection(connection, 0, 0, enc, dec)
+			shardConn := blockchain.NewShardConnection(connection, 0, enc, dec)
 			s.RegisterShard(shardConn)
 			<-s.ConnectionAdded
 			fmt.Println("Sleep on connection")
 			go s.ReceiveInterShard(shardConn)
 		}
-		<-s.Finish
+		//<-s.Finish
 	} else if strings.ToLower(*flagMode) == "test" {
 		shardDial := "localhost" + ":12351"
 		_, _ = net.Dial("tcp", shardDial)

@@ -1155,54 +1155,6 @@ func (b *BlockChain) createChainState() error {
 	return err
 }
 
-// SqlCreateChainState initializes both the database and the chain state to the
-// genesis block.  This includes creating the necessary buckets and inserting
-// the genesis block, so it must only be called on an uninitialized database.
-// NOTE Start from removing the database related parts from here
-func (b *BlockChain) sqlCreateChainState() error {
-
-	// Create a new node from the genesis block and set it as the best node.
-	genesisBlock := btcutil.NewFullBlock(b.chainParams.GenesisBlock)
-	header := genesisBlock.Header()
-	node := NewBlockNode(header, nil)
-	node.Status = StatusDataStored | statusValid
-	b.bestChain.SetTip(node)
-
-	// Add the new node to the index which is used for faster lookups.
-	b.index.AddNode(node)
-
-	// Initialize the state related to the best block.  Since it is the
-	// genesis block, use its timestamp for the median time.
-	numTxns := uint64(len(genesisBlock.MsgBlock().(*wire.MsgBlock).Transactions))
-	blockSize := uint64(genesisBlock.MsgBlock().(*wire.MsgBlock).SerializeSize())
-	blockWeight := uint64(GetBlockWeight(genesisBlock))
-	b.stateSnapshot = newBestState(node, blockSize, blockWeight, numTxns,
-		numTxns, time.Unix(node.timestamp, 0))
-
-	// Create the initial the database chain state including creating the
-	// necessary index buckets and inserting the genesis block.
-
-	// Store the genesis block into the database.
-	//return dbTx.StoreBlock(genesisBlock)
-
-	// Create headers table
-	err := b.SQLDB.InitTables()
-
-	b.SQLDB.AddBlock(genesisBlock.MsgBlock().(*wire.MsgBlock))
-
-	return err
-}
-
-// sqlInitChainState attempts to load and initialize the chain state from the SQL
-// database.  When the db does not yet contain any chain state, both it and the
-// chain state are initialized to the genesis block.
-func (b *BlockChain) sqlInitChainState() error {
-
-	// At this point the database has not already been initialized, so
-	// initialize both it and the chain state to the genesis block.
-	return b.sqlCreateChainState()
-}
-
 // initChainState attempts to load and initialize the chain state from the
 // database.  When the db does not yet contain any chain state, both it and the
 // chain state are initialized to the genesis block.
@@ -1514,22 +1466,25 @@ func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (btcutil.Block, error) {
 	return block, err
 }
 
-// BlockShardByHash returns the block shard from the main chain with the given hash with
-// the appropriate chain height. i.e, all transactions that refer to the block hash and
-// relevant indexes
+// BlockShardByHash returns the block from the main chain with the given hash with
+// the appropriate chain height set.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) BlockShardByHash(hash *chainhash.Hash) (*wire.MsgBlockShard, error) {
-	// Lookup the block hash in block index and ensure it is in the best
-	// chain.
-	node := b.index.LookupNode(hash)
-	if node == nil || !b.bestChain.Contains(node) {
-		str := fmt.Sprintf("block %s is not in the main chain", hash)
-		reallog.Println(str)
-		return nil, errNotInMainChain(str)
-	}
+func (b *BlockChain) BlockShardByHash(hash chainhash.Hash) (*wire.MsgBlockShard, error) {
+	//// Lookup the block hash in block index and ensure it is in the best
+	//// chain.
+	//node := b.index.LookupNode(hash)
+	//if node == nil || !b.bestChain.Contains(node) {
+	//	str := fmt.Sprintf("block %s is not in the main chain", hash)
+	//	return nil, errNotInMainChain(str)
+	//}
 
-	blockShard := b.SQLDB.FetchTXs(*hash)
-	return blockShard, nil
-
+	//// Load the block from the database and return it.
+	//var block btcutil.Block
+	//err := b.db.View(func(dbTx database.Tx) error {
+	//	var err error
+	//	block, err = dbFetchBlockByNode(dbTx, node)
+	//	return err
+	//})
+	return nil, nil
 }

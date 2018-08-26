@@ -1,15 +1,15 @@
 {
     "server": {
-        "server_log": "testlog.log",
+        "server_log": "testlog1.log",
         "server_shards_port": ":12345",
         "server_coords_port": ":12346",
-        "server_db": "testdb"
+        "server_db": "testdbc1"
     },
     "shard": {
-        "shard_log": "stestlog2.log",
+        "shard_log": "stestlog12.log",
         "shard_inter_port": ":12352",
         "shard_intra_port": ":12452",
         "shard_ip": "127.0.0.1",
-        "shard_db": "testdbs2"
+        "shard_db": "testdbs22"
     }
 }

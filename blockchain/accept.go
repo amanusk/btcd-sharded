@@ -112,7 +112,7 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 	}
 
 	blockHeight := prevNode.GetHeight() + 1
-	//block.SetHeight(blockHeight)
+	//headerBlock.SetHeight(blockHeight)
 	//reallog.Println("Block height set to ", blockHeight)
 
 	// The block must pass all of the validation rules which depend on the
@@ -167,6 +167,93 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 	// This should only happen after all shards successfuly validated,
 	// For now we keep it optimistic
 	b.bestChain.SetTip(newNode)
+
+	//	// Notify the caller that the new block was accepted into the block
+	//	// chain.  The caller would typically want to react by relaying the
+	//	// inventory to other peers.
+	//	b.chainLock.Unlock()
+	//	b.sendNotification(NTBlockAccepted, block)
+	//	b.chainLock.Lock()
+
+	// TODO chaing to isMainChain
+	return true, nil
+}
+
+// ShardMaybeAcceptBlock performs sanity checks on the block header, inserts
+// the coinbase transaction, and updates the hash of the latest block
+func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flags BehaviorFlags) (bool, error) {
+	// The height of this block is one more than the referenced previous
+	// block.
+	header := headerBlock.Header
+
+	prevHash := header.PrevBlock
+	prevNode := shard.Chain.index.LookupNode(&prevHash)
+	if prevNode == nil {
+		str := fmt.Sprintf("previous block %s is unknown", prevHash)
+		reallog.Print(str)
+		return false, nil
+	} else if shard.Chain.index.NodeStatus(prevNode).KnownInvalid() {
+		str := fmt.Sprintf("previous block %s is known to be invalid", prevHash)
+		reallog.Print(str)
+		return false, nil
+	}
+
+	blockHeight := prevNode.GetHeight() + 1
+	//block.SetHeight(blockHeight)
+	//reallog.Println("Block height set to ", blockHeight)
+
+	// The block must pass all of the validation rules which depend on the
+	// position of the block within the block chain.
+	//err := checkBlockContext(block, prevNode, flags)
+	//if err != nil {
+	//	return false, err
+	//}
+
+	// Insert the block into the database if it's not already there.  Even
+	// though it is possible the block will ultimately fail to connect, it
+	// has already passed all proof-of-work and validity tests which means
+	// it would be prohibitively expensive for an attacker to fill up the
+	// disk with a bunch of blocks that fail to connect.  This is necessary
+	// since it allows block download to be decoupled from the much more
+	// expensive connection logic.  It also has some other nice properties
+	// such as making blocks that never become part of the main chain or
+	// blocks that fail to connect available for further analysis.
+	block := btcutil.NewFullBlock(wire.NewMsgBlockFromShard(headerBlock))
+	err := shard.Chain.db.Update(func(dbTx database.Tx) error {
+		return dbStoreBlock(dbTx, block)
+	})
+	if err != nil {
+		return false, err
+	}
+
+	// Create a new block node for the block and add it to the in-memory
+	// block chain (could be either a side chain or the main chain).
+	newNode := NewBlockNode(&header, prevNode)
+	newNode.Status = StatusDataStored
+	if prevNode != nil {
+		newNode.SetParent(prevNode)
+		newNode.SetHeight(blockHeight)
+		newNode.WorkSum.Add(prevNode.WorkSum, newNode.WorkSum)
+	}
+	// Block is added to the index, only the coordinator holds the index
+	shard.Chain.index.AddNode(newNode)
+	err = shard.Chain.index.flushToDB()
+
+	// NOTE: Each shard is validating its part
+	// The coorinator is validating the coinbase transaction!
+	// selection according to the chain with the most proof of work.  This
+	// also handles validation of the transaction scripts.
+	// TODO: Check if added to main chain
+	// TODO: This is where we will be able to reorgenise if needed
+	_, err = shard.ShardConnectBestChain(newNode, block, flags)
+	if err != nil {
+		return false, err
+	}
+
+	// This node is now the end of the best chain.
+	// This should only happen after all shards successfuly validated,
+	// For now we keep it optimistic
+	shard.Chain.bestChain.SetTip(newNode)
 
 	//	// Notify the caller that the new block was accepted into the block
 	//	// chain.  The caller would typically want to react by relaying the

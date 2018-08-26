@@ -96,7 +96,6 @@ type BlockChain struct {
 	checkpoints         []chaincfg.Checkpoint
 	checkpointsByHeight map[int32]*chaincfg.Checkpoint
 	db                  database.DB
-	SQLDB               *SQLBlockDB
 	chainParams         *chaincfg.Params
 	timeSource          MedianTimeSource
 	sigCache            *txscript.SigCache
@@ -1306,7 +1305,6 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 		// Perform several checks to verify the block can be connected
 		// to the main chain without violating any rules and without
 		// actually connecting the block.
-		//view := NewSQLUtxoViewpoint(b.SqlDB)
 		view := NewUtxoViewpoint()
 		view.SetBestHash(parentHash)
 		//stxos := make([]spentTxOut, 0, countSpentOutputs(block))
@@ -1386,7 +1384,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 
 // ShardConnectBestChain is to be used by a shard connecting TXs to the blockchain
 // This is similar to ConnectBestChain but performed by each shard
-func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) (bool, error) {
+func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block, flags BehaviorFlags) (bool, error) {
 	//fastAdd := true
 
 	// We are extending the main (best) chain with a new block.  This is the
@@ -1396,7 +1394,6 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block) 
 		// Perform several checks to verify the block can be connected
 		// to the main chain without violating any rules and without
 		// actually connecting the block.
-		//globalView := NewSQLUtxoViewpoint(shard.SqlDB)
 		view := NewUtxoViewpoint()
 		//view.SetBestHash(parentHash)
 		numStxos := 0
@@ -1517,22 +1514,6 @@ func (b *BlockChain) FetchHeader(hash *chainhash.Hash) (wire.BlockHeader, error)
 	})
 	if err != nil {
 		return wire.BlockHeader{}, err
-	}
-	return *header, nil
-}
-
-// SQLFetchHeader returns the block header identified by the given hash or an error
-// if it doesn't exist.
-func (b *BlockChain) SQLFetchHeader(hash *chainhash.Hash) (wire.BlockHeader, error) {
-	// Reconstruct the header from the block index if possible.
-	if node := b.index.LookupNode(hash); node != nil {
-		return node.Header(), nil
-	}
-
-	// Fall back to loading it from the database.
-	header, err := sqlDbFetchHeaderByHash(b.SQLDB, hash)
-	if err != nil {
-		logging.Fatalln("Unable to fetch block")
 	}
 	return *header, nil
 }
@@ -1911,9 +1892,6 @@ type Config struct {
 	//
 	// This field is required.
 	DB database.DB
-
-	// sqlDB for my simplified blockchain
-	SQLDB *SQLBlockDB
 
 	// Interrupt specifies a channel the caller can close to signal that
 	// long running operations, such as catching up indexes or performing

@@ -3,14 +3,13 @@
         "server_log": "testlog2.log",
         "server_shards_port": ":22345",
         "server_coords_port": ":22346",
-        "server_target_server": "12346",
         "server_db": "testdbc2"
     },
     "shard": {
-        "shard_log": "stestlog21.log",
-        "shard_inter_port": ":22351",
-        "shard_intra_port": ":22451",
+        "shard_log": "stestlog22.log",
+        "shard_inter_port": ":22352",
+        "shard_intra_port": ":22452",
         "shard_ip": "127.0.0.1",
-        "shard_db": "testdbs21"
+        "shard_db": "testdbs22"
     }
 }

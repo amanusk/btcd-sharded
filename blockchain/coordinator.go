@@ -390,11 +390,9 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 			logging.Println("Unable to fetch hash of block ", i)
 		}
 		// TODO change to fetch header + coinbase
-		header, err := coord.Chain.SQLFetchHeader(blockHash)
+		header, err := coord.Chain.FetchHeader(blockHash)
 
 		headerBlock := wire.NewMsgBlockShard(&header)
-		coinbase := coord.Chain.SQLDB.FetchCoinbase(blockHash)
-		headerBlock.AddTransaction(coinbase)
 
 		logging.Println("sending block hash ", header.BlockHash())
 		logging.Println("Sending block on", conn)
