@@ -59,6 +59,20 @@ func GetBlockWeight(blk btcutil.Block) int64 {
 	return int64((baseSize * (WitnessScaleFactor - 1)) + totalSize)
 }
 
+// GetBlockShardWeight computes the value of the weight metric for a given block.
+// Currently the weight metric is simply the sum of the block's serialized size
+// without any witness data scaled proportionally by the WitnessScaleFactor,
+// and the block's serialized size including any witness data.
+func GetBlockShardWeight(blk btcutil.Block) int64 {
+	msgBlock := blk.MsgBlock()
+
+	baseSize := msgBlock.(*wire.MsgBlockShard).SerializeSizeStripped()
+	totalSize := msgBlock.(*wire.MsgBlockShard).SerializeSize()
+
+	// (baseSize * 3) + totalSize
+	return int64((baseSize * (WitnessScaleFactor - 1)) + totalSize)
+}
+
 // GetTransactionWeight computes the value of the weight metric for a given
 // transaction. Currently the weight metric is simply the sum of the
 // transactions's serialized size without any witness data scaled

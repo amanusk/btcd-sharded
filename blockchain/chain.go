@@ -688,6 +688,140 @@ func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view Utx
 	b.chainLock.Lock()
 
 	return nil
+
+}
+
+// connectBlockShard handles connecting the passed node/block to the end of the main
+// (best) chain.
+//
+// This passed utxo view must have all referenced txos the block spends marked
+// as spent and all of the new txos the block creates added to it.  In addition,
+// the passed stxos slice must be populated with all of the information for the
+// spent txos.  This approach is used because the connection validation that
+// must happen prior to calling this function requires the same details, so
+// it would be inefficient to repeat it.
+//
+// This function MUST be called with the chain state lock held (for writes).
+func (b *BlockChain) connectBlockShard(node *BlockNode, block btcutil.Block, view UtxoView, stxos []spentTxOut) error {
+	// Make sure it's extending the end of the best chain.
+	prevHash := &block.Header().PrevBlock
+	if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
+		return AssertError("connectBlock must be called with a block " +
+			"that extends the main chain")
+	}
+
+	// Sanity check the correct number of stxos are provided.
+	// stxos could be nil in case of coordinator
+	if stxos != nil {
+		if len(stxos) != countSpentOutputs(block) {
+			return AssertError("connectBlock called with inconsistent " +
+				"spent transaction out information")
+		}
+	}
+
+	// No warnings about unknown rules or versions until the chain is
+	// current.
+	if b.isCurrent() {
+		// Warn if any unknown new rules are either about to activate or
+		// have already been activated.
+		if err := b.warnUnknownRuleActivations(node); err != nil {
+			return err
+		}
+
+		// Warn if a high enough percentage of the last blocks have
+		// unexpected versions.
+		//if err := b.warnUnknownVersions(node); err != nil {
+		//	return err
+		//}
+	}
+
+	// Write any block status changes to DB before updating best state.
+	err := b.index.flushToDB()
+	if err != nil {
+		return err
+	}
+
+	// Generate a new best state snapshot that will be used to update the
+	// database and later memory if all database updates are successful.
+	b.stateLock.RLock()
+	curTotalTxns := b.stateSnapshot.TotalTxns
+	b.stateLock.RUnlock()
+	numTxns := uint64(len(block.MsgBlock().(*wire.MsgBlockShard).Transactions))
+	blockSize := uint64(block.MsgBlock().(*wire.MsgBlockShard).SerializeSize())
+	blockWeight := uint64(GetBlockShardWeight(block))
+	state := newBestState(node, blockSize, blockWeight, numTxns,
+		curTotalTxns+numTxns, node.CalcPastMedianTime())
+
+	// Atomically insert info into the database.
+	err = b.db.Update(func(dbTx database.Tx) error {
+		// Update best block state.
+		err := dbPutBestState(dbTx, state, node.WorkSum)
+		if err != nil {
+			return err
+		}
+
+		// Add the block hash and height to the block index which tracks
+		// the main chain.
+		err = dbPutBlockIndex(dbTx, block.Hash(), node.height)
+		if err != nil {
+			return err
+		}
+
+		// Update the utxo set using the state of the utxo view.  This
+		// entails removing all of the utxos spent and adding the new
+		// ones created by the block.
+		err = dbPutUtxoView(dbTx, view)
+		if err != nil {
+			return err
+		}
+
+		// Update the transaction spend journal by adding a record for
+		// the block that contains all txos spent by it.
+		err = dbPutSpendJournalEntry(dbTx, block.Hash(), stxos)
+		if err != nil {
+			return err
+		}
+
+		// Allow the index manager to call each of the currently active
+		// optional indexes with the block being connected so they can
+		// update themselves accordingly.
+		if b.indexManager != nil {
+			err := b.indexManager.ConnectBlock(dbTx, block, view)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Prune fully spent entries and mark all entries in the view unmodified
+	// now that the modifications have been committed to the database.
+	view.Commit()
+
+	// This node is now the end of the best chain.
+	b.bestChain.SetTip(node)
+
+	// Update the state for the best block.  Notice how this replaces the
+	// entire struct instead of updating the existing one.  This effectively
+	// allows the old version to act as a snapshot which callers can use
+	// freely without needing to hold a lock for the duration.  See the
+	// comments on the state variable for more details.
+	b.stateLock.Lock()
+	b.stateSnapshot = state
+	b.stateLock.Unlock()
+
+	// Notify the caller that the block was connected to the main chain.
+	// The caller would typically want to react with actions such as
+	// updating wallets.
+	// b.chainLock.Unlock()
+	// b.sendNotification(NTBlockConnected, block)
+	// b.chainLock.Lock()
+
+	return nil
 }
 
 // sqlConnectBlock handles connecting the passed node/block to the end of the main
@@ -1333,7 +1467,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 
 		logging.Println("Connecting block", block.Hash())
 		// Connect the block to the main chain.
-		err := b.connectBlock(node, block, view, nil)
+		err := b.connectBlockShard(node, block, view, nil)
 		if err != nil {
 			return false, err
 		}
@@ -1436,7 +1570,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block, 
 		// Connect the block to the main chain.
 		// NOTE: This writes all the updated databases to the DB
 		logging.Println("Connecting block", block.Hash())
-		err = sqlConnectBlock(shard.Chain.db, block, view, stxos)
+		err = shard.Chain.connectBlockShard(node, block, view, stxos)
 		if err != nil {
 			logging.Print("Failed to connect block: ", err)
 			return false, err

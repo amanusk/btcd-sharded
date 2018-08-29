@@ -188,9 +188,10 @@ func (coord *Coordinator) HandleCoordMessages(conn net.Conn) {
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
 
-	dec := gob.NewDecoder(conn)
+	dec := coord.coords[conn].Dec
 	for {
 		var msg Message
+		logging.Println("Waiting on message on", &dec)
 		err := dec.Decode(&msg)
 		if err != nil {
 			logging.Println("Error decoding GOB data:", err)
@@ -207,7 +208,7 @@ func (coord *Coordinator) HandleCoordMessages(conn net.Conn) {
 			block := msg.Data.(RawBlockGob)
 			coord.handleProcessBlock(&block, conn)
 		case "REQBLOCKS":
-			coord.handleRequestBlocks(conn)
+			go coord.handleRequestBlocks(conn)
 		case "BLOCKDONE":
 			logging.Println("Message BLOCKDONE")
 			coord.handleBlockDone(conn)
@@ -357,6 +358,11 @@ func (coord *Coordinator) sendBlockDone(conn net.Conn) {
 	logging.Println("Sending BLOCKDONE")
 	// TODO: This should be sent to a specific coordinator
 	enc := coord.coords[conn].Enc
+	if enc != nil {
+		logging.Println("Sending block done on enc", &enc)
+	} else {
+		logging.Println("Could not find enc", &enc)
+	}
 
 	msg := Message{
 		Cmd: "BLOCKDONE",
@@ -417,6 +423,7 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		logging.Println("Waiting for conformation on block")
 
 		<-coord.BlockDone
+		logging.Println("Received block done")
 
 	}
 	return
@@ -500,8 +507,8 @@ func (coord *Coordinator) ListenToCoordinators() error {
 		dec := gob.NewDecoder(connection)
 		c := NewCoordConnection(connection, enc, dec)
 		coord.RegisterCoord(c)
-		go coord.ReceiveCoord(c)
 		<-coord.ConnectectionAdded
+		go coord.ReceiveCoord(c)
 	}
 }
 
@@ -510,11 +517,14 @@ func (coord *Coordinator) ListenToCoordinators() error {
 func (coord *Coordinator) SendBlocksRequest() {
 	logging.Println("Sending blocks request")
 	for _, c := range coord.coords {
+
 		enc := c.Enc
 
 		msg := Message{
 			Cmd: "REQBLOCKS",
 		}
+
+		logging.Println("Sending REQBLOCKS on", enc)
 		err := enc.Encode(msg)
 		if err != nil {
 			logging.Println("Error encoding addresses GOB data:", err)

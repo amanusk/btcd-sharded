@@ -1364,6 +1364,26 @@ func dbFetchBlockByNode(dbTx database.Tx, node *BlockNode) (btcutil.Block, error
 	return block, nil
 }
 
+// dbFetchBlockShardByNode uses an existing database transaction to retrieve the
+// raw blockshardfor the provided node, deserialize it, and return a btcutil.Block
+// with the height set.
+func dbFetchBlockShardByNode(dbTx database.Tx, node *BlockNode) (btcutil.Block, error) {
+	// Load the raw block bytes from the database.
+	blockBytes, err := dbTx.FetchBlock(&node.hash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the encapsulated block and set the height appropriately.
+	block, err := btcutil.NewBlockShardFromBytes(blockBytes)
+	if err != nil {
+		return nil, err
+	}
+	block.SetHeight(node.height)
+
+	return block, nil
+}
+
 // dbStoreBlockNode stores the block header and validation status to the block
 // index bucket. This overwrites the current entry if there exists one.
 func dbStoreBlockNode(dbTx database.Tx, node *BlockNode) error {
@@ -1470,21 +1490,21 @@ func (b *BlockChain) BlockByHash(hash *chainhash.Hash) (btcutil.Block, error) {
 // the appropriate chain height set.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) BlockShardByHash(hash chainhash.Hash) (*wire.MsgBlockShard, error) {
-	//// Lookup the block hash in block index and ensure it is in the best
-	//// chain.
-	//node := b.index.LookupNode(hash)
-	//if node == nil || !b.bestChain.Contains(node) {
-	//	str := fmt.Sprintf("block %s is not in the main chain", hash)
-	//	return nil, errNotInMainChain(str)
-	//}
+func (b *BlockChain) BlockShardByHash(hash *chainhash.Hash) (btcutil.Block, error) {
+	// Lookup the block hash in block index and ensure it is in the best
+	// chain.
+	node := b.index.LookupNode(hash)
+	if node == nil || !b.bestChain.Contains(node) {
+		str := fmt.Sprintf("block %s is not in the main chain", hash)
+		return nil, errNotInMainChain(str)
+	}
 
-	//// Load the block from the database and return it.
-	//var block btcutil.Block
-	//err := b.db.View(func(dbTx database.Tx) error {
-	//	var err error
-	//	block, err = dbFetchBlockByNode(dbTx, node)
-	//	return err
-	//})
-	return nil, nil
+	// Load the block from the database and return it.
+	var block btcutil.Block
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+		block, err = dbFetchBlockShardByNode(dbTx, node)
+		return err
+	})
+	return block, err
 }

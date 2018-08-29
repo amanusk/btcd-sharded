@@ -131,7 +131,7 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flag
 	// expensive connection logic.  It also has some other nice properties
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
-	block := btcutil.NewFullBlock(wire.NewMsgBlockFromShard(headerBlock))
+	block := btcutil.NewBlockShard(headerBlock)
 	err := b.db.Update(func(dbTx database.Tx) error {
 		return dbStoreBlock(dbTx, block)
 	})
@@ -218,7 +218,7 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlockShard, flags
 	// expensive connection logic.  It also has some other nice properties
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
-	block := btcutil.NewFullBlock(wire.NewMsgBlockFromShard(headerBlock))
+	block := btcutil.NewBlockShard(headerBlock)
 	err := shard.Chain.db.Update(func(dbTx database.Tx) error {
 		return dbStoreBlock(dbTx, block)
 	})

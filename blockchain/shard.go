@@ -128,24 +128,29 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	logging.Println("Received request to send a block shard")
 
-	msgBlock, _ := shard.Chain.BlockShardByHash(header.Header.BlockHash())
-	msgBlock.Header = *header.Header
+	blockHash := header.Header.BlockHash()
+	block, _ := shard.Chain.BlockShardByHash(&blockHash)
+
+	// for _, tx := range block.TransactionsMap() {
+	// 	spew.Dump(tx)
+	// }
 
 	// Create a gob of serialized msgBlock
 	msg := Message{
 		Cmd: "PRCBLOCK",
 		Data: RawBlockGob{
-			Block:  msgBlock,
+			Block:  block.MsgBlock().(*wire.MsgBlockShard),
 			Flags:  BFNone,
 			Height: header.Height,
 		},
 	}
 	//Actually write the GOB on the socket
-	enc := gob.NewEncoder(conn)
+	enc := shard.interShards[conn].Enc
 	err := enc.Encode(msg)
 	if err != nil {
 		logging.Println(err, "Encode failed for struct: %#v", msg)
 	}
+	logging.Println("Sent block for process", block.Hash())
 
 }
 
@@ -300,9 +305,9 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 
 		// Messages related to processing a block
 		case "PRCBLOCK":
+			logging.Println("Received instruction to process block from intrashard")
 			block := msg.Data.(RawBlockGob)
-			go shard.handleProcessBlock(&block)
-		// Receive a combined bloom filter from coordinator
+			shard.handleProcessBlock(&block)
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
 		}
