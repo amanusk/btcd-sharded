@@ -226,15 +226,20 @@ func (coord *Coordinator) ReceiveIntraShard(shard *Shard) {
 
 // NotifyShards function sends a message to each of the shards connected to the coordinator
 // informing it of the connections to other shards it needs to establish
-func (coord *Coordinator) NotifyShards(addressList []*net.TCPAddr) {
-	for _, shard := range coord.shards {
-		enc := shard.Enc
+func (coord *Coordinator) NotifyShards(dhtTable map[int]net.TCPAddr) {
+	for remoteShardIdx, remoteShardAddress := range dhtTable {
+		logging.Println("Sending to shard at index", remoteShardIdx)
+		enc := coord.shards[coord.dht[remoteShardIdx]].Enc
+		logging.Println("Sending address", remoteShardIdx, "to", remoteShardIdx)
 
-		// TODO here there should be some logic to sort which shard gets what
+		var addresses []*net.TCPAddr
+		// Only need one address
+		addresses = append(addresses, &remoteShardAddress)
+
 		msg := Message{
 			Cmd: "SHARDCON",
 			Data: AddressesGob{
-				Addresses: addressList,
+				Addresses: addresses,
 			},
 		}
 		logging.Print("Shards gob", msg.Data)
@@ -315,21 +320,18 @@ func (coord *Coordinator) handleBlockDone(conn net.Conn) {
 func (coord *Coordinator) handleGetShards(conn net.Conn) {
 
 	logging.Print("Receive shards request")
-	// TODO TODO TODO Change this to work with messages like evrything else
-	// TODO TODO TODO change to consider the dht
 	shardConnections := coord.GetShardsConnections()
 
 	logging.Print("Shards to send", shardConnections)
 
 	// All data is sent in gobs
-	shardsToSend := AddressesGob{
-		Addresses: shardConnections,
+	msg := DHTGob{
+		DHTTable: shardConnections,
 	}
-	logging.Print("Shards gob", shardsToSend.Addresses[0])
 
 	//Actually write the GOB on the socket
 	enc := coord.coords[conn].Enc
-	err := enc.Encode(shardsToSend)
+	err := enc.Encode(msg)
 	if err != nil {
 		logging.Println("Error encoding addresses GOB data:", err)
 		return
@@ -431,15 +433,17 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 }
 
 // GetShardsConnections returns all the shards in the coordinator shards maps
-func (coord *Coordinator) GetShardsConnections() []*net.TCPAddr {
-	connections := make([]*net.TCPAddr, 0, len(coord.shards))
+func (coord *Coordinator) GetShardsConnections() map[int]net.TCPAddr {
+	addressMap := make(map[int]net.TCPAddr)
 
-	for con, shard := range coord.shards {
-		conn := con.RemoteAddr().(*net.TCPAddr)
-		conn.Port = shard.Port // The port the shard is listening to other shards
-		connections = append(connections, conn)
+	for _, shard := range coord.shards {
+		var address net.TCPAddr
+		address.IP = shard.IP
+		address.Port = shard.Port
+		addressMap[shard.Index] = address
+		logging.Println("Adding shard", shard.Index, "IP:", shard.IP, "Port", shard.Port)
 	}
-	return connections
+	return addressMap
 
 }
 
@@ -587,9 +591,13 @@ func (coord *Coordinator) SendDHT(conn net.Conn) {
 
 func (coord *Coordinator) handleRepliedInfo(addresses []*net.TCPAddr, shardIndex int, conn net.Conn) {
 	// Set information on current shard port and IP
+	// address[0] is the shard inter port
+	// address[1] is the shard intra port
 	coord.shards[conn].Port = addresses[0].Port
 	coord.shards[conn].IP = addresses[0].IP
-	// Set shard dht index
+	// Map shard to index (needed for other peers)
+	coord.dht[shardIndex] = conn
+	// Map Address to index, needed for other shards
 	coord.shardsIntraAddr[shardIndex] = *addresses[1]
 	logging.Println("Receive shards addresses")
 	logging.Println("Inter", addresses[0])

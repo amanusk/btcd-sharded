@@ -1202,6 +1202,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// signature operations in each of the input transaction public key
 	// scripts.
 	transactions := block.TransactionsMap()
+	for _, tx := range transactions {
+		logging.Println("Connecting Tx", tx.Hash(), "index", tx.Index())
+	}
 	totalSigOpCost := 0
 	for i, tx := range transactions {
 		// Since the first (and only the first) transaction has
@@ -1293,12 +1296,12 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// Now we fetch the utxos others are missing and populate them with
 	// output information
 	retreivedTxOuts := GetRequestedMissingTxOuts(shard.requestedTxOutsMap, view, node.height, shard.Chain.db)
-
-	//for shardIdx, reqTxOuts := range retreivedTxOuts {
-	//	for txOut := range reqTxOuts {
-	//		logging.Println("Fetched", txOut, "for", shardIdx)
-	//	}
-	//}
+	logging.Println("The fetched requested transactions:")
+	for shardIdx, reqTxOuts := range retreivedTxOuts {
+		for txOut := range reqTxOuts {
+			logging.Println("Fetched", txOut, "for", shardIdx)
+		}
+	}
 
 	// Send all TxOuts requested from you
 	shard.SendRequestedTxOuts(retreivedTxOuts)

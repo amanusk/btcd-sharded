@@ -558,7 +558,7 @@ func main() {
 			dec := gob.NewDecoder(connection)
 			// NOTE: this should be either a constant, or sent to the coord
 			// once connection is established
-			shard := blockchain.NewShardConnection(connection, 0, enc, dec)
+			shard := blockchain.NewShardConnection(connection, 0, shardCount, enc, dec)
 			coord.RegisterShard(shard)
 			// Wait for write to map to finish
 			<-coord.ConnectectionAdded
@@ -600,14 +600,14 @@ func main() {
 				logging.Println(err, "Encode failed for struct: %#v", msg)
 			}
 			// TODO Change to work with Message + Move to Coord
-			var receivedShards blockchain.AddressesGob
+			var receivedShards blockchain.DHTGob
 
 			err = dec.Decode(&receivedShards)
 			if err != nil {
 				logging.Println("Error decoding GOB data:", err)
 				return
 			}
-			coord.NotifyShards(receivedShards.Addresses)
+			coord.NotifyShards(receivedShards.DHTTable)
 
 			for i := 0; i < numShards; i++ {
 				<-coord.ConnectedOut
@@ -654,6 +654,7 @@ func main() {
 		gob.Register(blockchain.HeaderGob{})
 		gob.Register(blockchain.RawBlockGob{})
 		gob.Register(blockchain.AddressesGob{})
+		gob.Register(blockchain.DHTGob{})
 
 		coordEnc := coordConn.Enc
 
@@ -667,62 +668,23 @@ func main() {
 			logging.Println(err, "Encode failed for struct: %#v", msg)
 		}
 
-		var receivedShards blockchain.AddressesGob
+		var receivedMessage blockchain.DHTGob
 
 		dec = coordConn.Dec
-		err = dec.Decode(&receivedShards)
+		err = dec.Decode(&receivedMessage)
 		if err != nil {
 			logging.Println("Error decoding GOB data:", err)
 			return
 		}
+		receivedDht := receivedMessage.DHTTable
 		// Receive peer shards, and create connection with it
 		shardConn := make([]*blockchain.Shard, numShards)
-
-		shardDial := receivedShards.Addresses[0].IP.String() + ":12351"
-		connection, err = net.Dial("tcp", shardDial)
-		enc = gob.NewEncoder(connection)
-		dec = gob.NewDecoder(connection)
-		shardConn[0] = blockchain.NewShardConnection(connection, 0, enc, dec)
-
-		// NOTE: change if running on multiple machines
-		if numShards > 1 {
-			shardDial = "localhost:12352"
-			connection, err = net.Dial("tcp", shardDial)
-			enc := gob.NewEncoder(connection)
-			dec := gob.NewDecoder(connection)
-			shardConn[1] = blockchain.NewShardConnection(connection, 0, enc, dec)
-		}
-		if numShards > 2 {
-			shardDial = "localhost:12353"
-			connection, err = net.Dial("tcp", shardDial)
-			enc := gob.NewEncoder(connection)
-			dec := gob.NewDecoder(connection)
-			shardConn[2] = blockchain.NewShardConnection(connection, 0, enc, dec)
-		}
-		if numShards > 3 {
-			shardDial = "localhost:12354"
-			connection, err = net.Dial("tcp", shardDial)
-			enc := gob.NewEncoder(connection)
-			dec := gob.NewDecoder(connection)
-			shardConn[3] = blockchain.NewShardConnection(connection, 0, enc, dec)
-		}
-		if numShards > 4 {
-			shardDial = "localhost:12355"
-			connection, err = net.Dial("tcp", shardDial)
-			enc := gob.NewEncoder(connection)
-			dec := gob.NewDecoder(connection)
-			shardConn[4] = blockchain.NewShardConnection(connection, 0, enc, dec)
-		}
-		if numShards > 5 {
-			shardDial = "localhost:12356"
-			connection, err = net.Dial("tcp", shardDial)
-			enc := gob.NewEncoder(connection)
-			dec := gob.NewDecoder(connection)
-			shardConn[5] = blockchain.NewShardConnection(connection, 0, enc, dec)
-		}
-
-		if err != nil {
-			fmt.Println(err)
+		// TODO: Connect according to the infomration in the GOB
+		for shardIdx, shardAddress := range receivedDht {
+			connection, err = net.Dial("tcp", shardAddress.IP.String()+":"+strconv.Itoa(shardAddress.Port))
+			enc = gob.NewEncoder(connection)
+			dec = gob.NewDecoder(connection)
+			shardConn[shardIdx] = blockchain.NewShardConnection(connection, 0, shardIdx, enc, dec)
 		}
 
 		// testAcceptedBlock attempts to process the block in the provided test
@@ -970,7 +932,7 @@ func main() {
 			connection, _ := s.ShardInterListener.Accept()
 			enc := gob.NewEncoder(connection)
 			dec := gob.NewDecoder(connection)
-			shardConn := blockchain.NewShardConnection(connection, 0, enc, dec)
+			shardConn := blockchain.NewShardConnection(connection, 0, 0, enc, dec)
 			s.RegisterShard(shardConn)
 			<-s.ConnectionAdded
 			fmt.Println("Sleep on connection")

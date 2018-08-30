@@ -54,10 +54,11 @@ type Shard struct {
 
 // NewShardConnection Creates a new shard connection for a coordinator to use.
 // It has a connection and a channel to receive data from the server
-func NewShardConnection(connection net.Conn, shardPort int, enc *gob.Encoder, dec *gob.Decoder) *Shard {
+func NewShardConnection(connection net.Conn, shardPort int, index int, enc *gob.Encoder, dec *gob.Decoder) *Shard {
 	shard := &Shard{
 		Socket: connection, // The connection to use with coord/other shard
 		Port:   shardPort,  // Will store the prot the shard is listening to for other shards
+		Index:  index,
 		Enc:    enc,
 		Dec:    dec,
 	}
@@ -170,7 +171,7 @@ func (shard *Shard) handleConnectInterShard(receivedShardAddresses *AddressesGob
 		enc := gob.NewEncoder(connection)
 		dec := gob.NewDecoder(connection)
 
-		shardConn := NewShardConnection(connection, address.Port, enc, dec) // TODO: change
+		shardConn := NewShardConnection(connection, address.Port, 0, enc, dec) // TODO: change
 		shard.RegisterShard(shardConn)
 		<-shard.ConnectionAdded
 		go shard.ReceiveInterShard(shardConn)
@@ -263,7 +264,7 @@ func (shard *Shard) handleCoordMessages() {
 		// Get DHT from coordintor and connect to all
 		case "SHARDDHT":
 			DHTGob := msg.Data.(DHTGob)
-			shard.handleConnectIntraShards(DHTGob.DHTTable)
+			shard.handleConnectIntraShards(DHTGob.Index, DHTGob.DHTTable)
 		// handle an instruction from coordinator to request a block
 		case "REQBLOCK":
 			header := msg.Data.(HeaderGob)
@@ -488,7 +489,7 @@ func (shard *Shard) AwaitShards(numShards int) {
 			logging.Println("Did not receive shard number")
 		}
 		shardIndex := msg.Data.(int)
-		shardConn := NewShardConnection(connection, 0, enc, dec)
+		shardConn := NewShardConnection(connection, 0, shardIndex, enc, dec)
 		logging.Println("Connected to shard", shardIndex, "on", shardConn.Socket)
 		// Save mappings both ways for send and receive
 		// TODO: This is basically Register shard
@@ -514,7 +515,7 @@ func (shard *Shard) AwaitShards(numShards int) {
 
 // handleConnectIntraShards receives a map of addresses, connects to all, and registers
 // the connection in a local int->conn table
-func (shard *Shard) handleConnectIntraShards(dhtTable map[int]net.TCPAddr) {
+func (shard *Shard) handleConnectIntraShards(index int, dhtTable map[int]net.TCPAddr) {
 	for idx, address := range dhtTable {
 		logging.Println("Idx", idx)
 		logging.Println("Address", address)
@@ -544,7 +545,7 @@ func (shard *Shard) handleConnectIntraShards(dhtTable map[int]net.TCPAddr) {
 		if err != nil {
 			logging.Println(err, "Encode failed for struct: %#v", msg)
 		}
-		shardConn := NewShardConnection(connection, 0, enc, dec)
+		shardConn := NewShardConnection(connection, 0, shardIndex, enc, dec)
 		logging.Println("Connected to shard", shardIndex, "on", shardConn.Socket)
 		// Save mappings both ways for send and receive
 		shard.ShardNumToShard[shardIndex] = shardConn
@@ -561,9 +562,9 @@ func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]*U
 	for shardNum, intraShard := range shard.ShardNumToShard {
 		// Send on the open socket with the relevant shard
 		logging.Println("Sending missing outs to", shardNum)
-		//for txOut := range missingTxOuts[shardNum] {
-		//	logging.Println("Missing", txOut)
-		//}
+		for txOut := range missingTxOuts[shardNum] {
+			logging.Println("Missing", txOut)
+		}
 		enc := intraShard.Enc
 		logging.Println("Sending info on", intraShard.Socket)
 
@@ -582,6 +583,11 @@ func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]*U
 // SendRequestedTxOuts sends each shard a map of all the TxOuts it has earlier
 // requested.
 func (shard *Shard) SendRequestedTxOuts(requestedTxOuts map[int]map[wire.OutPoint]*UtxoEntry) {
+	for shardIdx, fetched := range requestedTxOuts {
+		for utxo := range fetched {
+			logging.Println("For shard", shardIdx, "Fetched", utxo)
+		}
+	}
 	for shardNum, intraShard := range shard.ShardNumToShard {
 		// Send on the open socket with the relevant shard
 		logging.Println("Sending retrieved outs to", shardNum)
@@ -631,9 +637,9 @@ func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.Ou
 	shard.requestedTxOutsMap.Lock()
 	shard.requestedTxOutsMap.TxOutsMap[shard.intraShards[conn].Index] = missingTxOuts
 	shard.requestedTxOutsMap.Unlock()
-	//for txOut := range missingTxOuts {
-	//	logging.Println("Got missing out", txOut)
-	//}
+	for txOut := range missingTxOuts {
+		logging.Println("Got missing out", txOut)
+	}
 	// Unlock wait for each shard to send missing
 	shard.receiveMissingRequest <- true
 }
