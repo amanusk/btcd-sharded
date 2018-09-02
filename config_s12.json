@@ -4,10 +4,10 @@
         "server_shards_port": "12345"
     },
     "shard": {
-        "shard_log": "stestlog10.log",
-        "shard_inter_port": "12350",
-        "shard_intra_port": "12450",
+        "shard_log": "stestlog12.log",
+        "shard_inter_port": "12352",
+        "shard_intra_port": "12452",
         "shard_ip": "192.168.1.15",
-        "shard_db": "testdbs10"
+        "shard_db": "testdbs12"
     }
 }

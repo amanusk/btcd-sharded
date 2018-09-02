@@ -152,28 +152,28 @@ def main():
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
 
-    # # This runs a single node, and makes sure the coordinator + orcacle work
-    # p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True)
-    # kill_all_prcesses(p_list)
+    # This runs a single node, and makes sure the coordinator + orcacle work
+    p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True)
+    kill_all_prcesses(p_list)
 
-    # if scan_log_files(2, 3):
-        # logging.debug("An error detected in one of the files")
+    if scan_log_files(1, 1):
+        logging.debug("An error detected in one of the files")
 
     # Try with 2 shards
     p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
     kill_all_prcesses(p_list)
 
-    # Try with 3 shards
-    # p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
-    # p2_list = run_n_shard_node(2, 2, False)
+    # Try with 2 nodes, 2 shards
+    p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
+    p2_list = run_n_shard_node(2, 2, False)
 
-    # time.sleep(5)
+    time.sleep(5)
 
-    # if scan_log_files(2, 2):
-    #     logging.debug("An error detected in one of the files")
+    if scan_log_files(2, 2):
+        logging.debug("An error detected in one of the files")
 
-    # kill_all_prcesses(p_list)
-    # kill_all_prcesses(p2_list)
+    kill_all_prcesses(p_list)
+    kill_all_prcesses(p2_list)
 
 
 def get_args():

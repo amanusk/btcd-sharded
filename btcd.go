@@ -40,6 +40,7 @@ type Config struct {
 	Server struct {
 		ServerLog             string `json:"server_log"`
 		ServerShardsPort      string `json:"server_shards_port"`
+		ServerShardsIP        string `json:"server_shards_ip"`
 		ServerCoordsPort      string `json:"server_coords_port"`
 		ServerTargetServer    string `json:"server_target_server"`
 		ServerTargetShardPort string `json:"server_target_shard_port"`
@@ -535,12 +536,12 @@ func main() {
 
 		// Start listener for shards
 		fmt.Println("Starting server...")
-		shardListener, error := net.Listen("tcp", config.Server.ServerShardsPort)
+		shardListener, error := net.Listen("tcp", ":"+config.Server.ServerShardsPort)
 		if error != nil {
 			fmt.Println(error)
 		}
 		// Listner for other coordinators (peers)
-		coordListener, error := net.Listen("tcp", config.Server.ServerCoordsPort)
+		coordListener, error := net.Listen("tcp", ":"+config.Server.ServerCoordsPort)
 		if error != nil {
 			fmt.Println(error)
 		}
@@ -580,7 +581,7 @@ func main() {
 
 		if !(*flagBoot) {
 			// connect to the already running server
-			connection, err := net.Dial("tcp", "localhost:"+config.Server.ServerTargetServer)
+			connection, err := net.Dial("tcp", config.Server.ServerTargetServer)
 			if err != nil {
 
 				fmt.Println(err)
@@ -636,7 +637,7 @@ func main() {
 
 		// Connect to coordinator
 		// TODO make this part of the config
-		connection, err := net.Dial("tcp", "localhost:12346")
+		connection, err := net.Dial("tcp", "192.168.1.15:12346")
 		enc := gob.NewEncoder(connection)
 		dec := gob.NewDecoder(connection)
 		coordConn := blockchain.NewCoordConnection(connection, enc, dec)
@@ -681,6 +682,8 @@ func main() {
 		shardConn := make([]*blockchain.Shard, numShards)
 		// TODO: Connect according to the infomration in the GOB
 		for shardIdx, shardAddress := range receivedDht {
+			fmt.Println("Connecting to", shardAddress.IP, shardAddress.Port)
+			fmt.Println("Connecting to", shardAddress.IP.String()+":"+strconv.Itoa(shardAddress.Port))
 			connection, err = net.Dial("tcp", shardAddress.IP.String()+":"+strconv.Itoa(shardAddress.Port))
 			enc = gob.NewEncoder(connection)
 			dec = gob.NewDecoder(connection)
@@ -875,25 +878,25 @@ func main() {
 		defer teardownFunc()
 
 		fmt.Println("Starting shard...")
-		connection, err := net.Dial("tcp", "localhost"+config.Server.ServerShardsPort)
+		connection, err := net.Dial("tcp", config.Server.ServerShardsIP+":"+config.Server.ServerShardsPort)
 		if err != nil {
 			fmt.Println(err)
 		}
 
 		// Listner for other shards to connect
-		shardInterListener, error := net.Listen("tcp", config.Shard.ShardInterPort)
+		shardInterListener, error := net.Listen("tcp", ":"+config.Shard.ShardInterPort)
 		if error != nil {
 			fmt.Println(error)
 		}
 
 		// Listner for other shards to connect
-		shardIntraListener, error := net.Listen("tcp", config.Shard.ShardIntraPort)
+		shardIntraListener, error := net.Listen("tcp", ":"+config.Shard.ShardIntraPort)
 		if error != nil {
 			fmt.Println(error)
 		}
 		logging.Println("Connection started", connection)
-		interShardPort, err := strconv.Atoi(config.Shard.ShardInterPort[1:])
-		intraShardPort, err := strconv.Atoi(config.Shard.ShardIntraPort[1:])
+		interShardPort, err := strconv.Atoi(config.Shard.ShardInterPort)
+		intraShardPort, err := strconv.Atoi(config.Shard.ShardIntraPort)
 		logging.Println("Shard inter port", interShardPort)
 		logging.Println("Shard intra port", intraShardPort)
 		if err != nil {
@@ -940,8 +943,6 @@ func main() {
 		}
 		//<-s.Finish
 	} else if strings.ToLower(*flagMode) == "test" {
-		shardDial := "localhost" + ":12351"
-		_, _ = net.Dial("tcp", shardDial)
 	}
 }
 
