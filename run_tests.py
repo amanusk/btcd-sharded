@@ -159,21 +159,23 @@ def main():
     if scan_log_files(1, 1):
         logging.debug("An error detected in one of the files")
 
-    # Try with 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
-    kill_all_prcesses(p_list)
+    # # Try with 2 shards
+    # p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
+    # kill_all_prcesses(p_list)
 
-    # Try with 2 nodes, 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
-    p2_list = run_n_shard_node(2, 2, False)
+    # # Try with 2 nodes, 2 shards
+    # p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
+    # p2_list = run_n_shard_node(2, 2, False)
 
-    time.sleep(5)
+    # time.sleep(5)
 
-    if scan_log_files(2, 2):
-        logging.debug("An error detected in one of the files")
+    # if scan_log_files(2, 2):
+    #     logging.debug("An error detected in one of the files")
 
-    kill_all_prcesses(p_list)
-    kill_all_prcesses(p2_list)
+    # kill_all_prcesses(p_list)
+    # kill_all_prcesses(p2_list)
+
+    # run_n_shard_node(2, 3, False)
 
 
 def get_args():

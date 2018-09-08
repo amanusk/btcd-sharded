@@ -637,7 +637,7 @@ func main() {
 
 		// Connect to coordinator
 		// TODO make this part of the config
-		connection, err := net.Dial("tcp", "192.168.1.15:12346")
+		connection, err := net.Dial("tcp", "127.0.0.1:12346")
 		enc := gob.NewEncoder(connection)
 		dec := gob.NewDecoder(connection)
 		coordConn := blockchain.NewCoordConnection(connection, enc, dec)
