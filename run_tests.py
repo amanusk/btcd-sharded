@@ -24,9 +24,9 @@ def run_oracle(num_shards):
 def run_shard(server_num, shard_num, num_shards):
     cmd = str(os.getcwd()) + '/btcd'
     print("Running" + cmd)
-    shard_num = str(server_num) + str(shard_num)
+    shard_id = "{}_{}".format(server_num, shard_num)
     p = subprocess.Popen([cmd, "--mode=shard", "--n=" + str(num_shards),
-                          "--conf=config_s" + str(shard_num) + ".json"],
+                          "--conf=config_s" + shard_id + ".json"],
                          None, stdin=None, stdout=None,
                          stderr=None, shell=False)
     return p
@@ -70,7 +70,7 @@ def remove_log_files(num_coords, num_shards):
 
     def clear_shard_logs(coord_num, num_shards):
         for shard_num in range(num_shards):
-            path = (os.getcwd() + '/stestlog' + str(coord_num) +
+            path = (os.getcwd() + '/stestlog' + str(coord_num) + "_" +
                     str(shard_num) + ".log")
             print("Clearing " + path)
             os.remove(path)
@@ -163,17 +163,17 @@ def main():
     # p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
     # kill_all_prcesses(p_list)
 
-    # # Try with 2 nodes, 2 shards
-    # p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
-    # p2_list = run_n_shard_node(2, 2, False)
+    # Try with 2 nodes, 2 shards
+    p_list = run_n_shard_node(DEFAULT_COORD, 12, bootstrap=True)
+    p2_list = run_n_shard_node(2, 12, False)
 
-    # time.sleep(5)
+    time.sleep(5)
 
-    # if scan_log_files(2, 2):
-    #     logging.debug("An error detected in one of the files")
+    if scan_log_files(2, 2):
+        logging.debug("An error detected in one of the files")
 
-    # kill_all_prcesses(p_list)
-    # kill_all_prcesses(p2_list)
+    kill_all_prcesses(p_list)
+    kill_all_prcesses(p2_list)
 
     # run_n_shard_node(2, 3, False)
 
