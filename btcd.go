@@ -483,6 +483,7 @@ var flagMode *string
 var flagConfig *string
 var flagBoot *bool
 var flagNumShards *int
+var flagNumTxs *int
 
 func init() {
 	loadConfig()
@@ -491,6 +492,7 @@ func init() {
 	flagConfig = flag.String("conf", "config1.json", "Select config file to use")
 	flagBoot = flag.Bool("bootstrap", false, "Toggle if this is the first node on the network")
 	flagNumShards = flag.Int("n", 1, "Select number of shards")
+	flagNumTxs = flag.Int("tx", 100, "Select number of Txs per block")
 	flag.Parse()
 }
 
@@ -647,7 +649,9 @@ func main() {
 
 		logging.Println("Connection started", coordConn.Socket)
 
-		tests, err := fullblocktests.SimpleGenerate(false)
+		numTxs := *flagNumTxs
+
+		tests, err := fullblocktests.SimpleGenerate(false, numTxs)
 		if err != nil {
 			fmt.Printf("failed to generate tests: %v", err)
 		}
@@ -696,6 +700,11 @@ func main() {
 		testAcceptedBlock := func(item fullblocktests.AcceptedBlock) {
 			blockHeight := item.Height
 			block := item.Block
+
+			serializedSize := block.SerializeSizeStripped()
+			logging.Printf("serialized block is: %d B", serializedSize)
+			logging.Printf("serialized block is: %.4f MB", (float64(serializedSize) / float64((2 << 20))))
+
 			logging.Printf("Testing block %s (hash %s, height %d)",
 				item.Name, block.BlockHash(), blockHeight)
 
@@ -759,10 +768,10 @@ func main() {
 			for idx, tx := range block.Transactions {
 				// spew.Dump(tx)
 				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
-				txHash := newTx.TxHash()
-				logging.Println("txHash", txHash)
+				// txHash := newTx.TxHash()
+				// logging.Println("txHash", txHash)
 				shardNum := newTx.ModTxHash(numShards)
-				logging.Println("Shard for tx", shardNum)
+				// logging.Println("Shard for tx", shardNum)
 				bShards[shardNum].AddTransaction(newTx)
 			}
 			logging.Println("Sending shards")

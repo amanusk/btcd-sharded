@@ -2144,7 +2144,7 @@ func Generate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
 // contains additional information about the expected result, however that
 // information can be ignored when doing comparison tests between two
 // independent versions over the peer-to-peer network.
-func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) {
+func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInstance, err error) {
 	// In order to simplify the generation code which really should never
 	// fail unless the test code itself is broken, panics are used
 	// internally.  This deferred func ensures any panics don't escape the
@@ -2472,7 +2472,6 @@ func SimpleGenerate(includeLargeReorg bool) (tests [][]TestInstance, err error) 
 	// max allowed signature operations per block.
 	//
 	//   ... -> b35(10) -> b39(11)1
-	txnsNeeded := 1000
 	b39 := g.nextBlock("b39", outs[9], func(b *wire.MsgBlock) {
 		// Create a chain of transactions each spending from the
 		// previous one such that each contains an output that pays to

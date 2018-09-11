@@ -14,7 +14,8 @@ DEFAULT_COORD = 1
 def run_oracle(num_shards):
     cmd = str(os.getcwd()) + '/btcd'
     print("Running" + cmd)
-    rc = subprocess.call([cmd, "--mode=oracle", "--n=" + str(num_shards)],
+    rc = subprocess.call([cmd, "--mode=oracle", "--n=" + str(num_shards),
+                         "--tx=" + str(20000)],
                          None, stdin=None,
                          stdout=None, stderr=None, shell=False)
     print("Return Code " + str(rc))
@@ -111,7 +112,7 @@ def scan_log_files(num_coords, num_shards):
         error = False
         for shard_num in range(num_shards):
             path = (os.getcwd() + '/stestlog' + str(coord_num) +
-                    str(shard_num) + ".log")
+                    "_" + str(shard_num) + ".log")
             error |= error_found(path)
         return error
 
@@ -159,21 +160,21 @@ def main():
     if scan_log_files(1, 1):
         logging.debug("An error detected in one of the files")
 
-    # # Try with 2 shards
-    # p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
-    # kill_all_prcesses(p_list)
+    # Try with 2 shards
+    p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True)
+    kill_all_prcesses(p_list)
 
     # Try with 2 nodes, 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 12, bootstrap=True)
-    p2_list = run_n_shard_node(2, 12, False)
+    # p_list = run_n_shard_node(DEFAULT_COORD, 12, bootstrap=True)
+    # p2_list = run_n_shard_node(2, 12, False)
 
-    time.sleep(5)
+    # time.sleep(5)
 
-    if scan_log_files(2, 2):
-        logging.debug("An error detected in one of the files")
+    # if scan_log_files(2, 2):
+    #     logging.debug("An error detected in one of the files")
 
-    kill_all_prcesses(p_list)
-    kill_all_prcesses(p2_list)
+    # kill_all_prcesses(p_list)
+    # kill_all_prcesses(p2_list)
 
     # run_n_shard_node(2, 3, False)
 
@@ -195,6 +196,9 @@ def get_args():
     parser.add_argument('-b', '--bootstrap',
                         default=1,
                         help="Add when starting the first node")
+    parser.add_argument('-tx', '--transactions',
+                        default=100,
+                        help="How many transactions in the main block")
     args = parser.parse_args()
     return args
 

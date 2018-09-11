@@ -1,8 +1,0 @@
-{
-    "server": {
-        "server_log": "testlog1.log",
-        "server_shards_port": "12345",
-        "server_coords_port": "12346",
-        "server_db": "testdbc1"
-    }
-}

@@ -1,9 +1,0 @@
-{
-    "server": {
-        "server_log": "testlog2.log",
-        "server_shards_port": "22345",
-        "server_coords_port": "22346",
-        "server_target_server": "192.168.1.14:12346",
-        "server_db": "testdbc2"
-    }
-}
