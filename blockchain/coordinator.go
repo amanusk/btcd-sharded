@@ -354,6 +354,7 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 	endTime := time.Since(startTime)
 	//logging.Println("Block", headerBlock.Height, "took", endTime)
 	fmt.Println("Block", headerBlock.Height, "took", endTime)
+	logging.Println("Block", headerBlock.Height, "took", endTime)
 }
 
 func (coord *Coordinator) sendBlockDone(conn net.Conn) {
@@ -593,6 +594,8 @@ func (coord *Coordinator) handleRepliedInfo(addresses []*net.TCPAddr, shardIndex
 	// Set information on current shard port and IP
 	// address[0] is the shard inter port
 	// address[1] is the shard intra port
+	logging.Println("The shard conn IP", conn.RemoteAddr())
+	logging.Println("The shard saved IP", addresses[0].IP)
 	coord.shards[conn].Port = addresses[0].Port
 	coord.shards[conn].IP = addresses[0].IP
 	// Map shard to index (needed for other peers)

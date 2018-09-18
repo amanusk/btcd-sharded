@@ -134,7 +134,7 @@ func chainSetup(dbName string, params *chaincfg.Params) (*blockchain.BlockChain,
 // have the expected result when processed via ProcessBlock.
 func TestFullBlocks(t *testing.T) {
 	// tests, err := fullblocktests.Generate(false)
-	tests, err := fullblocktests.SimpleGenerate(false)
+	tests, err := fullblocktests.SimpleGenerate(false, 1000)
 	if err != nil {
 		t.Fatalf("failed to generate tests: %v", err)
 	}

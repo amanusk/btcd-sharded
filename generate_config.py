@@ -3,6 +3,7 @@
 import argparse
 import logging
 import json
+import sys
 
 DEFAULT_LOG_FILE = "debug_json.log"
 
@@ -45,6 +46,44 @@ def generate_configs(num_coords, num_shards):
                 json.dump(data, outfile, ensure_ascii=False, indent=4)
 
 
+def generate_single_config(is_coord, coord, shard, coord_ip, shard_ip,
+                           coord_target_ip):
+    if is_coord:
+        filename = "config{}.json".format(coord)
+        data = {"server":
+                {
+                    "server_log": "testlog{}.log".format(coord),
+                    "server_shards_port": "12345".format(coord),
+                    "server_coords_port": "12346".format(coord),
+                    "server_db": "testdbc{}".format(coord),
+                    "server_target_server": ("{}:12346"
+                                             .format(coord_target_ip)),
+                }}
+
+        with open(filename, 'w') as outfile:
+            json.dump(data, outfile, ensure_ascii=False, indent=4)
+        json.dump(data, sys.stdout, ensure_ascii=False, indent=4)
+    else:
+        filename = "config_s{}_{}.json".format(coord, shard)
+
+        data = {
+            "server": {
+                "server_shards_ip": coord_ip,
+                "server_shards_port": "12345"
+            },
+            "shard": {
+                "shard_log": "stestlog{}_{}.log".format(coord, shard),
+                "shard_inter_port": "12350",
+                "shard_intra_port": "12450",
+                "shard_ip": shard_ip,
+                "shard_db": "testdbs{}_{}".format(coord, shard)
+            }
+        }
+        with open(filename, 'w') as outfile:
+            json.dump(data, outfile, ensure_ascii=False, indent=4)
+        json.dump(data, sys.stdout, ensure_ascii=False, indent=4)
+
+
 def main():
     args = get_args()
 
@@ -63,7 +102,12 @@ def main():
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
 
-    generate_configs(int(args.coords), int(args.num_shards))
+    if args.single:
+        generate_single_config(args.coord_conf, args.coord_num,
+                               args.shard_num, args.coord_ip,
+                               args.shard_ip, args.coord_target_ip)
+    else:
+        generate_configs(int(args.coords), int(args.num_shards))
 
 
 def get_args():
@@ -80,6 +124,27 @@ def get_args():
     parser.add_argument('-c', '--coords',
                         default=1,
                         help="Corrdinator index")
+
+    parser.add_argument('-single', '--single',
+                        default=False, action="store_true",
+                        help="Create a single config with some parameters")
+
+    parser.add_argument('-sn', '--shard_num',
+                        help="Shard number ")
+    parser.add_argument('-cn', '--coord_num',
+                        default="127.0.0.1",
+                        help="Coord number")
+    parser.add_argument('-sip', '--shard_ip',
+                        default="127.0.0.1",
+                        help="Shard IP")
+    parser.add_argument('-cip', '--coord_ip',
+                        help="Target coord IP")
+    parser.add_argument('-tcip', '--coord_target_ip',
+                        help="Coord IP")
+    parser.add_argument('-coord', '--coord_conf',
+                        default=False, action='store_true',
+                        help="Config a corrd")
+
     args = parser.parse_args()
     return args
 

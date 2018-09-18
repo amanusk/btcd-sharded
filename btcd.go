@@ -703,7 +703,6 @@ func main() {
 
 			serializedSize := block.SerializeSizeStripped()
 			logging.Printf("serialized block is: %d B", serializedSize)
-			logging.Printf("serialized block is: %.4f MB", (float64(serializedSize) / float64((2 << 20))))
 
 			logging.Printf("Testing block %s (hash %s, height %d)",
 				item.Name, block.BlockHash(), blockHeight)
@@ -838,7 +837,9 @@ func main() {
 		fmt.Println("Started testing blocks")
 		startTime := time.Now()
 		for testNum, test := range tests {
+			logging.Println("Test Num:", testNum)
 			for itemNum, item := range test {
+				logging.Println("Item Num:", testNum)
 				switch item := item.(type) {
 				case fullblocktests.AcceptedBlock:
 					testAcceptedBlock(item)
