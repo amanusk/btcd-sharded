@@ -269,27 +269,36 @@ def run_multi_tests():
                 print(line)
                 blocktime = float(
                     re.findall("\d+\.\d+", (line.split(" ")[4]))[0])
+                if "ms" in line:
+                    blocktime = float(blocktime/1000)
                 print(blocktime)
                 return blocktime
 
     def run_test(num_coords, num_shards, num_txs):
-        p_list = run_n_shard_node(DEFAULT_COORD, num_shards,
+        p_list = run_remote_n_shard_node(DEFAULT_COORD, num_shards,
                                   bootstrap=True, num_txs=num_txs)
         for i in range(num_coords - 1):
             p_list += (run_n_shard_node(i + 2, num_shards,
                                         bootstrap=False, num_txs=num_txs))
 
         # About the expected time to finish processing
-        time.sleep(10)
+        time.sleep(20)
 
-        if scan_log_files(num_coords, num_shards):
-            logging.debug("An error detected in one of the files")
+        #if scan_log_files(num_coords, num_shards):
+        #    logging.debug("An error detected in one of the files")
 
-        kill_all_prcesses(p_list)
 
         top_block_time = get_top_block_time(num_coords)
         print("Top block took {} s to process".format(top_block_time))
-        remove_log_files(num_coords, num_shards)
+
+        #remove_log_files(num_coords, num_shards)
+
+        clean_with_ssh(num_coords, num_shards)
+
+        path = os.getcwd() + '/testlog{}.log'.format(num_coords)
+        print("Clearing " + path)
+        os.remove(path)
+
         return top_block_time
 
     for num_shards in range(1, 3):
@@ -302,6 +311,8 @@ def run_multi_tests():
 
             for num_txs in range(1000, 5000, 1000):
                 block_time = run_test(2, num_shards, num_txs)
+                if int(block_time > 15):
+                    continue
                 d = {'Time': block_time, 'Txs': num_txs}
                 writer.writerow(d)
                 csvfile.flush()
@@ -325,7 +336,7 @@ def main():
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
 
-    # run_multi_tests()
+    run_multi_tests()
 
     # This runs a single node, and makes sure the coordinator + orcacle work
     # p_list = run_n_shard_node(DEFAULT_COORD, 1, True, 1000)
@@ -339,10 +350,10 @@ def main():
     # kill_all_prcesses(p_list)
 
     # Try with 2 nodes, 2 shards
-    p_list = run_remote_n_shard_node(DEFAULT_COORD, 2, True, 10000)
-    p2_list = run_n_shard_node(2, 2, False, 10000)
-    time.sleep(10)
-    clean_with_ssh(2, 2)
+    # p_list = run_remote_n_shard_node(DEFAULT_COORD, 2, True, 10000)
+    # p2_list = run_n_shard_node(2, 2, False, 10000)
+    # time.sleep(10)
+    # clean_with_ssh(2, 2)
     # kill_all_remote_prcesses(p_list)
     # kill_all_prcesses(p2_list)
 
