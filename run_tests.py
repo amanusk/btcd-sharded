@@ -7,11 +7,15 @@ import time
 import csv
 import os
 import re
+import spur
 
 DEFAULT_LOG_FILE = "debug_test.log"
 
 DEFAULT_COORD = 1
 
+
+go_dir = "/home/ubuntu/go/src/github.com/btcsuite/btcd"
+home_dir = "/home/ubuntu/"
 
 def run_oracle(num_shards, num_txs):
     cmd = str(os.getcwd()) + '/btcd'
@@ -20,6 +24,20 @@ def run_oracle(num_shards, num_txs):
                           "--tx=" + str(num_txs)],
                          None, stdin=None,
                          stdout=None, stderr=None, shell=False)
+    print("Return Code " + str(rc))
+    return rc
+
+def run_remote_oracle(num_shards, num_txs):
+    cmd = go_dir + '/btcd'
+    shell = spur.SshShell(hostname="10.0.0.11",
+                          username="ubuntu",
+                          private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                          missing_host_key=spur.ssh.MissingHostKey.accept,
+                         )
+    print("Running" + cmd + "--mode=oracle" +  "--n=" + str(num_shards) +
+                          "--tx=" + str(num_txs))
+    rc = shell.run([cmd, "--mode=oracle", "--n=" + str(num_shards),
+                          "--tx=" + str(num_txs)])
     print("Return Code " + str(rc))
     return rc
 
@@ -35,6 +53,20 @@ def run_shard(server_num, shard_num, num_shards):
     return p
 
 
+def run_remote_shard(server_num, shard_num, num_shards):
+    cmd = go_dir + '/btcd'
+    conf = home_dir + '/config_s{}_{}.json'.format(server_num, shard_num)
+    shell = spur.SshShell(hostname="10.0.0.{}".format(50 + int(server_num) * 50 + int(shard_num)),
+                          username="ubuntu",
+                          private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                          missing_host_key=spur.ssh.MissingHostKey.accept,
+                         )
+    print("Running" + cmd)
+    shard_id = "{}_{}".format(server_num, shard_num)
+    p = shell.spawn([cmd, "--mode=shard", "--n=" + str(num_shards),
+                          "--conf=" + str(conf)])
+    return p
+
 def run_server(server_num, num_shards, bootstrap):
     cmd = str(os.getcwd()) + '/btcd'
     print("Running" + cmd)
@@ -48,6 +80,22 @@ def run_server(server_num, num_shards, bootstrap):
                          stderr=None, shell=False)
     return p
 
+def run_remote_server(server_num, num_shards, bootstrap):
+    cmd = go_dir + '/btcd'
+    conf = home_dir + '/config{}.json'.format(server_num)
+    shell = spur.SshShell(hostname="10.0.0.1{}".format(server_num),
+                          username="ubuntu",
+                          private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                          missing_host_key=spur.ssh.MissingHostKey.accept,
+                         )
+    print("Running" + cmd)
+    boot = ""
+    if bootstrap:
+        boot = "--bootstrap"
+    p = shell.spawn([cmd, "--mode=server", "--n=" + str(num_shards),
+                          "--conf=" + str(conf), boot])
+    return p
+
 
 def run_n_shard_node(coord_num, n, bootstrap, num_txs):
     processes = list()
@@ -55,14 +103,55 @@ def run_n_shard_node(coord_num, n, bootstrap, num_txs):
     processes.append(coord_process)
     time.sleep(1)
     for i in range(n):
-        p = run_shard(coord_num, i, n)
-        processes.append(p)
+        run_remote_shard(coord_num, i, n)
+        # processes.append(p)
         time.sleep(1)
 
     if bootstrap:
-        run_oracle(n, num_txs)
+        run_remote_oracle(n, num_txs)
 
     return processes
+
+def run_remote_n_shard_node(coord_num, n, bootstrap, num_txs):
+    processes = list()
+    run_remote_server(coord_num, n, bootstrap=bootstrap)
+    #processes.append(coord_process)
+    time.sleep(1)
+    for i in range(n):
+        run_remote_shard(coord_num, i, n)
+        #processes.append(p)
+        time.sleep(1)
+
+    if bootstrap:
+        run_remote_oracle(n, num_txs)
+
+    return processes
+
+
+def clean_with_ssh(num_coords, num_shards):
+    for c in range(1, num_coords+1):
+        cmd = go_dir + '/kill_all.sh'
+        shell = spur.SshShell(hostname="10.0.0.1{}".format(c),
+                              username="ubuntu",
+                              private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                              missing_host_key=spur.ssh.MissingHostKey.accept,
+                             )
+        print("Running" + cmd)
+        p = shell.run([cmd])
+        try:
+            p = shell.run(["rm", "/home/ubuntu/testlog{}.log".format(c)])
+            print(p)
+        except:
+            pass
+        for s in range(num_shards):
+            shell = spur.SshShell(hostname="10.0.0.{}".format(50 + int(c) * 50 + int(s)),
+                                  username="ubuntu",
+                                  private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                                  missing_host_key=spur.ssh.MissingHostKey.accept,
+                                 )
+            p = shell.run([cmd])
+            p = shell.run(["rm", "/home/ubuntu/stestlog{}_{}.log".format(c,s)])
+            print(p)
 
 
 def remove_log_files(num_coords, num_shards):
@@ -95,6 +184,9 @@ def remove_log_files(num_coords, num_shards):
 
 def kill_all_prcesses(p_list):
     [p.kill() for p in p_list]
+
+def kill_all_remote_prcesses(p_list):
+    [p.send_signal(9) for p in p_list]
 
 
 def scan_log_files(num_coords, num_shards):
@@ -233,10 +325,10 @@ def main():
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
 
-    run_multi_tests()
+    # run_multi_tests()
 
     # This runs a single node, and makes sure the coordinator + orcacle work
-    # p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True)
+    # p_list = run_n_shard_node(DEFAULT_COORD, 1, True, 1000)
     # kill_all_prcesses(p_list)
 
     # for line in lines:
@@ -247,8 +339,12 @@ def main():
     # kill_all_prcesses(p_list)
 
     # Try with 2 nodes, 2 shards
-    # p_list = run_n_shard_node(DEFAULT_COORD, 4, bootstrap=True)
-    # p2_list = run_n_shard_node(2, 4, False)
+    p_list = run_remote_n_shard_node(DEFAULT_COORD, 2, True, 10000)
+    p2_list = run_n_shard_node(2, 2, False, 10000)
+    time.sleep(10)
+    clean_with_ssh(2, 2)
+    # kill_all_remote_prcesses(p_list)
+    # kill_all_prcesses(p2_list)
 
     # time.sleep(5)
 
