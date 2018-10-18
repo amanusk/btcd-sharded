@@ -5,6 +5,7 @@
 package blockchain
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcutil"
@@ -15,6 +16,8 @@ func TestMerkle(t *testing.T) {
 	block := btcutil.NewFullBlock(&Block100000)
 	merkles := BuildMerkleTreeStore(block.Transactions(), false)
 	calculatedMerkleRoot := merkles[len(merkles)-1]
+	fmt.Println(merkles)
+	fmt.Println(calculatedMerkleRoot)
 	wantMerkle := &Block100000.Header.MerkleRoot
 	if !wantMerkle.IsEqual(calculatedMerkleRoot) {
 		t.Errorf("BuildMerkleTreeStore: merkle root mismatch - "+
