@@ -58,7 +58,7 @@ def run_remote_shard(server_num, shard_num, num_shards):
     conf = home_dir + '/config_s{}_{}.json'.format(server_num, shard_num)
     shell = spur.SshShell(hostname="10.0.0.{}".format(50 + int(server_num) * 50 + int(shard_num)),
                           username="ubuntu",
-                          private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                          private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                           missing_host_key=spur.ssh.MissingHostKey.accept,
                          )
     print("Running" + cmd)
