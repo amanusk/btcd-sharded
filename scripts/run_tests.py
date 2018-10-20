@@ -31,7 +31,7 @@ def run_remote_oracle(num_shards, num_txs):
     cmd = go_dir + '/btcd'
     shell = spur.SshShell(hostname="10.0.0.11",
                           username="ubuntu",
-                          private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                          private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                           missing_host_key=spur.ssh.MissingHostKey.accept,
                          )
     print("Running" + cmd + "--mode=oracle" +  "--n=" + str(num_shards) +
@@ -85,7 +85,7 @@ def run_remote_server(server_num, num_shards, bootstrap):
     conf = home_dir + '/config{}.json'.format(server_num)
     shell = spur.SshShell(hostname="10.0.0.1{}".format(server_num),
                           username="ubuntu",
-                          private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                          private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                           missing_host_key=spur.ssh.MissingHostKey.accept,
                          )
     print("Running" + cmd)
@@ -133,7 +133,7 @@ def clean_with_ssh(num_coords, num_shards):
         cmd = go_dir + '/kill_all.sh'
         shell = spur.SshShell(hostname="10.0.0.1{}".format(c),
                               username="ubuntu",
-                              private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                              private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                               missing_host_key=spur.ssh.MissingHostKey.accept,
                              )
         print("Running" + cmd)
@@ -146,7 +146,7 @@ def clean_with_ssh(num_coords, num_shards):
         for s in range(num_shards):
             shell = spur.SshShell(hostname="10.0.0.{}".format(50 + int(c) * 50 + int(s)),
                                   username="ubuntu",
-                                  private_key_file='/home/ubuntu/.ssh/amanusk-aws-kp.pem',
+                                  private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                                   missing_host_key=spur.ssh.MissingHostKey.accept,
                                  )
             p = shell.run([cmd])
