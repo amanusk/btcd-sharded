@@ -39,14 +39,15 @@ type Shard struct {
 	// Shard-to-shard comms
 	connected                 chan bool // Pass true once you finshed connecting to a shard from dht
 	ConnectionAdded           chan bool // Lock to wait for write to connections map to finish
-	IP                        net.IP
+	InterIP                   net.IP
+	IntraIP                   net.IP
 	InterPort                 int
 	IntraPort                 int
 	receiveAllMissingRequests chan bool // A channel to unlock the requests from all shards
 	receiveMissingRequest     chan bool // A channel to unlock the requests from all shards
 	receiveAllRetrieved       chan bool // A channel to unlock when all retrieved TxOuts received
 	receiveRetrieved          chan bool // A channel to unlock per retrived TxOut received
-
+	// For use in DHTmaps
 	Socket net.Conn     // Connection
 	Enc    *gob.Encoder // The encoder used to send information on connection
 	Dec    *gob.Decoder // Decoder for receiving information on connection
@@ -67,7 +68,7 @@ func NewShardConnection(connection net.Conn, shardPort int, index int, enc *gob.
 
 // NewShard Creates a new shard for a coordinator to use.
 // It has a connection and a channel to receive data from the server
-func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, coordConn *Coordinator, blockchain *BlockChain, ip net.IP, interShardPort int, intraShardPort int) *Shard {
+func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, coordConn *Coordinator, blockchain *BlockChain, interIP net.IP, intraIP net.IP, interShardPort int, intraShardPort int) *Shard {
 	shard := &Shard{
 		Chain:           blockchain,
 		registerShard:   make(chan *Shard),
@@ -83,7 +84,8 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		// Shard to intra shards
 		// Consider removing shardIntraShadListener and only have it during boot
 		ShardIntraListener:        shardIntraListener,
-		IP:                        ip,
+		InterIP:                   interIP,
+		IntraIP:                   intraIP,
 		InterPort:                 interShardPort,
 		IntraPort:                 intraShardPort,
 		connected:                 make(chan bool),
@@ -156,26 +158,32 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 }
 
 // Receive a list of ip:port from coordinator, to which this shard will connect
-func (shard *Shard) handleConnectInterShard(receivedShardAddresses *AddressesGob) {
+func (shard *Shard) handleConnectInterShard(receivedShardAddresses *DHTGob) {
+	logging.Println("My Index is ", shard.Index)
 	logging.Println("Received request to connect to shards")
 
-	for _, address := range receivedShardAddresses.Addresses {
-		logging.Println("Shard connecting to shard on " + address.String())
-		connection, err := net.Dial("tcp", address.String())
-		if err != nil {
-			fmt.Println(err)
+	addressesDHT := receivedShardAddresses.DHTTable
+
+	for shardIdx, address := range addressesDHT {
+		if shardIdx == shard.Index {
+			logging.Println("Connecting to shard idx", shardIdx)
+			logging.Println("Shard connecting to shard on " + address.String())
+			connection, err := net.Dial("tcp", address.String())
+			if err != nil {
+				fmt.Println(err)
+			}
+			logging.Println("Dial connection", connection)
+
+			enc := gob.NewEncoder(connection)
+			dec := gob.NewDecoder(connection)
+
+			shardConn := NewShardConnection(connection, address.Port, 0, enc, dec) // TODO: change
+			shard.RegisterShard(shardConn)
+			<-shard.ConnectionAdded
+			go shard.ReceiveInterShard(shardConn)
 		}
-
-		logging.Println("Dial connection", connection)
-
-		enc := gob.NewEncoder(connection)
-		dec := gob.NewDecoder(connection)
-
-		shardConn := NewShardConnection(connection, address.Port, 0, enc, dec) // TODO: change
-		shard.RegisterShard(shardConn)
-		<-shard.ConnectionAdded
-		go shard.ReceiveInterShard(shardConn)
 	}
+
 	// Send connection done to coordinator
 	enc := shard.CoordConn.Enc
 	msg := Message{
@@ -259,8 +267,8 @@ func (shard *Shard) handleCoordMessages() {
 		switch cmd {
 		// Handle connecting to intershards
 		case "SHARDCON":
-			addresses := msg.Data.(AddressesGob)
-			shard.handleConnectInterShard(&addresses)
+			dhtTable := msg.Data.(DHTGob)
+			shard.handleConnectInterShard(&dhtTable)
 		// Get DHT from coordintor and connect to all
 		case "SHARDDHT":
 			DHTGob := msg.Data.(DHTGob)
@@ -428,12 +436,12 @@ func (shard *Shard) HandleRequestInfo(shardIndex int) {
 	var addresses []*net.TCPAddr
 
 	interAddr := net.TCPAddr{
-		IP:   shard.IP,
+		IP:   shard.InterIP,
 		Port: shard.InterPort,
 	}
 
 	intraAddr := net.TCPAddr{
-		IP:   shard.IP,
+		IP:   shard.IntraIP,
 		Port: shard.IntraPort,
 	}
 

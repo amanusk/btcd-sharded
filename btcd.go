@@ -50,7 +50,8 @@ type Config struct {
 		ShardLog       string `json:"shard_log"`
 		ShardInterPort string `json:"shard_inter_port"`
 		ShardIntraPort string `json:"shard_intra_port"`
-		ShardIP        string `json:"shard_ip"`
+		ShardInterIP   string `json:"shard_inter_ip"`
+		ShardIntraIP   string `json:"shard_intra_ip"`
 		ShardDb        string `json:"shard_db"`
 	} `json:"shard"`
 }
@@ -915,7 +916,7 @@ func main() {
 		dec := gob.NewDecoder(connection)
 		enc := gob.NewEncoder(connection)
 		coordConn := blockchain.NewCoordConnection(connection, enc, dec)
-		s := blockchain.NewShard(shardInterListener, shardIntraListener, coordConn, chain, net.ParseIP(config.Shard.ShardIP), interShardPort, intraShardPort)
+		s := blockchain.NewShard(shardInterListener, shardIntraListener, coordConn, chain, net.ParseIP(config.Shard.ShardInterIP), net.ParseIP(config.Shard.ShardIntraIP), interShardPort, intraShardPort)
 		// Before the shard is started, it must receive its index from coordinator
 		var msg blockchain.Message
 		err = dec.Decode(&msg)

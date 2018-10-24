@@ -46,11 +46,15 @@ type Message struct {
 
 // Coordinator is the coordinator in a sharded bitcoin cluster
 type Coordinator struct {
-	shards             map[net.Conn]*Shard           // A map of shards connected to this coordinator
-	dht                map[int]net.Conn              // Mapping  between dht index and connection
-	shardsIntraAddr    map[int]net.TCPAddr           // Mapping  between shard index and intra address
-	coords             map[net.Conn]*Coordinator     // A map of coords connected to this coordinator
-	missingInputs      map[net.Conn][]*wire.OutPoint // A map between connections and missing Txs
+	shards          map[net.Conn]*Shard // A map of shards connected to this coordinator
+	dht             map[int]net.Conn    // Mapping  between intra shard index and connection
+	shardsIntraAddr map[int]net.TCPAddr
+	// shardIntraAddr: Mapping  between shard index and intra address
+	// Used to connect in initial connection
+	shardsInterAddr map[int]net.TCPAddr
+	// shardIntraAddr: Mapping  between shard index and inter address
+	// Used to connect to other nodes
+	coords             map[net.Conn]*Coordinator // A map of coords connected to this coordinator
 	registerShard      chan *Shard
 	unregisterShard    chan *Shard
 	registerCoord      chan *Coordinator
@@ -65,8 +69,8 @@ type Coordinator struct {
 	CoordListener      net.Listener
 	Chain              *BlockChain
 	numShards          int
-	// For Coordinator Connection only!
-	Socket net.Conn     // Connection to the shard you connected to
+	// For Coordinator Connection, for use in DHT maps
+	Socket net.Conn     // Connection to a coordinator
 	Enc    *gob.Encoder // Used to send information to this connection
 	Dec    *gob.Decoder // Used to decode information from this connection
 }
@@ -88,6 +92,7 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 		shards:             make(map[net.Conn]*Shard),
 		dht:                make(map[int]net.Conn),
 		shardsIntraAddr:    make(map[int]net.TCPAddr),
+		shardsInterAddr:    make(map[int]net.TCPAddr),
 		coords:             make(map[net.Conn]*Coordinator),
 		registerShard:      make(chan *Shard),
 		unregisterShard:    make(chan *Shard),
@@ -227,28 +232,22 @@ func (coord *Coordinator) ReceiveIntraShard(shard *Shard) {
 // NotifyShards function sends a message to each of the shards connected to the coordinator
 // informing it of the connections to other shards it needs to establish
 func (coord *Coordinator) NotifyShards(dhtTable map[int]net.TCPAddr) {
-	for remoteShardIdx, remoteShardAddress := range dhtTable {
-		logging.Println("Sending to shard at index", remoteShardIdx)
-		enc := coord.shards[coord.dht[remoteShardIdx]].Enc
-		logging.Println("Sending address", remoteShardIdx, "to", remoteShardIdx)
-
-		var addresses []*net.TCPAddr
-		// Only need one address
-		addresses = append(addresses, &remoteShardAddress)
-
+	for _, shard := range coord.shards {
+		enc := shard.Enc
 		msg := Message{
 			Cmd: "SHARDCON",
-			Data: AddressesGob{
-				Addresses: addresses,
+			Data: DHTGob{
+				DHTTable: dhtTable,
 			},
 		}
-		logging.Print("Shards gob", msg.Data)
+		logging.Print("Sending dht to shard", shard.Index, msg.Data)
 		//Actually write the GOB on the socket
 		err := enc.Encode(msg)
 		if err != nil {
 			logging.Println("Error encoding addresses GOB data:", err)
 			return
 		}
+
 	}
 }
 
@@ -353,7 +352,7 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 	coord.sendBlockDone(conn)
 	endTime := time.Since(startTime)
 	logging.Println("Block", headerBlock.Height, "took", endTime)
-    fmt.Println("Block", headerBlock.Height, "took", endTime)
+	fmt.Println("Block", headerBlock.Height, "took", endTime)
 }
 
 func (coord *Coordinator) sendBlockDone(conn net.Conn) {
@@ -434,16 +433,20 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 
 // GetShardsConnections returns all the shards in the coordinator shards maps
 func (coord *Coordinator) GetShardsConnections() map[int]net.TCPAddr {
-	addressMap := make(map[int]net.TCPAddr)
+	logging.Println("Returning shard remote addresses")
+	//addressMap := make(map[int]net.TCPAddr)
 
-	for _, shard := range coord.shards {
-		var address net.TCPAddr
-		address.IP = shard.IP
-		address.Port = shard.Port
-		addressMap[shard.Index] = address
-		logging.Println("Adding shard", shard.Index, "IP:", shard.IP, "Port", shard.Port)
+	//for _, shard := range coord.shards {
+	//var address net.TCPAddr
+	//address.IP = shard.IP
+	//address.Port = shard.Port
+	//addressMap[shard.Index] = address
+	//logging.Println("Adding shard", shard.Index, "IP:", shard.IP, "Port", shard.Port)
+	//}
+	for shardIdx, address := range coord.shardsInterAddr {
+		logging.Println("Shard", shardIdx, "Address", address)
 	}
-	return addressMap
+	return coord.shardsInterAddr
 
 }
 
@@ -591,16 +594,16 @@ func (coord *Coordinator) SendDHT(conn net.Conn) {
 
 func (coord *Coordinator) handleRepliedInfo(addresses []*net.TCPAddr, shardIndex int, conn net.Conn) {
 	// Set information on current shard port and IP
-	// address[0] is the shard inter port
-	// address[1] is the shard intra port
+	// address[0] is the shard inter address
+	// address[1] is the shard intra address
 	logging.Println("The shard conn IP", conn.RemoteAddr())
 	logging.Println("The shard saved IP", addresses[0].IP)
-	coord.shards[conn].Port = addresses[0].Port
-	coord.shards[conn].IP = addresses[0].IP
-	// Map shard to index (needed for other peers)
+	// Map shard to index for coordinator communication
 	coord.dht[shardIndex] = conn
-	// Map Address to index, needed for other shards
+	// Map intra Address to index, needed for other shards
 	coord.shardsIntraAddr[shardIndex] = *addresses[1]
+	// Map inter Address to index, needed by other inter shards
+	coord.shardsInterAddr[shardIndex] = *addresses[0]
 	logging.Println("Receive shards addresses")
 	logging.Println("Inter", addresses[0])
 	logging.Println("Intra", addresses[1])

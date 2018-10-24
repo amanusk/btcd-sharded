@@ -38,7 +38,8 @@ def generate_configs(num_coords, num_shards):
                     "shard_log": "stestlog{}_{}.log".format(coord, shard),
                     "shard_inter_port": "{}23{}".format(coord, 50 + shard),
                     "shard_intra_port": "{}24{}".format(coord, 50 + shard),
-                    "shard_ip": "127.0.0.1",
+                    "shard_inter_ip": "127.0.0.1",
+                    "shard_intra_ip": "127.0.0.1",
                     "shard_db": "testdbs{}_{}".format(coord, shard)
                 }
             }
@@ -46,8 +47,8 @@ def generate_configs(num_coords, num_shards):
                 json.dump(data, outfile, ensure_ascii=False, indent=4)
 
 
-def generate_single_config(is_coord, coord, shard, coord_ip, shard_ip,
-                           coord_target_ip):
+def generate_single_config(is_coord, coord, shard, coord_ip, shard_inter_ip,
+                           shard_intra_ip, coord_target_ip):
     if is_coord:
         filename = "config{}.json".format(coord)
         data = {"server":
@@ -75,7 +76,8 @@ def generate_single_config(is_coord, coord, shard, coord_ip, shard_ip,
                 "shard_log": "stestlog{}_{}.log".format(coord, shard),
                 "shard_inter_port": "12350",
                 "shard_intra_port": "12450",
-                "shard_ip": shard_ip,
+                "shard_inter_ip": shard_inter_ip,
+                "shard_intra_ip": shard_intra_ip,
                 "shard_db": "testdbs{}_{}".format(coord, shard)
             }
         }
@@ -105,7 +107,8 @@ def main():
     if args.single:
         generate_single_config(args.coord_conf, args.coord_num,
                                args.shard_num, args.coord_ip,
-                               args.shard_ip, args.coord_target_ip)
+                               args.shard_inter_ip, args.shard_intra_ip,
+                               args.coord_target_ip)
     else:
         generate_configs(int(args.coords), int(args.num_shards))
 
@@ -134,9 +137,12 @@ def get_args():
     parser.add_argument('-cn', '--coord_num',
                         default="127.0.0.1",
                         help="Coord number")
-    parser.add_argument('-sip', '--shard_ip',
+    parser.add_argument('-siraip', '--shard_intra_ip',
                         default="127.0.0.1",
-                        help="Shard IP")
+                        help="Shard Intra IP")
+    parser.add_argument('-sierip', '--shard_inter_ip',
+                        default="127.0.0.1",
+                        help="Shard Inter IP")
     parser.add_argument('-cip', '--coord_ip',
                         help="Target coord IP")
     parser.add_argument('-tcip', '--coord_target_ip',
