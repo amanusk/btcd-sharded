@@ -301,7 +301,7 @@ def run_multi_tests():
 
         return top_block_time
 
-    for num_shards in range(7, 9):
+    for num_shards in range(2, 3):
         csv_file_name = "proc_{}_shards.csv".format(num_shards)
         with open(csv_file_name, 'w') as csvfile:
             fieldnames = ['Txs', 'Time']
@@ -309,7 +309,7 @@ def run_multi_tests():
 
             writer.writeheader()  # file doesn't exist yet, write a header
 
-            for num_txs in range(10000, 110000, 10000):
+            for num_txs in range(1000, 3000, 1000):
                 block_time = run_test(2, num_shards, num_txs)
                 d = {'Time': block_time, 'Txs': num_txs}
                 writer.writerow(d)
