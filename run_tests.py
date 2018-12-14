@@ -176,7 +176,7 @@ def run_multi_tests():
             if "took" in line:
                 print(line)
                 blocktime = float(
-                    re.findall("\d+\.\d+", (line.split(" ")[4]))[0])
+                    re.findall(r"\d+\.\d+", (line.split(" ")[4]))[0])
                 print(blocktime)
                 return blocktime
 
@@ -236,14 +236,14 @@ def main():
     # run_multi_tests()
 
     # This runs a single node, and makes sure the coordinator + orcacle work
-    p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True, num_txs=1)
+    p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True, num_txs=10)
     kill_all_prcesses(p_list)
     if scan_log_files(2, 2):
         logging.debug("An error detected in one of the files")
         exit(1)
 
-    # for line in lines:
-    #     print(line)
+    # # for line in lines:
+    # #     print(line)
 
     # Try with 2 shards
     p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True, num_txs=1000)

@@ -469,23 +469,42 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 		return err
 	}
 
-	// Send block header to request to all shards
-	for _, shard := range coord.shards {
-		enc := shard.Enc
-		// Generate a header gob to send to coordinator
+	numShards := coord.numShards
+	bShards := make([]*wire.MsgBlockShard, numShards)
+
+	// Create a block shard to send to shards
+	for idx := range bShards {
+		bShards[idx] = wire.NewMsgBlockShard(&headerBlock.Header)
+	}
+
+	// Split transactions between blocks
+	for _, tx := range headerBlock.Transactions {
+		// spew.Dump(tx)
+		shardNum := tx.ModTxHash(numShards)
+		// logging.Println("Shard for tx", shardNum)
+		bShards[shardNum].AddTransaction(tx)
+	}
+	// logging.Println("Sending shards")
+
+	for i := 0; i < numShards; i++ {
+
+		// All data is sent in gobs
 		msg := Message{
-			Cmd: "REQBLOCK",
-			Data: HeaderGob{
-				Header: &header,
+			Cmd: "PRCBLOCK",
+			Data: RawBlockGob{
+				Block:  bShards[i],
 				Flags:  BFNone,
-				Height: height, // optionally this will be done after the coord accept block is performed
+				Height: height,
 			},
 		}
+		//Actually write the GOB on the socket
+		enc := coord.shards[coord.dht[i]].Enc
 		err = enc.Encode(msg)
 		if err != nil {
 			logging.Println(err, "Encode failed for struct: %#v", msg)
 		}
 	}
+
 	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone
 	logging.Println("All shards finished")

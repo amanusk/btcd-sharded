@@ -1246,9 +1246,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// Only relevant for checking if TX is older than CoinBase
 	logging.Println("Transactions in blockShard:")
 	// NOTE: debut info
-	//for txIdx, tx := range transactions {
-	//	logging.Println("Tx id ", txIdx, " TX ", tx)
-	//}
+	for txIdx, tx := range transactions {
+		logging.Println("Tx id ", txIdx, " TX ", tx)
+	}
 	// Create map between txs and the shards responsible
 	localMissingTxOuts := make(map[int]map[wire.OutPoint]*UtxoEntry)
 
@@ -1323,8 +1323,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// TODO TODO TODO: If all is well, remove the utxo from the sender!!
 	// Now we can start validating the block
 
-	for _, tx := range transactions {
-		// logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
+	for txIdx, tx := range transactions {
+		logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
 		txFee, err := CheckTransactionInputs(tx, node.height, view,
 			params)
 		if err != nil {
@@ -1347,6 +1347,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		// This is where transactions are marked as spent
 		// Note: If the input is not yet in the local view, this will fail!
 		err = view.ConnectTransaction(tx, node.height, stxos)
+		logging.Println("Finished validating transaction", tx.Hash())
 		if err != nil {
 			return err
 		}

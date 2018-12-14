@@ -203,6 +203,11 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob) {
 
 	coordEnc := shard.CoordConn.Enc
 
+	// Start the waiting routine before starting to send anything
+	go shard.AwaitRequestedTxOuts()
+	// Start Listening for responses on your missing TxOuts from intershard
+	go shard.AwaitRetrievedTxOuts()
+
 	doneMsg := Message{
 		Cmd: "SHARDDONE",
 	}
@@ -251,6 +256,7 @@ func (shard *Shard) handleCoordMessages() {
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
 	gob.Register(DHTGob{})
+	gob.Register(RawBlockGob{})
 
 	dec := shard.CoordConn.Dec
 	for {
@@ -277,6 +283,11 @@ func (shard *Shard) handleCoordMessages() {
 		case "REQBLOCK":
 			header := msg.Data.(HeaderGob)
 			shard.handleRequestBlock(&header)
+		// Messages related to processing a block
+		case "PRCBLOCK":
+			logging.Println("Received instruction to process block from intrashard")
+			block := msg.Data.(RawBlockGob)
+			shard.handleProcessBlock(&block)
 		// Receive a combined bloom filter from coordinator
 		case "BADBLOCK":
 			shard.handleBadBlock()
