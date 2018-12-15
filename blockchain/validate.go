@@ -1268,7 +1268,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 					tx.Hash(), txInIndex)
 				previousHash := txIn.PreviousOutPoint.Hash
 				// Get the txout owner
-				owner := binary.BigEndian.Uint64(previousHash[:]) % uint64(shard.NumShards)
+				modRes := binary.BigEndian.Uint64(previousHash[:]) % uint64(shard.NumShards*securityParam)
+				owner := modRes % uint64(shard.NumShards)
 				// Add missing to map of that perticular shard
 				if localMissingTxOuts[int(owner)] == nil {
 					localMissingTxOuts[int(owner)] = make(map[wire.OutPoint]*UtxoEntry)

@@ -10,6 +10,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 )
 
+const securityParam = 4
+
 // AddressesGob is a struct to send a list of tcp connections
 type AddressesGob struct {
 	Index     int
@@ -522,9 +524,9 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	// Split transactions between blocks
 	for _, tx := range headerBlock.Transactions {
 		// spew.Dump(tx)
-		shardNum := tx.ModTxHash(numShards)
+		modRes := tx.ModTxHash(numShards * securityParam)
 		// logging.Println("Shard for tx", shardNum)
-		bShards[shardNum].AddTransaction(tx)
+		bShards[modRes%uint64(numShards)].AddTransaction(tx)
 	}
 	// logging.Println("Sending shards")
 
