@@ -64,6 +64,7 @@ type Coordinator struct {
 	ConnectectionAdded chan bool // Sends a sigal that a shard connection completed
 	ConnectedOut       chan bool // Sends shards finished connecting to shards
 	BlockDone          chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
+	fetchedBlockShards map[net.Conn]*wire.MsgBlockShard
 	KeepAlive          chan interface{}
 	ShardListener      net.Listener
 	CoordListener      net.Listener
@@ -174,6 +175,9 @@ func (coord *Coordinator) HandleShardMessages(conn net.Conn) {
 		switch cmd {
 		case "SHARDDONE":
 			coord.handleShardDone(conn)
+		case "FTCHBLOCK":
+			block := msg.Data.(RawBlockGob)
+			coord.handleFetchedBlock(&block, conn)
 		case "CONCTDONE":
 			coord.handleConnectDone(conn)
 		case "BADBLOCK":
@@ -383,6 +387,12 @@ func (coord *Coordinator) handleDeadBeaf(conn net.Conn) {
 	logging.Print("Received dead beef command")
 }
 
+func (coord *Coordinator) handleFetchedBlock(receivedBlock *RawBlockGob, conn net.Conn) {
+	msgBlockShard := receivedBlock.Block
+	coord.fetchedBlockShards[conn] = msgBlockShard
+	coord.shardDone <- true
+}
+
 // This function handle receiving a request for blocks from another coordinator
 func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 	logging.Print("Receivd request for blocks request")
@@ -391,18 +401,50 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 	logging.Println("The fist block in chain")
 	logging.Println(coord.Chain.BlockHashByHeight(0))
 
+	gob.Register(HeaderGob{})
+
 	for i := 1; i < coord.Chain.BestChainLength(); i++ {
 		blockHash, err := coord.Chain.BlockHashByHeight(int32(i))
 		if err != nil {
 			logging.Println("Unable to fetch hash of block ", i)
 		}
-		// TODO change to fetch header + coinbase
 		header, err := coord.Chain.FetchHeader(blockHash)
+
+		// Request block from shards
+		coord.fetchedBlockShards = make(map[net.Conn]*wire.MsgBlockShard)
+		go coord.waitForShardsDone()
+		for _, s := range coord.shards {
+			enc := s.Enc
+
+			msg := Message{
+				Cmd: "SNDBLOCK",
+				Data: HeaderGob{
+					Header: &header,
+					Flags:  BFNone,
+					Height: int32(i), // optionally this will be done after the coord accept block is performed
+				},
+			}
+
+			err := enc.Encode(msg)
+			if err != nil {
+				logging.Println(err, "Encode failed for struct: %#v", msg)
+			}
+
+		}
+		// Wait for all shards to fetch the block
+		logging.Println("Wait for all shards to fetch block")
+		<-coord.allShardsDone
 
 		headerBlock := wire.NewMsgBlockShard(&header)
 
 		logging.Println("sending block hash ", header.BlockHash())
 		logging.Println("Sending block on", conn)
+
+		for _, blockShard := range coord.fetchedBlockShards {
+			for _, tx := range blockShard.Transactions {
+				headerBlock.AddTransaction(tx)
+			}
+		}
 
 		// Send block to coordinator
 

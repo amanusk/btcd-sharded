@@ -1323,8 +1323,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// TODO TODO TODO: If all is well, remove the utxo from the sender!!
 	// Now we can start validating the block
 
-	for txIdx, tx := range transactions {
-		logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
+	for _, tx := range transactions {
+		//logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
 		txFee, err := CheckTransactionInputs(tx, node.height, view,
 			params)
 		if err != nil {
@@ -1347,7 +1347,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		// This is where transactions are marked as spent
 		// Note: If the input is not yet in the local view, this will fail!
 		err = view.ConnectTransaction(tx, node.height, stxos)
-		logging.Println("Finished validating transaction", tx.Hash())
+		// logging.Println("Finished validating transaction", tx.Hash())
 		if err != nil {
 			return err
 		}
