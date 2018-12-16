@@ -911,7 +911,62 @@ func main() {
 			logging.Println("Unable to fetch hash of block ", err)
 		}
 		fmt.Println("Block hash is ", blockHash)
-		//fmt.Println("Finished")
-		//time.Sleep(20 * time.Second)
+		fmt.Println("Best chain length", chain.BestChainLength())
+		for i := 1; i < chain.BestChainLength(); i++ {
+			blockHash, err := chain.BlockHashByHeight(int32(i))
+			if err != nil {
+				logging.Println("Unable to fetch hash of block ", i)
+			}
+			block, _ := chain.BlockByHash(blockHash)
+
+			blockToSend := wire.NewMsgBlockShard(block.Header())
+			for idx, tx := range block.Transactions() {
+				// spew.Dump(tx)
+				newTx := wire.NewTxIndexFromTx(tx.MsgTx(), int32(idx))
+				// txHash := newTx.TxHash()
+				// logging.Println("txHash", txHash)
+				blockToSend.AddTransaction(newTx)
+			}
+
+			// Generate a header gob to send to coordinator
+			msg := blockchain.Message{
+				Cmd: "PROCBLOCK",
+				Data: blockchain.RawBlockGob{
+					Block:  blockToSend,
+					Flags:  blockchain.BFNone,
+					Height: int32(i),
+				},
+			}
+
+			err = enc.Encode(msg)
+			if err != nil {
+				logging.Println(err, "Encode failed for struct: %#v", msg)
+			}
+
+			logging.Println("Waiting for conformation on block")
+			for {
+				dec := coordConn.Dec
+				var msg blockchain.Message
+				err := dec.Decode(&msg)
+				if err != nil {
+					logging.Println("Error decoding GOB data:", err)
+					return
+				}
+				cmd := msg.Cmd
+
+				logging.Println("Recived command", cmd)
+				switch cmd {
+				case "BLOCKDONE":
+					logging.Println("Received BLOCKDONE")
+					break // Quit the switch case
+				case "BADBLOCK":
+					logging.Println("Received BADBLOCK")
+					break // Quit the switch case
+				default:
+					logging.Println("Command '", cmd, "' is not registered.")
+				}
+				break // Quit the for loop
+			}
+		}
 	}
 }
