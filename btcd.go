@@ -798,7 +798,7 @@ func main() {
 
 		// Create a new database and chain instance to run tests against.
 		chain, teardownFunc, err := chainSetup(config.Shard.ShardDb,
-			&chaincfg.RegressionNetParams, config)
+			&chaincfg.TestNet3Params, config)
 		if err != nil {
 			logging.Printf("Failed to setup chain instance: %v", err)
 			return
@@ -912,7 +912,8 @@ func main() {
 		}
 		fmt.Println("Block hash is ", blockHash)
 		fmt.Println("Best chain length", chain.BestChainLength())
-		for i := 1; i < chain.BestChainLength(); i++ {
+		start := time.Now()
+		for i := 1; i < 100000; i++ {
 			blockHash, err := chain.BlockHashByHeight(int32(i))
 			if err != nil {
 				logging.Println("Unable to fetch hash of block ", i)
@@ -968,5 +969,7 @@ func main() {
 				break // Quit the for loop
 			}
 		}
+		elapsed := time.Since(start)
+		fmt.Printf("chain sync took %v \n", elapsed)
 	}
 }

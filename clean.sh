@@ -4,8 +4,8 @@
 
 /bin/rm *.log
 
- /bin/rm -rf testdb/blocks_ffldb/
- /bin/rm -rf testdb/testdbc1
+/bin/rm -rf testdb/blocks_ffldb/
+/bin/rm -rf testdb/testdb*
 cp -r ~/.btcd/data/testnet/blocks_ffldb/ testdb/
 
 ## Delete all tables from databse 

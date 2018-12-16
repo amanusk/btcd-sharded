@@ -1329,6 +1329,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		txFee, err := CheckTransactionInputs(tx, node.height, view,
 			params)
 		if err != nil {
+			fmt.Println("Transcation inputs check failed")
 			return err
 		}
 
@@ -1350,6 +1351,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		err = view.ConnectTransaction(tx, node.height, stxos)
 		// logging.Println("Finished validating transaction", tx.Hash())
 		if err != nil {
+			fmt.Println("Transcation Connect failed")
 			return err
 		}
 
@@ -1448,10 +1450,10 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 
 	//// Enforce the segwit soft-fork package once the soft-fork has shifted
 	// into the "active" version bits state.
-	if enforceSegWit {
-		scriptFlags |= txscript.ScriptVerifyWitness
-		scriptFlags |= txscript.ScriptStrictMultiSig
-	}
+	// if enforceSegWit {
+	// 	scriptFlags |= txscript.ScriptVerifyWitness
+	// 	scriptFlags |= txscript.ScriptStrictMultiSig
+	// }
 
 	// fmt.Println("Flags before verify:", scriptFlags)
 	// for _, tx := range block.TransactionsMap() {
@@ -1471,6 +1473,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 			nil)
 
 		if err != nil {
+			logging.Println("Check Block script failed")
 			return err
 		}
 	}
