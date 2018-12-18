@@ -2268,7 +2268,7 @@ func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInsta
 	//
 	//   genesis -> bm0 -> bm1 -> ... -> bm99
 	// ---------------------------------------------------------------------
-	extraTxs := uint16(110)
+	extraTxs := uint16(1000)
 	coinbaseMaturity := g.params.CoinbaseMaturity
 	fmt.Println("Coin base maturity", coinbaseMaturity)
 	var testInstances []TestInstance
@@ -2473,7 +2473,7 @@ func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInsta
 	// max allowed signature operations per block.
 	//
 	//   ... -> b35(10) -> b39(11)1
-	blocksNeeded := 1000
+	blocksNeeded := 200
 	b39 := g.nextBlock("b39", outs[9], func(b *wire.MsgBlock) {
 		// Create a chain of transactions each spending from the
 		// previous one such that each contains an output that pays to
@@ -2497,6 +2497,7 @@ func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInsta
 	//
 	//   ... -> b35(10) -> b39(11) -> b41(12)
 	for j := 0; j < blocksNeeded; j++ {
+		fmt.Println("Created block", j)
 		blockName := "b" + strconv.Itoa(41+j)
 		g.nextBlock(blockName, outs[13+j], func(b *wire.MsgBlock) {
 			for i := 0; i < txnsNeeded; i++ {
