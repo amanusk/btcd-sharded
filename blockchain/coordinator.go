@@ -5,6 +5,7 @@ import (
 	"fmt"
 	logging "log"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
@@ -46,6 +47,12 @@ type Message struct {
 	Data interface{}
 }
 
+// FetchedBlocksLockedMap save a map between shards and fetched blocks
+type FetchedBlocksLockedMap struct {
+	*sync.RWMutex
+	fetchedBlocks map[net.Conn]*wire.MsgBlockShard
+}
+
 // Coordinator is the coordinator in a sharded bitcoin cluster
 type Coordinator struct {
 	shards          map[net.Conn]*Shard // A map of shards connected to this coordinator
@@ -66,7 +73,7 @@ type Coordinator struct {
 	ConnectectionAdded chan bool // Sends a sigal that a shard connection completed
 	ConnectedOut       chan bool // Sends shards finished connecting to shards
 	BlockDone          chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
-	fetchedBlockShards map[net.Conn]*wire.MsgBlockShard
+	fetchedBlockShards *FetchedBlocksLockedMap
 	KeepAlive          chan interface{}
 	ShardListener      net.Listener
 	CoordListener      net.Listener
@@ -357,8 +364,8 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 	}
 	coord.sendBlockDone(conn)
 	endTime := time.Since(startTime)
-	logging.Println("Block", headerBlock.Height, "took", endTime)
-	fmt.Println("Block", headerBlock.Height, "took", endTime)
+	logging.Println("Block", headerBlock.Height, "took", endTime, "to process")
+	fmt.Println("Block", headerBlock.Height, "took", endTime, "to process")
 }
 
 func (coord *Coordinator) sendBlockDone(conn net.Conn) {
@@ -391,7 +398,9 @@ func (coord *Coordinator) handleDeadBeaf(conn net.Conn) {
 
 func (coord *Coordinator) handleFetchedBlock(receivedBlock *RawBlockGob, conn net.Conn) {
 	msgBlockShard := receivedBlock.Block
-	coord.fetchedBlockShards[conn] = msgBlockShard
+	coord.fetchedBlockShards.Lock()
+	coord.fetchedBlockShards.fetchedBlocks[conn] = msgBlockShard
+	coord.fetchedBlockShards.Unlock()
 	coord.shardDone <- true
 }
 
@@ -405,7 +414,9 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 
 	gob.Register(HeaderGob{})
 
+	startTime := time.Now()
 	for i := 1; i < coord.Chain.BestChainLength(); i++ {
+		startTime := time.Now()
 		blockHash, err := coord.Chain.BlockHashByHeight(int32(i))
 		if err != nil {
 			logging.Println("Unable to fetch hash of block ", i)
@@ -413,7 +424,7 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		header, err := coord.Chain.FetchHeader(blockHash)
 
 		// Request block from shards
-		coord.fetchedBlockShards = make(map[net.Conn]*wire.MsgBlockShard)
+		coord.fetchedBlockShards = &FetchedBlocksLockedMap{&sync.RWMutex{}, map[net.Conn]*wire.MsgBlockShard{}}
 		go coord.waitForShardsDone()
 		for _, s := range coord.shards {
 			enc := s.Enc
@@ -442,7 +453,7 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		logging.Println("sending block hash ", header.BlockHash())
 		logging.Println("Sending block on", conn)
 
-		for _, blockShard := range coord.fetchedBlockShards {
+		for _, blockShard := range coord.fetchedBlockShards.fetchedBlocks {
 			for _, tx := range blockShard.Transactions {
 				headerBlock.AddTransaction(tx)
 			}
@@ -469,8 +480,14 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 
 		<-coord.BlockDone
 		logging.Println("Received block done")
+		endTime := time.Since(startTime)
+		logging.Println("Block", i, "took", endTime, "to send")
+		fmt.Println("Block", i, "took", endTime, "to send")
 
 	}
+	endTime := time.Since(startTime)
+	logging.Println("Sending all blocks took", endTime)
+	fmt.Println("Sending all blocks took", endTime)
 	return
 
 }
