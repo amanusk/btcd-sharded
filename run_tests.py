@@ -16,7 +16,7 @@ DEFAULT_COORD = 1
 def run_oracle(num_shards, num_txs):
     cmd = str(os.getcwd()) + '/btcd'
     print("Running" + cmd)
-    # rc = subprocess.call([cmd, "--mode=full", "--n=" + str(num_shards),
+    # rc = subprocess.call([cmd, "-mode=full", "--n=" + str(num_shards),
     #                       "--tx=" + str(num_txs), "--conf=config_full.json"],
     #                      None, stdin=None,
     #                      stdout=None, stderr=None, shell=False)
@@ -269,22 +269,22 @@ def main():
     #                 stdout=None, stderr=None, shell=False)
 
     # Try with 2 nodes, 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 4, bootstrap=True, num_txs=10000)
-    p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=10000)
+    p_list = run_n_shard_node(DEFAULT_COORD, 4, bootstrap=True, num_txs=100)
+    p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=100)
 
-    time.sleep(180)
+    # time.sleep(3600)
 
-    if scan_log_files(2, 2):
-        logging.debug("An error detected in one of the files")
-        exit(1)
+    # if scan_log_files(2, 2):
+    #     logging.debug("An error detected in one of the files")
+    #     exit(1)
 
-    kill_all_prcesses(p_list)
-    kill_all_prcesses(p2_list)
+    # kill_all_prcesses(p_list)
+    # kill_all_prcesses(p2_list)
 
-    cmd = str(os.getcwd()) + '/clean.sh'
-    print("Running clean")
-    subprocess.call([cmd], None, stdin=None,
-                   stdout=None, stderr=None, shell=False)
+    # cmd = str(os.getcwd()) + '/clean.sh'
+    # print("Running clean")
+    # subprocess.call([cmd], None, stdin=None,
+    #                stdout=None, stderr=None, shell=False)
 
 
 

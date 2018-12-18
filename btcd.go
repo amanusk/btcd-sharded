@@ -897,7 +897,7 @@ func main() {
 		gob.Register(blockchain.RawBlockGob{})
 		gob.Register(blockchain.AddressesGob{})
 		gob.Register(blockchain.DHTGob{})
-
+		// fix git
 		chain, teardownFunc, err := chainSetup(config.Server.ServerDb,
 			&chaincfg.RegressionNetParams, config)
 		if err != nil {
