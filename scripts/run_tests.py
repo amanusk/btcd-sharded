@@ -56,20 +56,23 @@ def run_shard(server_num, shard_num, num_shards):
 def run_remote_shard(server_num, shard_num, num_shards):
     cmd = go_dir + '/btcd'
     conf = home_dir + '/config_s{}_{}.json'.format(server_num, shard_num)
-    shell = spur.SshShell(hostname="10.0.0.{}".format(50 + int(server_num) * 50 + int(shard_num)),
+    host = "10.0.0.{}".format(50 + int(server_num) * 50 + int(shard_num))
+    print("Host " + host)
+    shell = spur.SshShell(hostname=host,
                           username="ubuntu",
                           private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                           missing_host_key=spur.ssh.MissingHostKey.accept,
                          )
-    print("Running" + cmd)
-    shard_id = "{}_{}".format(server_num, shard_num)
-    p = shell.spawn([cmd, "--mode=shard", "--n=" + str(num_shards),
-                          "--conf=" + str(conf)])
+    cmd = [cmd, "--mode=shard", "--n=" + str(num_shards),
+                          "--conf=" + str(conf)]
+    print(str(shell))
+    print("Running " + " ".join(cmd))
+    p = shell.spawn(cmd)
     return p
 
 def run_server(server_num, num_shards, bootstrap):
     cmd = str(os.getcwd()) + '/btcd'
-    print("Running" + cmd)
+    print("Running " + cmd)
     boot = ""
     if bootstrap:
         boot = "--bootstrap"
@@ -83,17 +86,20 @@ def run_server(server_num, num_shards, bootstrap):
 def run_remote_server(server_num, num_shards, bootstrap):
     cmd = go_dir + '/btcd'
     conf = home_dir + '/config{}.json'.format(server_num)
-    shell = spur.SshShell(hostname="10.0.0.1{}".format(server_num),
+    host = "10.0.0.1{}".format(server_num)
+    print("Host " + host)
+    shell = spur.SshShell(hostname=host,
                           username="ubuntu",
                           private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                           missing_host_key=spur.ssh.MissingHostKey.accept,
                          )
-    print("Running" + cmd)
     boot = ""
     if bootstrap:
         boot = "--bootstrap"
-    p = shell.spawn([cmd, "--mode=server", "--n=" + str(num_shards),
-                          "--conf=" + str(conf), boot])
+    cmd = [cmd, "--mode=server", "--n=" + str(num_shards),
+                          "--conf=" + str(conf), boot]
+    print("Running " + " ".join(cmd))
+    p = shell.spawn(cmd)
     return p
 
 
@@ -115,7 +121,7 @@ def run_n_shard_node(coord_num, n, bootstrap, num_txs):
 def run_remote_n_shard_node(coord_num, n, bootstrap, num_txs):
     processes = list()
     run_remote_server(coord_num, n, bootstrap=bootstrap)
-    #processes.append(coord_process)
+    processes.append(coord_process)
     time.sleep(1)
     for i in range(n):
         run_remote_shard(coord_num, i, n)
@@ -301,7 +307,7 @@ def run_multi_tests():
 
         return top_block_time
 
-    for num_shards in range(2, 3):
+    for num_shards in range(1, 3):
         csv_file_name = "proc_{}_shards.csv".format(num_shards)
         with open(csv_file_name, 'w') as csvfile:
             fieldnames = ['Txs', 'Time']
@@ -310,6 +316,7 @@ def run_multi_tests():
             writer.writeheader()  # file doesn't exist yet, write a header
 
             for num_txs in range(1000, 3000, 1000):
+            for num_txs in range(100, 500, 100):
                 block_time = run_test(2, num_shards, num_txs)
                 d = {'Time': block_time, 'Txs': num_txs}
                 writer.writerow(d)
