@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	reallog "log"
+	logging "log"
 	"math/big"
 	"sync"
 	"time"
@@ -853,7 +853,7 @@ func sqlDbPutUtxoView(db *SQLBlockDB, view UtxoView) error {
 		}
 		// At this point the utxo entry is not fully spent, so store its
 		key := outpointKey(outpoint)
-		reallog.Println("Storing outPoint ", outpoint)
+		logging.Println("Storing outPoint ", outpoint)
 		db.StoreUTXO(*key, serialized)
 		// NOTE: The key is intentionally not recycled here since the
 		// database interface contract prohibits modifications.  It will
@@ -1202,7 +1202,7 @@ func (b *BlockChain) initChainState() error {
 		// number of nodes are already known, perform a single alloc
 		// for them versus a whole bunch of little ones to reduce
 		// pressure on the GC.
-		log.Infof("Loading block index...")
+		logging.Println("Loading block index...")
 
 		blockIndexBucket := dbTx.Metadata().Bucket(blockIndexBucketName)
 

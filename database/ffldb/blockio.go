@@ -540,13 +540,13 @@ func (s *blockStore) readBlock(hash *chainhash.Hash, loc blockLocation) ([]byte,
 	// The network associated with the block must match the current active
 	// network, otherwise somebody probably put the block files for the
 	// wrong network in the directory.
-	serializedNet := byteOrder.Uint32(serializedData[:4])
-	if serializedNet != uint32(s.network) {
-		str := fmt.Sprintf("block data for block %s is for the "+
-			"wrong network - got %d, want %d", hash, serializedNet,
-			uint32(s.network))
-		return nil, makeDbErr(database.ErrDriverSpecific, str, nil)
-	}
+	// serializedNet := byteOrder.Uint32(serializedData[:4])
+	// if serializedNet != uint32(s.network) {
+	// 	str := fmt.Sprintf("block data for block %s is for the "+
+	// 		"wrong network - got %d, want %d", hash, serializedNet,
+	// 		uint32(s.network))
+	// 	return nil, makeDbErr(database.ErrDriverSpecific, str, nil)
+	// }
 
 	// The raw block excludes the network, length of the block, and
 	// checksum.

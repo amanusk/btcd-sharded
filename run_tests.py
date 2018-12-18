@@ -16,8 +16,12 @@ DEFAULT_COORD = 1
 def run_oracle(num_shards, num_txs):
     cmd = str(os.getcwd()) + '/btcd'
     print("Running" + cmd)
+    # rc = subprocess.call([cmd, "--mode=full", "--n=" + str(num_shards),
+    #                       "--tx=" + str(num_txs), "--conf=config_full.json"],
+    #                      None, stdin=None,
+    #                      stdout=None, stderr=None, shell=False)
     rc = subprocess.call([cmd, "--mode=oracle", "--n=" + str(num_shards),
-                          "--tx=" + str(num_txs)],
+                          "--tx=" + str(num_txs), "--conf=config_full.json"],
                          None, stdin=None,
                          stdout=None, stderr=None, shell=False)
     print("Return Code " + str(rc))
@@ -176,7 +180,7 @@ def run_multi_tests():
             if "took" in line:
                 print(line)
                 blocktime = float(
-                    re.findall("\d+\.\d+", (line.split(" ")[4]))[0])
+                    re.findall(r"\d+\.\d+", (line.split(" ")[4]))[0])
                 print(blocktime)
                 return blocktime
 
@@ -194,6 +198,11 @@ def run_multi_tests():
             logging.debug("An error detected in one of the files")
 
         kill_all_prcesses(p_list)
+
+        cmd = str(os.getcwd()) + '/clean.sh'
+        print("Running clean")
+        subprocess.call([cmd], None, stdin=None,
+                        stdout=None, stderr=None, shell=False)
 
         top_block_time = get_top_block_time(num_coords)
         print("Top block took {} s to process".format(top_block_time))
@@ -235,25 +244,35 @@ def main():
 
     # run_multi_tests()
 
-    # This runs a single node, and makes sure the coordinator + orcacle work
-    p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True, num_txs=1000)
-    kill_all_prcesses(p_list)
-    if scan_log_files(2, 2):
-        logging.debug("An error detected in one of the files")
-        exit(1)
+    # # This runs a single node, and makes sure the coordinator + orcacle work
+    # p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True, num_txs=10)
+    # kill_all_prcesses(p_list)
+    # if scan_log_files(2, 2):
+    #     logging.debug("An error detected in one of the files")
+    #     exit(1)
 
-    # for line in lines:
-    #     print(line)
+    # # # for line in lines:
+    # # #     print(line)
 
-    # Try with 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True, num_txs=1000)
-    kill_all_prcesses(p_list)
+    # cmd = str(os.getcwd()) + '/clean.sh'
+    # print("Running clean")
+    # subprocess.call([cmd], None, stdin=None,
+    #                 stdout=None, stderr=None, shell=False)
+
+    # # Try with 2 shards
+    # p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True, num_txs=1000)
+    # kill_all_prcesses(p_list)
+
+    # cmd = str(os.getcwd()) + '/clean.sh'
+    # print("Running clean")
+    # subprocess.call([cmd], None, stdin=None,
+    #                 stdout=None, stderr=None, shell=False)
 
     # Try with 2 nodes, 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True, num_txs=1000)
-    p2_list = run_n_shard_node(2, 2, bootstrap=False, num_txs=1000)
+    p_list = run_n_shard_node(DEFAULT_COORD, 4, bootstrap=True, num_txs=10000)
+    p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=10000)
 
-    time.sleep(10)
+    time.sleep(180)
 
     if scan_log_files(2, 2):
         logging.debug("An error detected in one of the files")
@@ -262,7 +281,11 @@ def main():
     kill_all_prcesses(p_list)
     kill_all_prcesses(p2_list)
 
-    # run_n_shard_node(2, 3, False)
+    cmd = str(os.getcwd()) + '/clean.sh'
+    print("Running clean")
+    subprocess.call([cmd], None, stdin=None,
+                   stdout=None, stderr=None, shell=False)
+
 
 
 def get_args():

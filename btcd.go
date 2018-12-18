@@ -11,7 +11,6 @@ import (
 	_ "io"
 	logging "log"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,9 +25,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/blockchain/fullblocktests"
-	"github.com/btcsuite/btcd/blockchain/indexers"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/limits"
 	"github.com/btcsuite/btcd/txscript"
@@ -112,136 +109,136 @@ var winServiceMain func() (bool, error)
 // optional serverChan parameter is mainly used by the service code to be
 // notified with the server once it is setup so it can gracefully stop it when
 // requested from the service control manager.
-func btcdMain(serverChan chan<- *server) error {
-	// Load configuration and parse command line.  This function also
-	// initializes logging and configures it accordingly.
-	tcfg, _, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	cfg = tcfg
-	defer func() {
-		if logRotator != nil {
-			logRotator.Close()
-		}
-	}()
-
-	// Get a channel that will be closed when a shutdown signal has been
-	// triggered either from an OS signal such as SIGINT (Ctrl+C) or from
-	// another subsystem such as the RPC server.
-	interrupt := interruptListener()
-	defer btcdLog.Info("Shutdown complete")
-
-	// Show version at startup.
-	btcdLog.Infof("Version %s", version())
-
-	// Enable http profiling server if requested.
-	if cfg.Profile != "" {
-		go func() {
-			listenAddr := net.JoinHostPort("", cfg.Profile)
-			btcdLog.Infof("Profile server listening on %s", listenAddr)
-			profileRedirect := http.RedirectHandler("/debug/pprof",
-				http.StatusSeeOther)
-			http.Handle("/", profileRedirect)
-			btcdLog.Errorf("%v", http.ListenAndServe(listenAddr, nil))
-		}()
-	}
-
-	// Write cpu profile if requested.
-	if cfg.CPUProfile != "" {
-		f, err := os.Create(cfg.CPUProfile)
-		if err != nil {
-			btcdLog.Errorf("Unable to create cpu profile: %v", err)
-			return err
-		}
-		pprof.StartCPUProfile(f)
-		defer f.Close()
-		defer pprof.StopCPUProfile()
-	}
-
-	// Perform upgrades to btcd as new versions require it.
-	if err := doUpgrades(); err != nil {
-		btcdLog.Errorf("%v", err)
-		return err
-	}
-
-	// Return now if an interrupt signal was triggered.
-	if interruptRequested(interrupt) {
-		return nil
-	}
-
-	// Load the block database.
-	db, err := loadBlockDB()
-	if err != nil {
-		btcdLog.Errorf("%v", err)
-		return err
-	}
-	defer func() {
-		// Ensure the database is sync'd and closed on shutdown.
-		btcdLog.Infof("Gracefully shutting down the database...")
-		db.Close()
-	}()
-
-	// Return now if an interrupt signal was triggered.
-	if interruptRequested(interrupt) {
-		return nil
-	}
-
-	// Drop indexes and exit if requested.
-	//
-	// NOTE: The order is important here because dropping the tx index also
-	// drops the address index since it relies on it.
-	if cfg.DropAddrIndex {
-		if err := indexers.DropAddrIndex(db, interrupt); err != nil {
-			btcdLog.Errorf("%v", err)
-			return err
-		}
-
-		return nil
-	}
-	if cfg.DropTxIndex {
-		if err := indexers.DropTxIndex(db, interrupt); err != nil {
-			btcdLog.Errorf("%v", err)
-			return err
-		}
-
-		return nil
-	}
-	if cfg.DropCfIndex {
-		if err := indexers.DropCfIndex(db, interrupt); err != nil {
-			btcdLog.Errorf("%v", err)
-			return err
-		}
-
-		return nil
-	}
-
-	// Create server and start it.
-	server, err := newServer(cfg.Listeners, db, activeNetParams.Params,
-		interrupt)
-	if err != nil {
-		// TODO: this logging could do with some beautifying.
-		btcdLog.Errorf("Unable to start server on %v: %v",
-			cfg.Listeners, err)
-		return err
-	}
-	defer func() {
-		btcdLog.Infof("Gracefully shutting down the server...")
-		server.Stop()
-		server.WaitForShutdown()
-		srvrLog.Infof("Server shutdown complete")
-	}()
-	server.Start()
-	if serverChan != nil {
-		serverChan <- server
-	}
-
-	// Wait until the interrupt signal is received from an OS signal or
-	// shutdown is requested through one of the subsystems such as the RPC
-	// server.
-	<-interrupt
-	return nil
-}
+// func btcdMain(serverChan chan<- *server) error {
+// 	// Load configuration and parse command line.  This function also
+// 	// initializes logging and configures it accordingly.
+// 	tcfg, _, err := loadConfig()
+// 	if err != nil {
+// 		return err
+// 	}
+// 	cfg = tcfg
+// 	defer func() {
+// 		if logRotator != nil {
+// 			logRotator.Close()
+// 		}
+// 	}()
+//
+// 	// Get a channel that will be closed when a shutdown signal has been
+// 	// triggered either from an OS signal such as SIGINT (Ctrl+C) or from
+// 	// another subsystem such as the RPC server.
+// 	interrupt := interruptListener()
+// 	defer btcdLog.Info("Shutdown complete")
+//
+// 	// Show version at startup.
+// 	btcdLog.Infof("Version %s", version())
+//
+// 	// Enable http profiling server if requested.
+// 	if cfg.Profile != "" {
+// 		go func() {
+// 			listenAddr := net.JoinHostPort("", cfg.Profile)
+// 			btcdLog.Infof("Profile server listening on %s", listenAddr)
+// 			profileRedirect := http.RedirectHandler("/debug/pprof",
+// 				http.StatusSeeOther)
+// 			http.Handle("/", profileRedirect)
+// 			btcdLog.Errorf("%v", http.ListenAndServe(listenAddr, nil))
+// 		}()
+// 	}
+//
+// 	// Write cpu profile if requested.
+// 	if cfg.CPUProfile != "" {
+// 		f, err := os.Create(cfg.CPUProfile)
+// 		if err != nil {
+// 			btcdLog.Errorf("Unable to create cpu profile: %v", err)
+// 			return err
+// 		}
+// 		pprof.StartCPUProfile(f)
+// 		defer f.Close()
+// 		defer pprof.StopCPUProfile()
+// 	}
+//
+// 	// Perform upgrades to btcd as new versions require it.
+// 	if err := doUpgrades(); err != nil {
+// 		btcdLog.Errorf("%v", err)
+// 		return err
+// 	}
+//
+// 	// Return now if an interrupt signal was triggered.
+// 	if interruptRequested(interrupt) {
+// 		return nil
+// 	}
+//
+// 	// Load the block database.
+// 	db, err := loadBlockDB()
+// 	if err != nil {
+// 		btcdLog.Errorf("%v", err)
+// 		return err
+// 	}
+// 	defer func() {
+// 		// Ensure the database is sync'd and closed on shutdown.
+// 		btcdLog.Infof("Gracefully shutting down the database...")
+// 		db.Close()
+// 	}()
+//
+// 	// Return now if an interrupt signal was triggered.
+// 	if interruptRequested(interrupt) {
+// 		return nil
+// 	}
+//
+// 	// Drop indexes and exit if requested.
+// 	//
+// 	// NOTE: The order is important here because dropping the tx index also
+// 	// drops the address index since it relies on it.
+// 	if cfg.DropAddrIndex {
+// 		if err := indexers.DropAddrIndex(db, interrupt); err != nil {
+// 			btcdLog.Errorf("%v", err)
+// 			return err
+// 		}
+//
+// 		return nil
+// 	}
+// 	if cfg.DropTxIndex {
+// 		if err := indexers.DropTxIndex(db, interrupt); err != nil {
+// 			btcdLog.Errorf("%v", err)
+// 			return err
+// 		}
+//
+// 		return nil
+// 	}
+// 	if cfg.DropCfIndex {
+// 		if err := indexers.DropCfIndex(db, interrupt); err != nil {
+// 			btcdLog.Errorf("%v", err)
+// 			return err
+// 		}
+//
+// 		return nil
+// 	}
+//
+// 	// Create server and start it.
+// 	server, err := newServer(cfg.Listeners, db, activeNetParams.Params,
+// 		interrupt)
+// 	if err != nil {
+// 		// TODO: this logging could do with some beautifying.
+// 		btcdLog.Errorf("Unable to start server on %v: %v",
+// 			cfg.Listeners, err)
+// 		return err
+// 	}
+// 	defer func() {
+// 		btcdLog.Infof("Gracefully shutting down the server...")
+// 		server.Stop()
+// 		server.WaitForShutdown()
+// 		srvrLog.Infof("Server shutdown complete")
+// 	}()
+// 	server.Start()
+// 	if serverChan != nil {
+// 		serverChan <- server
+// 	}
+//
+// 	// Wait until the interrupt signal is received from an OS signal or
+// 	// shutdown is requested through one of the subsystems such as the RPC
+// 	// server.
+// 	<-interrupt
+// 	return nil
+// }
 
 // removeRegressionDB removes the existing regression test database if running
 // in regression test mode and it already exists.
@@ -320,30 +317,32 @@ func warnMultipleDBs() {
 // contains additional logic such warning the user if there are multiple
 // databases which consume space on the file system and ensuring the regression
 // test database is clean when in regression test mode.
-func loadBlockDB() (database.DB, error) {
+func loadBlockDB(dbName string) (database.DB, error) {
 	// The memdb backend does not have a file path associated with it, so
 	// handle it uniquely.  We also don't want to worry about the multiple
 	// database type warnings when running with the memory database.
-	if cfg.DbType == "memdb" {
-		btcdLog.Infof("Creating block database in memory.")
-		db, err := database.Create(cfg.DbType)
-		if err != nil {
-			return nil, err
-		}
-		return db, nil
-	}
+	//if cfg.DbType == "memdb" {
+	//	btcdLog.Infof("Creating block database in memory.")
+	//	db, err := database.Create(cfg.DbType)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	return db, nil
+	//}
 
-	warnMultipleDBs()
+	//warnMultipleDBs()
 
 	// The database name is based on the database type.
-	dbPath := blockDbPath(cfg.DbType)
+	// dbPath := blockDbPath(cfg.DbType)
+	testDbRoot := "testdb"
+	dbPath := filepath.Join(testDbRoot, dbName)
 
 	// The regression test is special in that it needs a clean database for
 	// each run, so remove it now if it already exists.
-	removeRegressionDB(dbPath)
+	// removeRegressionDB(dbPath)
 
-	btcdLog.Infof("Loading block database from '%s'", dbPath)
-	db, err := database.Open(cfg.DbType, dbPath, activeNetParams.Net)
+	fmt.Printf("Loading block database from '%s\n'", dbPath)
+	db, err := database.Open("ffldb", dbPath, activeNetParams.Net)
 	if err != nil {
 		// Return the error if it's not because the database doesn't
 		// exist.
@@ -364,7 +363,7 @@ func loadBlockDB() (database.DB, error) {
 		}
 	}
 
-	btcdLog.Info("Block database loaded")
+	fmt.Println("Block database loaded")
 	return db, nil
 }
 
@@ -398,9 +397,9 @@ func nomain() {
 	}
 
 	// Work around defer not working after os.Exit()
-	if err := btcdMain(nil); err != nil {
-		os.Exit(1)
-	}
+	// if err := btcdMain(nil); err != nil {
+	// 	os.Exit(1)
+	// }
 }
 
 // chainSetup is used to create a new db and chain instance with the genesis
@@ -416,46 +415,55 @@ func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockch
 	// specific handling.
 	var db database.DB
 	var teardown func()
-	if testDbType == "memdb" {
-		ndb, err := database.Create(testDbType)
+	// Create the root directory for test databases.
+	testDbRoot := "testdb"
+	if !fileExists(testDbRoot) {
+		fmt.Println("Creating new testdb")
+		if err := os.MkdirAll(testDbRoot, 0700); err != nil {
+			err := fmt.Errorf("unable to create test db "+
+				"root: %v", err)
+			return nil, nil, err
+		}
+	}
+
+	// Create a new database to store the accepted blocks into.
+	dbPath := filepath.Join(testDbRoot, dbName)
+	fmt.Println("DB set to path", dbPath)
+	if !fileExists(dbPath) {
+		// _ = os.RemoveAll(dbPath)
+		fmt.Println("Creating database", dbPath)
+		var err error
+		db, err = database.Create(testDbType, dbPath, blockDataNet)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error creating db: %v", err)
 		}
-		db = ndb
-
-		// Setup a teardown function for cleaning up.  This function is
-		// returned to the caller to be invoked when it is done testing.
+		fmt.Println("DB created", db)
 		teardown = func() {
 			db.Close()
 		}
 	} else {
-		// Create the root directory for test databases.
-		testDbRoot := "testdb"
-		if !fileExists(testDbRoot) {
-			if err := os.MkdirAll(testDbRoot, 0700); err != nil {
-				err := fmt.Errorf("unable to create test db "+
-					"root: %v", err)
-				return nil, nil, err
-			}
-		}
-
-		// Create a new database to store the accepted blocks into.
-		dbPath := filepath.Join(testDbRoot, dbName)
-		_ = os.RemoveAll(dbPath)
-		ndb, err := database.Create(testDbType, dbPath, blockDataNet)
+		// Load the block database.
+		var err error
+		db, err = loadBlockDB(dbName)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error creating db: %v", err)
+			btcdLog.Errorf("%v", err)
+			return nil, nil, err
 		}
-		db = ndb
-
-		// Setup a teardown function for cleaning up.  This function is
-		// returned to the caller to be invoked when it is done testing.
 		teardown = func() {
+			// Ensure the database is sync'd and closed on shutdown.
+			fmt.Println("Gracefully shutting down the database...")
 			db.Close()
-			os.RemoveAll(dbPath)
-			os.RemoveAll(testDbRoot)
 		}
 	}
+	fmt.Println("DB passed", db)
+
+	// Setup a teardown function for cleaning up.  This function is
+	// returned to the caller to be invoked when it is done testing.
+	// teardown = func() {
+	// 	db.Close()
+	// 	os.RemoveAll(dbPath)
+	// 	os.RemoveAll(testDbRoot)
+	// }
 
 	// Copy the chain params to ensure any modifications the tests do to
 	// the chain parameters do not affect the global instance.
@@ -470,8 +478,8 @@ func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockch
 		SigCache:    txscript.NewSigCache(1000),
 	})
 	if err != nil {
-		teardown()
 		err := fmt.Errorf("failed to create chain instance: %v", err)
+		teardown()
 		return nil, nil, err
 	}
 	return chain, teardown, nil
@@ -662,39 +670,6 @@ func main() {
 		gob.Register(blockchain.AddressesGob{})
 		gob.Register(blockchain.DHTGob{})
 
-		coordEnc := coordConn.Enc
-
-		// Send request for shards
-		msg := blockchain.Message{
-			Cmd: "GETSHARDS",
-		}
-
-		err = coordEnc.Encode(msg)
-		if err != nil {
-			logging.Println(err, "Encode failed for struct: %#v", msg)
-		}
-
-		var receivedMessage blockchain.DHTGob
-
-		dec = coordConn.Dec
-		err = dec.Decode(&receivedMessage)
-		if err != nil {
-			logging.Println("Error decoding GOB data:", err)
-			return
-		}
-		receivedDht := receivedMessage.DHTTable
-		// Receive peer shards, and create connection with it
-		shardConn := make([]*blockchain.Shard, numShards)
-		// TODO: Connect according to the infomration in the GOB
-		for shardIdx, shardAddress := range receivedDht {
-			fmt.Println("Connecting to", shardAddress.IP, shardAddress.Port)
-			fmt.Println("Connecting to", shardAddress.IP.String()+":"+strconv.Itoa(shardAddress.Port))
-			connection, err = net.Dial("tcp", shardAddress.IP.String()+":"+strconv.Itoa(shardAddress.Port))
-			enc = gob.NewEncoder(connection)
-			dec = gob.NewDecoder(connection)
-			shardConn[shardIdx] = blockchain.NewShardConnection(connection, 0, shardIdx, enc, dec)
-		}
-
 		// testAcceptedBlock attempts to process the block in the provided test
 		// instance and ensures that it was accepted according to the flags
 		// specified in the test.
@@ -714,10 +689,13 @@ func main() {
 			coordEnc := coordConn.Enc
 
 			headerBlock := wire.NewMsgBlockShard(&block.Header)
-
-			// Add only the coinbase transaction to the block
-			//newTx := wire.NewTxIndexFromTx(block.Transactions[0], int32(0))
-			//headerBlock.AddTransaction(newTx)
+			for idx, tx := range block.Transactions {
+				// spew.Dump(tx)
+				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
+				// txHash := newTx.TxHash()
+				// logging.Println("txHash", txHash)
+				headerBlock.AddTransaction(newTx)
+			}
 
 			// Generate a header gob to send to coordinator
 			msg := blockchain.Message{
@@ -732,67 +710,6 @@ func main() {
 			err = coordEnc.Encode(msg)
 			if err != nil {
 				logging.Println(err, "Encode failed for struct: %#v", msg)
-			}
-			logging.Println("Waiting for shards to request block")
-			// Wait for shard to request the block
-			for i := 0; i < numShards; i++ {
-				dec := shardConn[i].Dec
-				var msg blockchain.Message
-				err := dec.Decode(&msg)
-				if err != nil {
-					logging.Println("Error decoding GOB data:", err)
-					return
-				}
-				cmd := msg.Cmd
-
-				logging.Println("Recived command", cmd)
-				switch cmd {
-
-				case "SNDBLOCK":
-					logging.Println("'Shard' received requist SNDBLOCK")
-					break // Quit the switch case
-				default:
-					logging.Println("Command '", cmd, "' is not registered.")
-				}
-				//break // Quit the for loop
-			}
-
-			bShards := make([]*wire.MsgBlockShard, numShards)
-
-			// Create a block shard to send to shards
-			for idx := range bShards {
-				bShards[idx] = wire.NewMsgBlockShard(&block.Header)
-			}
-
-			// Split transactions between blocks
-			for idx, tx := range block.Transactions {
-				// spew.Dump(tx)
-				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
-				// txHash := newTx.TxHash()
-				// logging.Println("txHash", txHash)
-				shardNum := newTx.ModTxHash(numShards)
-				// logging.Println("Shard for tx", shardNum)
-				bShards[shardNum].AddTransaction(newTx)
-			}
-			logging.Println("Sending shards")
-
-			for i := 0; i < numShards; i++ {
-
-				// All data is sent in gobs
-				msg := blockchain.Message{
-					Cmd: "PRCBLOCK",
-					Data: blockchain.RawBlockGob{
-						Block:  bShards[i],
-						Flags:  blockchain.BFNone,
-						Height: blockHeight,
-					},
-				}
-				//Actually write the GOB on the socket
-				enc := shardConn[i].Enc
-				err = enc.Encode(msg)
-				if err != nil {
-					logging.Println(err, "Encode failed for struct: %#v", msg)
-				}
 			}
 
 			logging.Println("Waiting for conformation on block")
@@ -954,57 +871,105 @@ func main() {
 		}
 		//<-s.Finish
 	} else if strings.ToLower(*flagMode) == "test" {
-	}
-}
+	} else if strings.ToLower(*flagMode) == "full" {
 
-// multiTx is a MsgTx with an input and output and used in various tests.
-var multiTx = &wire.MsgTx{
-	Version: 1,
-	TxIn: []*wire.TxIn{
-		{
-			PreviousOutPoint: wire.OutPoint{
-				Hash:  chainhash.Hash{},
-				Index: 0xffffffff,
-			},
-			SignatureScript: []byte{
-				0x04, 0x31, 0xdc, 0x00, 0x1b, 0x01, 0x62,
-			},
-			Sequence: 0xffffffff,
-		},
-	},
-	TxOut: []*wire.TxOut{
-		{
-			Value: 0x12a05f200,
-			PkScript: []byte{
-				0x41, // OP_DATA_65
-				0x04, 0xd6, 0x4b, 0xdf, 0xd0, 0x9e, 0xb1, 0xc5,
-				0xfe, 0x29, 0x5a, 0xbd, 0xeb, 0x1d, 0xca, 0x42,
-				0x81, 0xbe, 0x98, 0x8e, 0x2d, 0xa0, 0xb6, 0xc1,
-				0xc6, 0xa5, 0x9d, 0xc2, 0x26, 0xc2, 0x86, 0x24,
-				0xe1, 0x81, 0x75, 0xe8, 0x51, 0xc9, 0x6b, 0x97,
-				0x3d, 0x81, 0xb0, 0x1c, 0xc3, 0x1f, 0x04, 0x78,
-				0x34, 0xbc, 0x06, 0xd6, 0xd6, 0xed, 0xf6, 0x20,
-				0xd1, 0x84, 0x24, 0x1a, 0x6a, 0xed, 0x8b, 0x63,
-				0xa6, // 65-byte signature
-				0xac, // OP_CHECKSIG
-			},
-		},
-		{
-			Value: 0x5f5e100,
-			PkScript: []byte{
-				0x41, // OP_DATA_65
-				0x04, 0xd6, 0x4b, 0xdf, 0xd0, 0x9e, 0xb1, 0xc5,
-				0xfe, 0x29, 0x5a, 0xbd, 0xeb, 0x1d, 0xca, 0x42,
-				0x81, 0xbe, 0x98, 0x8e, 0x2d, 0xa0, 0xb6, 0xc1,
-				0xc6, 0xa5, 0x9d, 0xc2, 0x26, 0xc2, 0x86, 0x24,
-				0xe1, 0x81, 0x75, 0xe8, 0x51, 0xc9, 0x6b, 0x97,
-				0x3d, 0x81, 0xb0, 0x1c, 0xc3, 0x1f, 0x04, 0x78,
-				0x34, 0xbc, 0x06, 0xd6, 0xd6, 0xed, 0xf6, 0x20,
-				0xd1, 0x84, 0x24, 0x1a, 0x6a, 0xed, 0x8b, 0x63,
-				0xa6, // 65-byte signature
-				0xac, // OP_CHECKSIG
-			},
-		},
-	},
-	LockTime: 0,
+		config, _ := LoadConfig(strings.ToLower(*flagConfig))
+
+		// Setting up my logging system
+		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		defer f.Close()
+		logging.SetOutput(f)
+		logging.SetFlags(logging.Lshortfile)
+
+		// Connect to coordinator
+		// TODO make this part of the config
+		connection, err := net.Dial("tcp", "127.0.0.1:12346")
+		enc := gob.NewEncoder(connection)
+		dec := gob.NewDecoder(connection)
+		coordConn := blockchain.NewCoordConnection(connection, enc, dec)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		logging.Println("Connection started", coordConn.Socket)
+
+		gob.Register(blockchain.HeaderGob{})
+		gob.Register(blockchain.RawBlockGob{})
+		gob.Register(blockchain.AddressesGob{})
+		gob.Register(blockchain.DHTGob{})
+
+		chain, teardownFunc, err := chainSetup(config.Server.ServerDb,
+			&chaincfg.RegressionNetParams, config)
+		if err != nil {
+			logging.Printf("Failed to setup chain instance: %v", err)
+			return
+		}
+		defer teardownFunc()
+
+		blockHash, err := chain.BlockHashByHeight(int32(5))
+		if err != nil {
+			logging.Println("Unable to fetch hash of block ", err)
+		}
+		fmt.Println("Block hash is ", blockHash)
+		fmt.Println("Best chain length", chain.BestChainLength())
+		start := time.Now()
+		for i := 1; i < 10000; i++ {
+			blockHash, err := chain.BlockHashByHeight(int32(i))
+			if err != nil {
+				logging.Println("Unable to fetch hash of block ", i)
+			}
+			block, _ := chain.BlockByHash(blockHash)
+
+			blockToSend := wire.NewMsgBlockShard(block.Header())
+			for idx, tx := range block.Transactions() {
+				// spew.Dump(tx)
+				newTx := wire.NewTxIndexFromTx(tx.MsgTx(), int32(idx))
+				// txHash := newTx.TxHash()
+				// logging.Println("txHash", txHash)
+				blockToSend.AddTransaction(newTx)
+			}
+
+			// Generate a header gob to send to coordinator
+			msg := blockchain.Message{
+				Cmd: "PROCBLOCK",
+				Data: blockchain.RawBlockGob{
+					Block:  blockToSend,
+					Flags:  blockchain.BFNone,
+					Height: int32(i),
+				},
+			}
+
+			err = enc.Encode(msg)
+			if err != nil {
+				logging.Println(err, "Encode failed for struct: %#v", msg)
+			}
+
+			logging.Println("Waiting for conformation on block")
+			for {
+				dec := coordConn.Dec
+				var msg blockchain.Message
+				err := dec.Decode(&msg)
+				if err != nil {
+					logging.Println("Error decoding GOB data:", err)
+					return
+				}
+				cmd := msg.Cmd
+
+				logging.Println("Recived command", cmd)
+				switch cmd {
+				case "BLOCKDONE":
+					logging.Println("Received BLOCKDONE")
+					break // Quit the switch case
+				case "BADBLOCK":
+					logging.Println("Received BADBLOCK")
+					break // Quit the switch case
+				default:
+					logging.Println("Command '", cmd, "' is not registered.")
+				}
+				break // Quit the for loop
+			}
+		}
+		elapsed := time.Since(start)
+		fmt.Printf("chain sync took %v \n", elapsed)
+	}
 }

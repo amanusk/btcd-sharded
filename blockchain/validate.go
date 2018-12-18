@@ -1246,9 +1246,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// Only relevant for checking if TX is older than CoinBase
 	logging.Println("Transactions in blockShard:")
 	// NOTE: debut info
-	//for txIdx, tx := range transactions {
-	//	logging.Println("Tx id ", txIdx, " TX ", tx)
-	//}
+	for txIdx, tx := range transactions {
+		logging.Println("Tx id ", txIdx, " TX ", tx)
+	}
 	// Create map between txs and the shards responsible
 	localMissingTxOuts := make(map[int]map[wire.OutPoint]*UtxoEntry)
 
@@ -1268,7 +1268,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 					tx.Hash(), txInIndex)
 				previousHash := txIn.PreviousOutPoint.Hash
 				// Get the txout owner
-				owner := binary.BigEndian.Uint64(previousHash[:]) % uint64(shard.NumShards)
+				modRes := binary.BigEndian.Uint64(previousHash[:]) % uint64(shard.NumShards*securityParam)
+				owner := modRes % uint64(shard.NumShards)
 				// Add missing to map of that perticular shard
 				if localMissingTxOuts[int(owner)] == nil {
 					localMissingTxOuts[int(owner)] = make(map[wire.OutPoint]*UtxoEntry)
@@ -1324,10 +1325,11 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// Now we can start validating the block
 
 	for _, tx := range transactions {
-		// logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
+		//logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
 		txFee, err := CheckTransactionInputs(tx, node.height, view,
 			params)
 		if err != nil {
+			fmt.Println("Transcation inputs check failed")
 			return err
 		}
 
@@ -1347,7 +1349,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		// This is where transactions are marked as spent
 		// Note: If the input is not yet in the local view, this will fail!
 		err = view.ConnectTransaction(tx, node.height, stxos)
+		// logging.Println("Finished validating transaction", tx.Hash())
 		if err != nil {
+			fmt.Println("Transcation Connect failed")
 			return err
 		}
 
@@ -1446,10 +1450,10 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 
 	//// Enforce the segwit soft-fork package once the soft-fork has shifted
 	// into the "active" version bits state.
-	if enforceSegWit {
-		scriptFlags |= txscript.ScriptVerifyWitness
-		scriptFlags |= txscript.ScriptStrictMultiSig
-	}
+	// if enforceSegWit {
+	// 	scriptFlags |= txscript.ScriptVerifyWitness
+	// 	scriptFlags |= txscript.ScriptStrictMultiSig
+	// }
 
 	// fmt.Println("Flags before verify:", scriptFlags)
 	// for _, tx := range block.TransactionsMap() {
@@ -1469,6 +1473,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 			nil)
 
 		if err != nil {
+			logging.Println("Check Block script failed")
 			return err
 		}
 	}

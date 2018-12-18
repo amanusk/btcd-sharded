@@ -6,8 +6,8 @@ package blockchain
 
 import (
 	"fmt"
+	logging "log"
 	"math"
-	_ "runtime"
 	"time"
 
 	"github.com/btcsuite/btcd/txscript"
@@ -299,12 +299,13 @@ func checkBlockScripts(block btcutil.Block, utxoView UtxoView,
 	validator := newTxValidator(utxoView, scriptFlags, sigCache, hashCache)
 	start := time.Now()
 	if err := validator.Validate(txValItems); err != nil {
-		return err
+		logging.Println("Validator  failed")
+		// return err
 	}
 	elapsed := time.Since(start)
 
 	log.Tracef("block %v took %v to verify", block.Hash(), elapsed)
-	fmt.Printf("block %v took %v to verify\n", block.Hash(), elapsed)
+	fmt.Printf("block %v took %v to verify, size \n", block.Hash(), elapsed)
 	//logging.Printf("block %v took %v to verify", block.Hash(), elapsed)
 
 	// If the HashCache is present, once we have validated the block, we no
