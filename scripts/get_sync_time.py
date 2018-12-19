@@ -55,16 +55,17 @@ def main():
     num_shards = args.num_shards
     num_txs = args.transactions
     csv_file_name = "proc_{}_shards.csv".format(num_shards)
-    with open(csv_file_name, 'w') as csvfile:
+    file_exists = os.path.isfile(csv_file_name)
+    with open(csv_file_name, 'a') as csvfile:
         fieldnames = ['Txs', 'Time']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-        writer.writeheader()  # file doesn't exist yet, write a header
+        if not file_exists:
+            writer.writeheader()  # file doesn't exist yet, write a header
 
         sync_time = get_top_block_time()
         print("Sync time is ", sync_time)
         d = {'Time': sync_time, 'Txs': num_txs}
-        writer.writerow(d)
         writer.writerow(d)
 
 
