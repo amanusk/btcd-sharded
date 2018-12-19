@@ -240,7 +240,7 @@ var winServiceMain func() (bool, error)
 // 	return nil
 // }
 
-// removeRegressionDB removes the existing regression test database if running
+// TestNet3Params removes the existing regression test database if running
 // in regression test mode and it already exists.
 func removeRegressionDB(dbPath string) error {
 	// Don't do anything if not in regression test mode.
@@ -493,6 +493,7 @@ var flagConfig *string
 var flagBoot *bool
 var flagNumShards *int
 var flagNumTxs *int
+var flagNet *string
 
 func init() {
 	loadConfig()
@@ -502,6 +503,7 @@ func init() {
 	flagBoot = flag.Bool("bootstrap", false, "Toggle if this is the first node on the network")
 	flagNumShards = flag.Int("n", 1, "Select number of shards")
 	flagNumTxs = flag.Int("tx", 100, "Select number of Txs per block")
+	flagNet = flag.String("network", "regress", "What network to run")
 	flag.Parse()
 }
 
@@ -525,6 +527,13 @@ func main() {
 	numShards := *flagNumShards
 	// load my config
 
+	var network *chaincfg.Params
+	if strings.ToLower(*flagNet) == "regress" {
+		network = &chaincfg.RegressionNetParams
+	} else {
+		network = &chaincfg.TestNet3Params
+	}
+
 	if strings.ToLower(*flagMode) == "server" {
 		fmt.Print("Server mode\n")
 		config, _ := LoadConfig(strings.ToLower(*flagConfig))
@@ -538,7 +547,7 @@ func main() {
 
 		// Create a new database and chain instance to run tests against.
 		chain, teardownFunc, err := chainSetup(config.Server.ServerDb,
-			&chaincfg.RegressionNetParams, config)
+			network, config)
 		if err != nil {
 			logging.Printf("Failed to setup chain instance: %v", err)
 			return
@@ -798,7 +807,7 @@ func main() {
 
 		// Create a new database and chain instance to run tests against.
 		chain, teardownFunc, err := chainSetup(config.Shard.ShardDb,
-			&chaincfg.RegressionNetParams, config)
+			network, config)
 		if err != nil {
 			logging.Printf("Failed to setup chain instance: %v", err)
 			return
@@ -899,7 +908,7 @@ func main() {
 		gob.Register(blockchain.DHTGob{})
 		// fix git
 		chain, teardownFunc, err := chainSetup(config.Server.ServerDb,
-			&chaincfg.RegressionNetParams, config)
+			network, config)
 		if err != nil {
 			logging.Printf("Failed to setup chain instance: %v", err)
 			return

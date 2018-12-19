@@ -17,6 +17,7 @@ DEFAULT_COORD = 1
 go_dir = "/home/ubuntu/go/src/github.com/btcsuite/btcd"
 home_dir = "/home/ubuntu/"
 
+
 def run_oracle(num_shards, num_txs):
     cmd = str(os.getcwd()) + '/btcd'
     print("Running" + cmd)
@@ -27,17 +28,19 @@ def run_oracle(num_shards, num_txs):
     print("Return Code " + str(rc))
     return rc
 
-def run_remote_oracle(num_shards, num_txs):
+
+def run_remote_oracle(num_shards, num_txs, network):
     cmd = go_dir + '/btcd'
     shell = spur.SshShell(hostname="10.0.0.11",
                           username="ubuntu",
                           private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
-                          missing_host_key=spur.ssh.MissingHostKey.accept,
-                         )
-    print("Running" + cmd + "--mode=oracle" +  "--n=" + str(num_shards) +
-                          "--tx=" + str(num_txs))
-    rc = shell.run([cmd, "--mode=oracle", "--n=" + str(num_shards),
-                          "--tx=" + str(num_txs)])
+                          missing_host_key=spur.ssh.MissingHostKey.accept)
+    if network == "regress":
+        rc = shell.run([cmd, "--mode=oracle", "--n=" + str(num_shards),
+                        "--tx=" + str(num_txs), "--network="+network])
+    else:
+        rc = shell.run([cmd, "--mode=full", "--n=" + str(num_shards),
+                        "--tx=" + str(num_txs), "--network="+network])
     print("Return Code " + str(rc))
     return rc
 
@@ -53,7 +56,7 @@ def run_shard(server_num, shard_num, num_shards):
     return p
 
 
-def run_remote_shard(server_num, shard_num, num_shards):
+def run_remote_shard(server_num, shard_num, num_shards, network):
     cmd = go_dir + '/btcd'
     conf = home_dir + '/config_s{}_{}.json'.format(server_num, shard_num)
     host = "10.0.0.{}".format(50 + int(server_num) * 50 + int(shard_num))
@@ -61,14 +64,14 @@ def run_remote_shard(server_num, shard_num, num_shards):
     shell = spur.SshShell(hostname=host,
                           username="ubuntu",
                           private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
-                          missing_host_key=spur.ssh.MissingHostKey.accept,
-                         )
+                          missing_host_key=spur.ssh.MissingHostKey.accept)
     cmd = [cmd, "--mode=shard", "--n=" + str(num_shards),
-                          "--conf=" + str(conf)]
+           "--conf=" + str(conf), "--network="+network]
     print(str(shell))
     print("Running " + " ".join(cmd))
     p = shell.spawn(cmd)
     return p
+
 
 def run_server(server_num, num_shards, bootstrap):
     cmd = str(os.getcwd()) + '/btcd'
@@ -83,7 +86,8 @@ def run_server(server_num, num_shards, bootstrap):
                          stderr=None, shell=False)
     return p
 
-def run_remote_server(server_num, num_shards, bootstrap):
+
+def run_remote_server(server_num, num_shards, bootstrap, network):
     cmd = go_dir + '/btcd'
     conf = home_dir + '/config{}.json'.format(server_num)
     host = "10.0.0.1{}".format(server_num)
@@ -91,45 +95,45 @@ def run_remote_server(server_num, num_shards, bootstrap):
     shell = spur.SshShell(hostname=host,
                           username="ubuntu",
                           private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
-                          missing_host_key=spur.ssh.MissingHostKey.accept,
-                         )
+                          missing_host_key=spur.ssh.MissingHostKey.accept)
     boot = ""
     if bootstrap:
         boot = "--bootstrap"
     cmd = [cmd, "--mode=server", "--n=" + str(num_shards),
-                          "--conf=" + str(conf), boot]
+           "--conf=" + str(conf), boot, "--network=" + network]
     print("Running " + " ".join(cmd))
     p = shell.spawn(cmd)
     return p
 
 
-def run_n_shard_node(coord_num, n, bootstrap, num_txs):
+def run_n_shard_node(coord_num, n, bootstrap, num_txs, network):
     processes = list()
     coord_process = run_server(coord_num, n, bootstrap=bootstrap)
     processes.append(coord_process)
     time.sleep(1)
     for i in range(n):
-        run_remote_shard(coord_num, i, n)
+        run_remote_shard(coord_num, i, n, network)
         # processes.append(p)
         time.sleep(1)
 
     if bootstrap:
-        run_remote_oracle(n, num_txs)
+        run_remote_oracle(n, num_txs, network)
 
     return processes
 
-def run_remote_n_shard_node(coord_num, n, bootstrap, num_txs):
+
+def run_remote_n_shard_node(coord_num, n, bootstrap, num_txs, network):
     processes = list()
-    run_remote_server(coord_num, n, bootstrap=bootstrap)
-    processes.append(coord_process)
+    run_remote_server(coord_num, n, bootstrap=bootstrap, network=network)
+    # processes.append(coord_process)
     time.sleep(1)
     for i in range(n):
-        run_remote_shard(coord_num, i, n)
-        #processes.append(p)
+        run_remote_shard(coord_num, i, n, network)
+        # processes.append(p)
         time.sleep(1)
 
     if bootstrap:
-        run_remote_oracle(n, num_txs)
+        run_remote_oracle(n, num_txs, network)
 
     return processes
 
@@ -140,9 +144,10 @@ def clean_with_ssh(num_coords, num_shards):
         shell = spur.SshShell(hostname="10.0.0.1{}".format(c),
                               username="ubuntu",
                               private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
-                              missing_host_key=spur.ssh.MissingHostKey.accept,
-                             )
+                              missing_host_key=spur.ssh.MissingHostKey.accept)
         print("Running" + cmd)
+        p = shell.run([cmd])
+        cmd = go_dir + '/clean_db.sh'
         p = shell.run([cmd])
         try:
             p = shell.run(["rm", "/home/ubuntu/testlog{}.log".format(c)])
@@ -153,10 +158,9 @@ def clean_with_ssh(num_coords, num_shards):
             shell = spur.SshShell(hostname="10.0.0.{}".format(50 + int(c) * 50 + int(s)),
                                   username="ubuntu",
                                   private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
-                                  missing_host_key=spur.ssh.MissingHostKey.accept,
-                                 )
+                                  missing_host_key=spur.ssh.MissingHostKey.accept)
             p = shell.run([cmd])
-            p = shell.run(["rm", "/home/ubuntu/stestlog{}_{}.log".format(c,s)])
+            p = shell.run(["rm", "/home/ubuntu/stestlog{}_{}.log".format(c, s)])
             print(p)
 
 
@@ -190,6 +194,7 @@ def remove_log_files(num_coords, num_shards):
 
 def kill_all_prcesses(p_list):
     [p.kill() for p in p_list]
+
 
 def kill_all_remote_prcesses(p_list):
     [p.send_signal(9) for p in p_list]
@@ -267,32 +272,33 @@ def reverse_readline(filename, buf_size=8192):
             yield segment
 
 
-def run_multi_tests():
+def run_multi_tests(network):
     def get_top_block_time(coord_num):
         filename = (os.getcwd() + "/testlog{}.log".format(coord_num))
         for line in reverse_readline(filename):
             if "took" in line:
                 print(line)
                 blocktime = float(
-                    re.findall("\d+\.\d+", (line.split(" ")[4]))[0])
+                    re.findall(r"\d+\.\d+", (line.split(" ")[4]))[0])
                 if "ms" in line:
                     blocktime = float(blocktime/1000)
                 print(blocktime)
                 return blocktime
 
-    def run_test(num_coords, num_shards, num_txs):
+    def run_test(num_coords, num_shards, num_txs, network):
         p_list = run_remote_n_shard_node(DEFAULT_COORD, num_shards,
-                                  bootstrap=True, num_txs=num_txs)
+                                         bootstrap=True, num_txs=num_txs,
+                                         network=network)
         for i in range(num_coords - 1):
             p_list += (run_n_shard_node(i + 2, num_shards,
-                                        bootstrap=False, num_txs=num_txs))
+                                        bootstrap=False, num_txs=num_txs,
+                                        network=network))
 
         # About the expected time to finish processing
         time.sleep(30)
 
         #if scan_log_files(num_coords, num_shards):
         #    logging.debug("An error detected in one of the files")
-
 
         top_block_time = get_top_block_time(num_coords)
         print("Top block took {} s to process".format(top_block_time))
@@ -315,9 +321,8 @@ def run_multi_tests():
 
             writer.writeheader()  # file doesn't exist yet, write a header
 
-            for num_txs in range(1000, 3000, 1000):
             for num_txs in range(100, 500, 100):
-                block_time = run_test(2, num_shards, num_txs)
+                block_time = run_test(2, num_shards, num_txs, network)
                 d = {'Time': block_time, 'Txs': num_txs}
                 writer.writerow(d)
                 csvfile.flush()
@@ -343,7 +348,7 @@ def main():
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
 
-    run_multi_tests()
+    run_multi_tests(args.network)
 
     # This runs a single node, and makes sure the coordinator + orcacle work
     # p_list = run_n_shard_node(DEFAULT_COORD, 1, True, 1000)
@@ -395,10 +400,12 @@ def get_args():
     parser.add_argument('-tx', '--transactions',
                         default=100,
                         help="How many transactions in the main block")
+    parser.add_argument('-net', '--network',
+                        default="regress",
+                        help="Which network to test")
     args = parser.parse_args()
     return args
 
 
 if '__main__' == __name__:
     main()
-
