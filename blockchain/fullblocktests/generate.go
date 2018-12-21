@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strconv"
 	"time"
+    logging "log"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
@@ -2498,6 +2499,7 @@ func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInsta
 	//   ... -> b35(10) -> b39(11) -> b41(12)
 	for j := 0; j < blocksNeeded; j++ {
 		fmt.Println("Created block", j)
+		logging.Println("Created block", j)
 		blockName := "b" + strconv.Itoa(41+j)
 		g.nextBlock(blockName, outs[13+j], func(b *wire.MsgBlock) {
 			for i := 0; i < txnsNeeded; i++ {

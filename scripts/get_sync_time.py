@@ -9,11 +9,15 @@ def get_top_block_time():
     for line in reverse_readline(filename):
         if "took" in line:
             print(line)
-            #blocktime = float(
-            blocktime = float(re.findall(r"\d+\.\d+", line)[0])
-            if "ms" in line:
-                blocktime = float(blocktime/1000)
-            print(blocktime)
+            blocktime = None
+            try:
+                time = re.findall(r"\dm\d+\.\d+", line)[0]
+                minute, second = time.split("m")
+                print(minute, second)
+                blocktime = float(minute) * 60 + float(second)
+            except:
+                time = re.findall(r"\d+\.\d+", line)[0]
+                blocktime = float(time)
             return blocktime
 
 
