@@ -585,7 +585,7 @@ func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]*U
 			logging.Println("Missing", txOut)
 		}
 		enc := intraShard.Enc
-		logging.Println("Sending info on", intraShard.Socket)
+		// logging.Println("Sending info on", intraShard.Socket)
 
 		msg := Message{
 			Cmd:  "REQOUTS",

@@ -15,18 +15,19 @@ DEFAULT_COORD = 1
 
 def run_oracle(num_shards, num_txs, network):
     cmd = str(os.getcwd()) + '/btcd'
-    print("Running" + cmd)
-    if network == "testnet":
-        rc = subprocess.call([cmd, "-mode=full", "--n=" + str(num_shards),
-                              "--tx=" + str(num_txs), "--conf=config_full.json",
-                             "--network="+network],
-                             None, stdin=None,
+    if network == "regtest":
+        cmd = [cmd, "-mode=oracle", "--n=" + str(num_shards),
+               "--tx=" + str(num_txs), "--conf=config_full.json",
+               "--network="+network]
+        print("Running ", " ".join(cmd))
+        rc = subprocess.call(cmd, None, stdin=None,
                              stdout=None, stderr=None, shell=False)
     else:
-        rc = subprocess.call([cmd, "--mode=oracle", "--n=" + str(num_shards),
-                              "--tx=" + str(num_txs), "--conf=config_full.json",
-                             "--network="+network],
-                             None, stdin=None,
+        cmd = [cmd, "--mode=full", "--n=" + str(num_shards),
+               "--tx=" + str(num_txs), "--conf=config_full.json",
+               "--network="+network]
+        print("Running ", " ".join(cmd))
+        rc = subprocess.call(cmd, None, stdin=None,
                              stdout=None, stderr=None, shell=False)
 
     print("Return Code " + str(rc))
@@ -316,7 +317,7 @@ def get_args():
                         default=100,
                         help="How many transactions in the main block")
     parser.add_argument('-net', '--network',
-                        default="regress",
+                        default="regtest",
                         help="Which network to test")
     args = parser.parse_args()
     return args
