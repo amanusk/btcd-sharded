@@ -451,8 +451,9 @@ func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockch
 		}
 		teardown = func() {
 			// Ensure the database is sync'd and closed on shutdown.
-			fmt.Println("Gracefully shutting down the database...")
 			db.Close()
+			fmt.Println("Gracefully shutting down the database...")
+			logging.Println("Gracefully shutting down the database...")
 		}
 	}
 	fmt.Println("DB passed", db)
@@ -530,8 +531,10 @@ func main() {
 	var network *chaincfg.Params
 	if strings.ToLower(*flagNet) == "regress" {
 		network = &chaincfg.RegressionNetParams
-	} else {
+	} else if strings.ToLower(*flagNet) == "testnet" {
 		network = &chaincfg.TestNet3Params
+	} else {
+		network = &chaincfg.MainNetParams
 	}
 
 	if strings.ToLower(*flagMode) == "server" {
@@ -922,7 +925,7 @@ func main() {
 		fmt.Println("Block hash is ", blockHash)
 		fmt.Println("Best chain length", chain.BestChainLength())
 		start := time.Now()
-		for i := 1; i < 10000; i++ {
+		for i := 1; i < 1000; i++ {
 			blockHash, err := chain.BlockHashByHeight(int32(i))
 			if err != nil {
 				logging.Println("Unable to fetch hash of block ", i)
