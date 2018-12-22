@@ -792,6 +792,7 @@ func main() {
 		}
 		endTime := time.Since(startTime)
 		fmt.Println("Run took ", endTime)
+		logging.Println("Run took ", endTime)
 		fmt.Println(endTime)
 
 		// Start a shard
@@ -928,7 +929,7 @@ func main() {
 		fmt.Println("Block hash is ", blockHash)
 		fmt.Println("Best chain length", chain.BestChainLength())
 		start := time.Now()
-		for i := 1; i < 1000; i++ {
+		for i := 1; i < chain.BestChainLength(); i++ {
 			blockHash, err := chain.BlockHashByHeight(int32(i))
 			if err != nil {
 				logging.Println("Unable to fetch hash of block ", i)
@@ -984,7 +985,7 @@ func main() {
 				break // Quit the for loop
 			}
 		}
-		elapsed := time.Since(start)
+		elapsed := time.Since(start).Seconds()
 		fmt.Printf("chain sync took %v \n", elapsed)
 	}
 }
