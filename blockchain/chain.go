@@ -1465,7 +1465,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 		//	}
 		//}
 
-		logging.Println("Connecting block", block.Hash())
+		// logging.Println("Connecting block", block.Hash())
 		// Connect the block to the main chain.
 		err := b.connectBlockShard(node, block, view, nil)
 		if err != nil {

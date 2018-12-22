@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	_ "io"
+	"io/ioutil"
 	logging "log"
 	"net"
 	"os"
@@ -545,7 +546,7 @@ func main() {
 		f, _ := os.OpenFile(config.Server.ServerLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		defer f.Close()
 		logging.SetOutput(f)
-		logging.SetFlags(logging.Lshortfile)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
 		logging.Println("This is a test log entry")
 
 		// Create a new database and chain instance to run tests against.
@@ -656,7 +657,8 @@ func main() {
 		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		defer f.Close()
 		logging.SetOutput(f)
-		logging.SetFlags(logging.Lshortfile)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
+		logging.SetOutput(ioutil.Discard)
 
 		// Connect to coordinator
 		// TODO make this part of the config
@@ -796,15 +798,16 @@ func main() {
 	} else if strings.ToLower(*flagMode) == "shard" {
 		config, _ := LoadConfig(strings.ToLower(*flagConfig))
 
-		f, err := os.OpenFile(config.Shard.ShardLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-		if err != nil {
-			fmt.Printf("Failed to create Shard log file: %v", err)
-		}
-		defer f.Close()
+		// f, err := os.OpenFile(config.Shard.ShardLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		// if err != nil {
+		// 	fmt.Printf("Failed to create Shard log file: %v", err)
+		// }
+		// defer f.Close()
 
-		logging.SetOutput(f)
-		logging.SetFlags(logging.Lshortfile)
-		logging.Println("This is a test log entry")
+		// logging.SetOutput(f)
+		// logging.SetFlags(logging.Lshortfile | logging.Ltime)
+		// logging.Println("This is a test log entry")
+		logging.SetOutput(ioutil.Discard)
 
 		fmt.Print("Shard mode\n")
 
@@ -891,7 +894,7 @@ func main() {
 		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		defer f.Close()
 		logging.SetOutput(f)
-		logging.SetFlags(logging.Lshortfile)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
 
 		// Connect to coordinator
 		// TODO make this part of the config

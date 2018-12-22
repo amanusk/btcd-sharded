@@ -15,8 +15,8 @@ DEFAULT_COORD = 1
 
 def run_oracle(num_shards, num_txs, network):
     cmd = str(os.getcwd()) + '/btcd'
-    if network == "regtest":
-        cmd = [cmd, "-mode=oracle", "--n=" + str(num_shards),
+    if network == "regress":
+        cmd = [cmd, "--mode=oracle", "--n=" + str(num_shards),
                "--tx=" + str(num_txs), "--conf=config_full.json",
                "--network="+network]
         print("Running ", " ".join(cmd))
@@ -36,12 +36,11 @@ def run_oracle(num_shards, num_txs, network):
 
 def run_shard(server_num, shard_num, num_shards, network):
     cmd = str(os.getcwd()) + '/btcd'
-    print("Running" + cmd)
     shard_id = "{}_{}".format(server_num, shard_num)
-    p = subprocess.Popen([cmd, "--mode=shard", "--n=" + str(num_shards),
-                          "--conf=config_s" + shard_id + ".json",
-                          "--network=" + network],
-                         None, stdin=None, stdout=None,
+    cmd = [cmd, "--mode=shard", "--n=" + str(num_shards),
+           "--conf=config_s" + shard_id + ".json", "--network=" + network]
+    print("Running "+ " ".join(cmd))
+    p = subprocess.Popen(cmd, None, stdin=None, stdout=None,
                          stderr=None, shell=False)
     return p
 
@@ -52,10 +51,11 @@ def run_server(server_num, num_shards, bootstrap, network):
     boot = ""
     if bootstrap:
         boot = "--bootstrap"
-    p = subprocess.Popen([cmd, "--mode=server", "--n=" + str(num_shards),
-                          "--conf=config" + str(server_num) + ".json",
-                          boot, "--network="+network],
-                         None, stdin=None, stdout=None,
+    cmd = [cmd, "--mode=server", "--n=" + str(num_shards),
+           "--conf=config" + str(server_num) + ".json",
+           boot, "--network="+network]
+    print("Running " + " ".join(cmd))
+    p = subprocess.Popen(cmd, None, stdin=None, stdout=None,
                          stderr=None, shell=False)
     return p
 
@@ -253,7 +253,8 @@ def main():
     # run_multi_tests()
     network = args.network
     # # This runs a single node, and makes sure the coordinator + orcacle work
-    # p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True, num_txs=10)
+    p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True,
+                              num_txs=10, network=network)
     # kill_all_prcesses(p_list)
     # if scan_log_files(2, 2):
     #     logging.debug("An error detected in one of the files")
@@ -277,10 +278,10 @@ def main():
     #                 stdout=None, stderr=None, shell=False)
 
     # Try with 2 nodes, 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 4, bootstrap=True,
-                              num_txs=100, network=network)
-    p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=100,
-                               network=network)
+    # p_list = run_n_shard_node(DEFAULT_COORD, 4, bootstrap=True,
+    #                           num_txs=100, network=network)
+    # p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=100,
+    #                            network=network)
 
     # time.sleep(3600)
 
@@ -317,7 +318,7 @@ def get_args():
                         default=100,
                         help="How many transactions in the main block")
     parser.add_argument('-net', '--network',
-                        default="regtest",
+                        default="regress",
                         help="Which network to test")
     args = parser.parse_args()
     return args

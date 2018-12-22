@@ -178,7 +178,7 @@ func (coord *Coordinator) HandleShardMessages(conn net.Conn) {
 			return
 		}
 		cmd := msg.Cmd
-		logging.Println("Got cmd ", cmd)
+		// logging.Println("Got cmd ", cmd)
 
 		// handle according to received command
 		switch cmd {
@@ -209,14 +209,14 @@ func (coord *Coordinator) HandleCoordMessages(conn net.Conn) {
 	dec := coord.coords[conn].Dec
 	for {
 		var msg Message
-		logging.Println("Waiting on message on", &dec)
+		// logging.Println("Waiting on message on", &dec)
 		err := dec.Decode(&msg)
 		if err != nil {
 			logging.Println("Error decoding GOB data:", err)
 			return
 		}
 		cmd := msg.Cmd
-		logging.Println("Got cmd ", cmd)
+		// logging.Println("Got cmd ", cmd)
 
 		// handle according to received command
 		switch cmd {
@@ -228,7 +228,7 @@ func (coord *Coordinator) HandleCoordMessages(conn net.Conn) {
 		case "REQBLOCKS":
 			go coord.handleRequestBlocks(conn)
 		case "BLOCKDONE":
-			logging.Println("Message BLOCKDONE")
+			// logging.Println("Message BLOCKDONE")
 			coord.handleBlockDone(conn)
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
@@ -311,7 +311,7 @@ func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
 
 // Once a shards finishes processing a block this message is received
 func (coord *Coordinator) handleShardDone(conn net.Conn) {
-	logging.Print("Receive Block Confirmation from shard")
+	// logging.Print("Receive Block Confirmation from shard")
 	coord.shardDone <- true
 
 }
@@ -324,7 +324,7 @@ func (coord *Coordinator) handleConnectDone(conn net.Conn) {
 
 // Receive a conformation a block was processed by the other peer
 func (coord *Coordinator) handleBlockDone(conn net.Conn) {
-	logging.Print("Receive conformation block finised processing")
+	// logging.Print("Receive conformation block finised processing")
 	coord.BlockDone <- true
 }
 
@@ -355,7 +355,7 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 // The coordinator validates the header and waits for conformation
 // from all the shards
 func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.Conn) {
-	logging.Println("Receivd process block request")
+	// logging.Println("Receivd process block request")
 
 	startTime := time.Now()
 	err := coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
@@ -364,16 +364,18 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 	}
 	coord.sendBlockDone(conn)
 	endTime := time.Since(startTime)
-	logging.Println("Block", headerBlock.Height, "took", endTime, "to process")
-	fmt.Println("Block", headerBlock.Height, "took", endTime, "to process")
+	if int(headerBlock.Height)%1000 == 0 {
+		logging.Println("Block", headerBlock.Height, "took", endTime, "to process")
+		fmt.Println("Block", headerBlock.Height, "took", endTime, "to process")
+	}
 }
 
 func (coord *Coordinator) sendBlockDone(conn net.Conn) {
-	logging.Println("Sending BLOCKDONE")
+	// logging.Println("Sending BLOCKDONE")
 	// TODO: This should be sent to a specific coordinator
 	enc := coord.coords[conn].Enc
 	if enc != nil {
-		logging.Println("Sending block done on enc", &enc)
+		// logging.Println("Sending block done on enc", &enc)
 	} else {
 		logging.Println("Could not find enc", &enc)
 	}
@@ -519,7 +521,7 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 
 	header := headerBlock.Header
 
-	logging.Println("Processing block ", header.BlockHash(), " height ", height)
+	// logging.Println("Processing block ", header.BlockHash(), " height ", height)
 
 	// Start waiting for shards done before telling them to request it
 	go coord.waitForShardsDone()
@@ -566,12 +568,12 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 		}
 	}
 
-	logging.Println("Wait for all shards to finish")
+	// logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone
-	logging.Println("All shards finished")
+	// logging.Println("All shards finished")
 
 	coord.Chain.CoordMaybeAcceptBlock(headerBlock, flags)
-	logging.Println("Done processing block")
+	// logging.Println("Done processing block")
 	return nil
 }
 
