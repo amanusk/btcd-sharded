@@ -364,7 +364,7 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 	}
 	coord.sendBlockDone(conn)
 	endTime := time.Since(startTime)
-	if int(headerBlock.Height)%1000 == 0 {
+	if headerBlock.Height%1000 == 0 {
 		logging.Println("Block", headerBlock.Height, "took", endTime, "to process")
 		fmt.Println("Block", headerBlock.Height, "took", endTime, "to process")
 	}
@@ -408,10 +408,10 @@ func (coord *Coordinator) handleFetchedBlock(receivedBlock *RawBlockGob, conn ne
 
 // This function handle receiving a request for blocks from another coordinator
 func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
-	logging.Print("Receivd request for blocks request")
+	// logging.Print("Receivd request for blocks request")
 
-	logging.Println("Sending request to ", conn)
-	logging.Println("The fist block in chain")
+	// logging.Println("Sending request to ", conn)
+	// logging.Println("The fist block in chain")
 	logging.Println(coord.Chain.BlockHashByHeight(0))
 
 	gob.Register(HeaderGob{})
@@ -572,7 +572,9 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	<-coord.allShardsDone
 	// logging.Println("All shards finished")
 
-	coord.Chain.CoordMaybeAcceptBlock(headerBlock, flags)
+	// Coord only needs to store the header of the block
+	blockHeader := wire.NewMsgBlockShard(&headerBlock.Header)
+	coord.Chain.CoordMaybeAcceptBlock(blockHeader, flags)
 	// logging.Println("Done processing block")
 	return nil
 }
