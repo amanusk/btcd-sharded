@@ -6,6 +6,7 @@ package wire
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -307,7 +308,10 @@ func (msg *MsgTx) AddTxOut(to *TxOut) {
 // ModTxHash returns the result of TxHash % the passed integer
 func (msg *MsgTx) ModTxHash(i int) uint64 {
 	hash := msg.TxHash()
-	return binary.BigEndian.Uint64(hash[:]) % uint64(i)
+	concat := [][]byte{hash.CloneBytes(), []byte("bar")}
+	res := bytes.Join(concat, []byte(""))
+	newHash := sha256.Sum256(res[:])
+	return binary.BigEndian.Uint64(newHash[:]) % uint64(i)
 }
 
 // TxHash generates the Hash for the transaction.

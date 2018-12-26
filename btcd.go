@@ -709,6 +709,12 @@ func main() {
 				// logging.Println("txHash", txHash)
 				headerBlock.AddTransaction(newTx)
 			}
+			// logging.Println("Transactions in block")
+			// for idx, tx := range headerBlock.Transactions {
+			// 	logging.Println(idx, tx.MsgTx.TxHash())
+			// }
+			// logging.Println("Merkle root")
+			// logging.Println(headerBlock.Header.MerkleRoot)
 
 			// Generate a header gob to send to coordinator
 			msg := blockchain.Message{
@@ -742,7 +748,7 @@ func main() {
 					logging.Println("Received BLOCKDONE")
 					break // Quit the switch case
 				case "BADBLOCK":
-					logging.Println("Received BADBLOCK")
+					logging.Panicln("Received BADBLOCK")
 					break // Quit the switch case
 				default:
 					logging.Println("Command '", cmd, "' is not registered.")

@@ -253,8 +253,8 @@ def main():
     # run_multi_tests()
     network = args.network
     # # This runs a single node, and makes sure the coordinator + orcacle work
-    # p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True,
-    #                           num_txs=10, network=network)
+    p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True,
+                              num_txs=1000, network=network)
     # kill_all_prcesses(p_list)
     # if scan_log_files(2, 2):
     #     logging.debug("An error detected in one of the files")
@@ -278,12 +278,12 @@ def main():
     #                 stdout=None, stderr=None, shell=False)
 
     # Try with 2 nodes, 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 4, bootstrap=True,
-                              num_txs=100, network=network)
-    p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=100,
-                               network=network)
+    #p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True,
+    #                          num_txs=100, network=network)
+    # p2_list = run_n_shard_node(2, 1, bootstrap=False, num_txs=100,
+    #                            network=network)
 
-    # time.sleep(3600)
+    # time.sleep(100)
 
     # if scan_log_files(2, 2):
     #     logging.debug("An error detected in one of the files")

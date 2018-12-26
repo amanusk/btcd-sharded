@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
-
-const securityParam = 4
 
 // AddressesGob is a struct to send a list of tcp connections
 type AddressesGob struct {
@@ -360,14 +359,14 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 	startTime := time.Now()
 	err := coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
 	if err != nil {
+		logging.Println(err)
+		coord.sendBadBlockToAll()
 		logging.Fatal("Coordinator unable to process block")
 	}
 	coord.sendBlockDone(conn)
 	endTime := time.Since(startTime)
-	if headerBlock.Height%1000 == 0 {
-		logging.Println("Block", headerBlock.Height, "took", endTime, "to process")
-		fmt.Println("Block", headerBlock.Height, "took", endTime, "to process")
-	}
+	logging.Println("Block", headerBlock.Height, "took", endTime, "to process")
+	fmt.Println("Block", headerBlock.Height, "took", endTime, "to process")
 }
 
 func (coord *Coordinator) sendBlockDone(conn net.Conn) {
@@ -543,9 +542,9 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	// Split transactions between blocks
 	for _, tx := range headerBlock.Transactions {
 		// spew.Dump(tx)
-		modRes := tx.ModTxHash(numShards * securityParam)
+		modRes := tx.ModTxHash(numShards)
 		// logging.Println("Shard for tx", shardNum)
-		bShards[modRes%uint64(numShards)].AddTransaction(tx)
+		bShards[modRes].AddTransaction(tx)
 	}
 	// logging.Println("Sending shards")
 
@@ -568,14 +567,21 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 		}
 	}
 
-	// logging.Println("Wait for all shards to finish")
+	// Perform preliminary sanity checks on the block and its transactions.
+	block := btcutil.NewBlockShard(headerBlock)
+	err = checkBlockShardSanity(block, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
+	if err != nil {
+		return err
+	}
+
+	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone
-	// logging.Println("All shards finished")
+	logging.Println("All shards finished")
 
 	// Coord only needs to store the header of the block
 	blockHeader := wire.NewMsgBlockShard(&headerBlock.Header)
 	coord.Chain.CoordMaybeAcceptBlock(blockHeader, flags)
-	// logging.Println("Done processing block")
+	logging.Println("Done processing block")
 	return nil
 }
 
