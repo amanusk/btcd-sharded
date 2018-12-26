@@ -14,8 +14,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	logging "log"
 	"math"
 	"runtime"
+	"sort"
 	"strconv"
 	"time"
 
@@ -311,6 +313,7 @@ func calcMerkleRoot(txns []*wire.MsgTx) chainhash.Hash {
 	for _, tx := range txns {
 		utilTxns = append(utilTxns, btcutil.NewTx(tx))
 	}
+	sort.Sort(btcutil.TxSorter(utilTxns))
 	merkles := blockchain.BuildMerkleTreeStore(utilTxns, false)
 	return *merkles[len(merkles)-1]
 }
@@ -2473,7 +2476,7 @@ func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInsta
 	// max allowed signature operations per block.
 	//
 	//   ... -> b35(10) -> b39(11)1
-	blocksNeeded := 200
+	blocksNeeded := 100
 	b39 := g.nextBlock("b39", outs[9], func(b *wire.MsgBlock) {
 		// Create a chain of transactions each spending from the
 		// previous one such that each contains an output that pays to
@@ -2498,6 +2501,7 @@ func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInsta
 	//   ... -> b35(10) -> b39(11) -> b41(12)
 	for j := 0; j < blocksNeeded; j++ {
 		fmt.Println("Created block", j)
+		logging.Println("Created block", j)
 		blockName := "b" + strconv.Itoa(41+j)
 		g.nextBlock(blockName, outs[13+j], func(b *wire.MsgBlock) {
 			for i := 0; i < txnsNeeded; i++ {

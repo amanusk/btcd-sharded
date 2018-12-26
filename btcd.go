@@ -451,8 +451,9 @@ func chainSetup(dbName string, params *chaincfg.Params, config Config) (*blockch
 		}
 		teardown = func() {
 			// Ensure the database is sync'd and closed on shutdown.
-			fmt.Println("Gracefully shutting down the database...")
 			db.Close()
+			fmt.Println("Gracefully shutting down the database...")
+			logging.Println("Gracefully shutting down the database...")
 		}
 	}
 	fmt.Println("DB passed", db)
@@ -530,8 +531,10 @@ func main() {
 	var network *chaincfg.Params
 	if strings.ToLower(*flagNet) == "regress" {
 		network = &chaincfg.RegressionNetParams
-	} else {
+	} else if strings.ToLower(*flagNet) == "testnet" {
 		network = &chaincfg.TestNet3Params
+	} else {
+		network = &chaincfg.MainNetParams
 	}
 
 	if strings.ToLower(*flagMode) == "server" {
@@ -542,7 +545,7 @@ func main() {
 		f, _ := os.OpenFile(config.Server.ServerLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		defer f.Close()
 		logging.SetOutput(f)
-		logging.SetFlags(logging.Lshortfile)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
 		logging.Println("This is a test log entry")
 
 		// Create a new database and chain instance to run tests against.
@@ -653,7 +656,8 @@ func main() {
 		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		defer f.Close()
 		logging.SetOutput(f)
-		logging.SetFlags(logging.Lshortfile)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
+		// logging.SetOutput(ioutil.Discard)
 
 		// Connect to coordinator
 		// TODO make this part of the config
@@ -705,6 +709,12 @@ func main() {
 				// logging.Println("txHash", txHash)
 				headerBlock.AddTransaction(newTx)
 			}
+			// logging.Println("Transactions in block")
+			// for idx, tx := range headerBlock.Transactions {
+			// 	logging.Println(idx, tx.MsgTx.TxHash())
+			// }
+			// logging.Println("Merkle root")
+			// logging.Println(headerBlock.Header.MerkleRoot)
 
 			// Generate a header gob to send to coordinator
 			msg := blockchain.Message{
@@ -738,7 +748,7 @@ func main() {
 					logging.Println("Received BLOCKDONE")
 					break // Quit the switch case
 				case "BADBLOCK":
-					logging.Println("Received BADBLOCK")
+					logging.Panicln("Received BADBLOCK")
 					break // Quit the switch case
 				default:
 					logging.Println("Command '", cmd, "' is not registered.")
@@ -787,6 +797,7 @@ func main() {
 		}
 		endTime := time.Since(startTime)
 		fmt.Println("Run took ", endTime)
+		logging.Println("Run took ", endTime)
 		fmt.Println(endTime)
 
 		// Start a shard
@@ -800,8 +811,9 @@ func main() {
 		defer f.Close()
 
 		logging.SetOutput(f)
-		logging.SetFlags(logging.Lshortfile)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
 		logging.Println("This is a test log entry")
+		// logging.SetOutput(ioutil.Discard)
 
 		fmt.Print("Shard mode\n")
 
@@ -888,7 +900,7 @@ func main() {
 		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		defer f.Close()
 		logging.SetOutput(f)
-		logging.SetFlags(logging.Lshortfile)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
 
 		// Connect to coordinator
 		// TODO make this part of the config
@@ -922,7 +934,7 @@ func main() {
 		fmt.Println("Block hash is ", blockHash)
 		fmt.Println("Best chain length", chain.BestChainLength())
 		start := time.Now()
-		for i := 1; i < 10000; i++ {
+		for i := 1; i < chain.BestChainLength(); i++ {
 			blockHash, err := chain.BlockHashByHeight(int32(i))
 			if err != nil {
 				logging.Println("Unable to fetch hash of block ", i)
@@ -937,6 +949,9 @@ func main() {
 				// logging.Println("txHash", txHash)
 				blockToSend.AddTransaction(newTx)
 			}
+
+			serializedSize := uint64(blockToSend.SerializeSizeStripped())
+			logging.Printf("serialized block size is: %d B", serializedSize)
 
 			// Generate a header gob to send to coordinator
 			msg := blockchain.Message{
@@ -978,7 +993,7 @@ func main() {
 				break // Quit the for loop
 			}
 		}
-		elapsed := time.Since(start)
+		elapsed := time.Since(start).Seconds()
 		fmt.Printf("chain sync took %v \n", elapsed)
 	}
 }

@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
-
-const securityParam = 4
 
 // AddressesGob is a struct to send a list of tcp connections
 type AddressesGob struct {
@@ -178,7 +177,7 @@ func (coord *Coordinator) HandleShardMessages(conn net.Conn) {
 			return
 		}
 		cmd := msg.Cmd
-		logging.Println("Got cmd ", cmd)
+		// logging.Println("Got cmd ", cmd)
 
 		// handle according to received command
 		switch cmd {
@@ -209,14 +208,14 @@ func (coord *Coordinator) HandleCoordMessages(conn net.Conn) {
 	dec := coord.coords[conn].Dec
 	for {
 		var msg Message
-		logging.Println("Waiting on message on", &dec)
+		// logging.Println("Waiting on message on", &dec)
 		err := dec.Decode(&msg)
 		if err != nil {
 			logging.Println("Error decoding GOB data:", err)
 			return
 		}
 		cmd := msg.Cmd
-		logging.Println("Got cmd ", cmd)
+		// logging.Println("Got cmd ", cmd)
 
 		// handle according to received command
 		switch cmd {
@@ -228,7 +227,7 @@ func (coord *Coordinator) HandleCoordMessages(conn net.Conn) {
 		case "REQBLOCKS":
 			go coord.handleRequestBlocks(conn)
 		case "BLOCKDONE":
-			logging.Println("Message BLOCKDONE")
+			// logging.Println("Message BLOCKDONE")
 			coord.handleBlockDone(conn)
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
@@ -311,7 +310,7 @@ func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
 
 // Once a shards finishes processing a block this message is received
 func (coord *Coordinator) handleShardDone(conn net.Conn) {
-	logging.Print("Receive Block Confirmation from shard")
+	// logging.Print("Receive Block Confirmation from shard")
 	coord.shardDone <- true
 
 }
@@ -324,7 +323,7 @@ func (coord *Coordinator) handleConnectDone(conn net.Conn) {
 
 // Receive a conformation a block was processed by the other peer
 func (coord *Coordinator) handleBlockDone(conn net.Conn) {
-	logging.Print("Receive conformation block finised processing")
+	// logging.Print("Receive conformation block finised processing")
 	coord.BlockDone <- true
 }
 
@@ -355,11 +354,13 @@ func (coord *Coordinator) handleGetShards(conn net.Conn) {
 // The coordinator validates the header and waits for conformation
 // from all the shards
 func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.Conn) {
-	logging.Println("Receivd process block request")
+	// logging.Println("Receivd process block request")
 
 	startTime := time.Now()
 	err := coord.ProcessBlock(headerBlock.Block, headerBlock.Flags, headerBlock.Height)
 	if err != nil {
+		logging.Println(err)
+		coord.sendBadBlockToAll()
 		logging.Fatal("Coordinator unable to process block")
 	}
 	coord.sendBlockDone(conn)
@@ -369,11 +370,11 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 }
 
 func (coord *Coordinator) sendBlockDone(conn net.Conn) {
-	logging.Println("Sending BLOCKDONE")
+	// logging.Println("Sending BLOCKDONE")
 	// TODO: This should be sent to a specific coordinator
 	enc := coord.coords[conn].Enc
 	if enc != nil {
-		logging.Println("Sending block done on enc", &enc)
+		// logging.Println("Sending block done on enc", &enc)
 	} else {
 		logging.Println("Could not find enc", &enc)
 	}
@@ -406,10 +407,10 @@ func (coord *Coordinator) handleFetchedBlock(receivedBlock *RawBlockGob, conn ne
 
 // This function handle receiving a request for blocks from another coordinator
 func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
-	logging.Print("Receivd request for blocks request")
+	// logging.Print("Receivd request for blocks request")
 
-	logging.Println("Sending request to ", conn)
-	logging.Println("The fist block in chain")
+	// logging.Println("Sending request to ", conn)
+	// logging.Println("The fist block in chain")
 	logging.Println(coord.Chain.BlockHashByHeight(0))
 
 	gob.Register(HeaderGob{})
@@ -519,7 +520,7 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 
 	header := headerBlock.Header
 
-	logging.Println("Processing block ", header.BlockHash(), " height ", height)
+	// logging.Println("Processing block ", header.BlockHash(), " height ", height)
 
 	// Start waiting for shards done before telling them to request it
 	go coord.waitForShardsDone()
@@ -541,9 +542,9 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	// Split transactions between blocks
 	for _, tx := range headerBlock.Transactions {
 		// spew.Dump(tx)
-		modRes := tx.ModTxHash(numShards * securityParam)
+		modRes := tx.ModTxHash(numShards)
 		// logging.Println("Shard for tx", shardNum)
-		bShards[modRes%uint64(numShards)].AddTransaction(tx)
+		bShards[modRes].AddTransaction(tx)
 	}
 	// logging.Println("Sending shards")
 
@@ -566,11 +567,20 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 		}
 	}
 
+	// Perform preliminary sanity checks on the block and its transactions.
+	block := btcutil.NewBlockShard(headerBlock)
+	err = checkBlockShardSanity(block, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
+	if err != nil {
+		return err
+	}
+
 	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone
 	logging.Println("All shards finished")
 
-	coord.Chain.CoordMaybeAcceptBlock(headerBlock, flags)
+	// Coord only needs to store the header of the block
+	blockHeader := wire.NewMsgBlockShard(&headerBlock.Header)
+	coord.Chain.CoordMaybeAcceptBlock(blockHeader, flags)
 	logging.Println("Done processing block")
 	return nil
 }
