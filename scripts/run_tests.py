@@ -67,7 +67,6 @@ def run_remote_shard(server_num, shard_num, num_shards, network):
                           missing_host_key=spur.ssh.MissingHostKey.accept)
     cmd = [cmd, "--mode=shard", "--n=" + str(num_shards),
            "--conf=" + str(conf), "--network="+network]
-    print(str(shell))
     print("Running " + " ".join(cmd))
     p = shell.spawn(cmd)
     return p
@@ -140,14 +139,15 @@ def run_remote_n_shard_node(coord_num, n, bootstrap, num_txs, network):
 
 def clean_with_ssh(num_coords, num_shards):
     for c in range(1, num_coords+1):
-        cmd = go_dir + '/kill_all.sh'
         shell = spur.SshShell(hostname="10.0.0.1{}".format(c),
                               username="ubuntu",
                               private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                               missing_host_key=spur.ssh.MissingHostKey.accept)
+        cmd = go_dir + '/kill_all.sh'
         print("Running" + cmd)
         p = shell.run([cmd])
         cmd = go_dir + '/clean_db.sh'
+        print("Running" + cmd)
         p = shell.run([cmd])
         try:
             p = shell.run(["rm", "/home/ubuntu/testlog{}.log".format(c)])
@@ -159,7 +159,14 @@ def clean_with_ssh(num_coords, num_shards):
                                   username="ubuntu",
                                   private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                                   missing_host_key=spur.ssh.MissingHostKey.accept)
+            cmd = go_dir + '/kill_all.sh'
+            print("Running" + cmd)
             p = shell.run([cmd])
+            print(p)
+            cmd = go_dir + '/clean_db.sh'
+            print("Running" + cmd)
+            p = shell.run([cmd])
+            print(p)
             p = shell.run(["rm", "/home/ubuntu/stestlog{}_{}.log".format(c, s)])
             print(p)
 
@@ -272,7 +279,20 @@ def reverse_readline(filename, buf_size=8192):
             yield segment
 
 
+def get_sync_time(num_shards, num_txs):
+    script = go_dir + '/scripts/get_sync_time.py'
+    shell = spur.SshShell(hostname="10.0.0.11",
+                          username="ubuntu",
+                          private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
+                          missing_host_key=spur.ssh.MissingHostKey.accept)
+    rc = shell.run(["python3", script, "-n={}".format(str(num_shards)),
+                    "-tx={}".format(str(num_txs))])
+    print(rc)
+
+
+
 def run_multi_tests(network):
+
     def get_top_block_time(coord_num):
         filename = (os.getcwd() + "/testlog{}.log".format(coord_num))
         for line in reverse_readline(filename):
@@ -289,21 +309,25 @@ def run_multi_tests(network):
         p_list = run_remote_n_shard_node(DEFAULT_COORD, num_shards,
                                          bootstrap=True, num_txs=num_txs,
                                          network=network)
-        for i in range(num_coords - 1):
-            p_list += (run_n_shard_node(i + 2, num_shards,
-                                        bootstrap=False, num_txs=num_txs,
-                                        network=network))
+        #for i in range(num_coords - 1):
+        #    p_list += (run_n_shard_node(i + 2, num_shards,
+        #                                bootstrap=False, num_txs=num_txs,
+        #                                network=network))
 
         # About the expected time to finish processing
-        time.sleep(30)
+        time.sleep(150 * (num_txs/1000) + 10)
 
         #if scan_log_files(num_coords, num_shards):
         #    logging.debug("An error detected in one of the files")
 
-        top_block_time = get_top_block_time(num_coords)
-        print("Top block took {} s to process".format(top_block_time))
+        try:
+            top_block_time = get_top_block_time(num_coords)
+            print("Top block took {} s to process".format(top_block_time))
+        except:
+            pass
 
-        #remove_log_files(num_coords, num_shards)
+        get_sync_time(num_shards, num_txs)
+        # remove_log_files(num_coords, num_shards)
 
         clean_with_ssh(num_coords, num_shards)
 
@@ -313,7 +337,7 @@ def run_multi_tests(network):
 
         return top_block_time
 
-    for num_shards in range(1, 3):
+    for num_shards in range(16, 17):
         csv_file_name = "proc_{}_shards.csv".format(num_shards)
         with open(csv_file_name, 'w') as csvfile:
             fieldnames = ['Txs', 'Time']
@@ -321,7 +345,7 @@ def run_multi_tests(network):
 
             writer.writeheader()  # file doesn't exist yet, write a header
 
-            for num_txs in range(100, 500, 100):
+            for num_txs in range(10000, 50000, 10000):
                 block_time = run_test(2, num_shards, num_txs, network)
                 d = {'Time': block_time, 'Txs': num_txs}
                 writer.writerow(d)
@@ -349,6 +373,7 @@ def main():
         root_logger.setLevel(level)
 
     run_multi_tests(args.network)
+    # get_sync_time(1, 500)
 
     # This runs a single node, and makes sure the coordinator + orcacle work
     # p_list = run_n_shard_node(DEFAULT_COORD, 1, True, 1000)
