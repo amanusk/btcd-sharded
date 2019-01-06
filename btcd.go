@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,10 +27,12 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/blockchain/fullblocktests"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/limits"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // Config is used for to save values from json config file
@@ -892,6 +895,121 @@ func main() {
 		}
 		//<-s.Finish
 	} else if strings.ToLower(*flagMode) == "test" {
+
+		config, _ := LoadConfig(strings.ToLower(*flagConfig))
+		/// Rebuild the blockchain with bigblocks
+		// Setting up my logging system
+		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		defer f.Close()
+		logging.SetOutput(f)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
+
+		chain, teardownFunc, err := chainSetup(config.Server.ServerDb,
+			network, config)
+		if err != nil {
+			logging.Printf("Failed to setup chain instance: %v", err)
+			return
+		}
+		defer teardownFunc()
+
+		blockHash, err := chain.BlockHashByHeight(int32(5))
+		if err != nil {
+			logging.Println("Unable to fetch hash of block ", err)
+		}
+		fmt.Println("Block hash is ", blockHash)
+		fmt.Println("Best chain length", chain.BestChainLength())
+		newChain, newTeardownFunc, err := chainSetup("new_chain",
+			network, config)
+		if err != nil {
+			logging.Printf("Failed to setup chain instance: %v", err)
+			return
+		}
+		fmt.Println(newChain)
+		defer newTeardownFunc()
+
+		accumulated := 0
+		tip := network.GenesisBlock
+		var txns []*wire.MsgTx
+		nextHeight := 1
+		for i := 1; i < chain.BestChainLength(); i++ {
+			blockHash, err := chain.BlockHashByHeight(int32(i))
+			if err != nil {
+				logging.Println("Unable to fetch hash of block ", i)
+			}
+			block, _ := chain.BlockByHash(blockHash)
+			forSize := block.MsgBlock().(*wire.MsgBlock)
+			blockSize := forSize.SerializeSize()
+			accumulated += blockSize
+			for _, tx := range block.Transactions() {
+				txns = append(txns, tx.MsgTx())
+			}
+			if accumulated > 100000 {
+				fmt.Println("Creating new block")
+				fmt.Println("Accumulated", accumulated, nextHeight)
+				fmt.Println("Adding ", len(txns))
+				// Use a timestamp that is one second after the previous block unless
+				// this is the first block in which case the current time is used.
+				var ts time.Time
+				if nextHeight == 1 {
+					ts = time.Unix(time.Now().Unix(), 0)
+				} else {
+					ts = tip.Header.Timestamp.Add(time.Second)
+				}
+
+				msgBlock := wire.MsgBlock{
+					Header: wire.BlockHeader{
+						Version:    1,
+						PrevBlock:  tip.Header.BlockHash(),
+						MerkleRoot: calcMerkleRoot(txns),
+						Bits:       network.PowLimitBits,
+						Timestamp:  ts,
+						Nonce:      0, // To be solved.
+					},
+					Transactions: txns,
+				}
+				block := btcutil.NewFullBlock(&msgBlock)
+				fmt.Println("Block size", block.MsgBlock().(*wire.MsgBlock).SerializeSize())
+				_, err := newChain.AcceptBlock(block, blockchain.BFNone)
+				if err != nil {
+					logging.Panicln(err)
+				}
+				print("Added block ", block)
+				cblock := cloneBlock(&msgBlock)
+				tip = &cblock
+				nextHeight++
+				accumulated = 0
+				txns = []*wire.MsgTx{}
+			}
+		}
+	} else if strings.ToLower(*flagMode) == "testtest" {
+
+		config, _ := LoadConfig(strings.ToLower(*flagConfig))
+		/// Rebuild the blockchain with bigblocks
+		// Setting up my logging system
+		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		defer f.Close()
+		logging.SetOutput(f)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
+
+		chain, teardownFunc, err := chainSetup("new_chain",
+			network, config)
+		if err != nil {
+			logging.Printf("Failed to setup chain instance: %v", err)
+			return
+		}
+		defer teardownFunc()
+		print("Best chain Length", chain.BestChainLength())
+		for i := 1; i < chain.BestChainLength(); i++ {
+			blockHash, err := chain.BlockHashByHeight(int32(i))
+			if err != nil {
+				logging.Println("Unable to fetch hash of block ", i)
+			}
+			block, _ := chain.BlockByHash(blockHash)
+			forSize := block.MsgBlock().(*wire.MsgBlock)
+			blockSize := forSize.SerializeSize()
+			fmt.Println("Block", i, "size", blockSize)
+		}
+
 	} else if strings.ToLower(*flagMode) == "full" {
 
 		config, _ := LoadConfig(strings.ToLower(*flagConfig))
@@ -996,4 +1114,30 @@ func main() {
 		elapsed := time.Since(start).Seconds()
 		fmt.Printf("chain sync took %v \n", elapsed)
 	}
+}
+
+// calcMerkleRoot creates a merkle tree from the slice of transactions and
+// returns the root of the tree.
+func calcMerkleRoot(txns []*wire.MsgTx) chainhash.Hash {
+	if len(txns) == 0 {
+		return chainhash.Hash{}
+	}
+
+	utilTxns := make([]*btcutil.Tx, 0, len(txns))
+	for _, tx := range txns {
+		utilTxns = append(utilTxns, btcutil.NewTx(tx))
+	}
+	sort.Sort(btcutil.TxSorter(utilTxns))
+	merkles := blockchain.BuildMerkleTreeStore(utilTxns, false)
+	return *merkles[len(merkles)-1]
+}
+
+// cloneBlock returns a deep copy of the provided block.
+func cloneBlock(b *wire.MsgBlock) wire.MsgBlock {
+	var blockCopy wire.MsgBlock
+	blockCopy.Header = b.Header
+	for _, tx := range b.Transactions {
+		blockCopy.AddTransaction(tx.Copy())
+	}
+	return blockCopy
 }

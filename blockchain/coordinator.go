@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 )
 
 // AddressesGob is a struct to send a list of tcp connections
@@ -568,11 +567,11 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	}
 
 	// Perform preliminary sanity checks on the block and its transactions.
-	block := btcutil.NewBlockShard(headerBlock)
-	err = checkBlockShardSanity(block, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
-	if err != nil {
-		return err
-	}
+	// block := btcutil.NewBlockShard(headerBlock)
+	// err = checkBlockShardSanity(block, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
+	// if err != nil {
+	// 	return err
+	// }
 
 	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone

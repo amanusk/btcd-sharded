@@ -24,7 +24,7 @@ def run_oracle(num_shards, num_txs, network):
                              stdout=None, stderr=None, shell=False)
     else:
         cmd = [cmd, "--mode=full", "--n=" + str(num_shards),
-               "--tx=" + str(num_txs), "--conf=config_full.json",
+               "--tx=" + str(num_txs), "--conf=config_test.json",
                "--network="+network]
         print("Running ", " ".join(cmd))
         rc = subprocess.call(cmd, None, stdin=None,
@@ -39,7 +39,7 @@ def run_shard(server_num, shard_num, num_shards, network):
     shard_id = "{}_{}".format(server_num, shard_num)
     cmd = [cmd, "--mode=shard", "--n=" + str(num_shards),
            "--conf=config_s" + shard_id + ".json", "--network=" + network]
-    print("Running "+ " ".join(cmd))
+    print("Running " + " ".join(cmd))
     p = subprocess.Popen(cmd, None, stdin=None, stdout=None,
                          stderr=None, shell=False)
     return p
