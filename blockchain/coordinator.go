@@ -364,7 +364,7 @@ func (coord *Coordinator) handleProcessBlock(headerBlock *RawBlockGob, conn net.
 		logging.Fatal("Coordinator unable to process block")
 	}
 	coord.sendBlockDone(conn)
-	endTime := time.Since(startTime)
+	endTime := time.Since(startTime).Seconds()
 	logging.Println("Block", headerBlock.Height, "took", endTime, "to process")
 	fmt.Println("Block", headerBlock.Height, "took", endTime, "to process")
 }
@@ -486,7 +486,7 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		fmt.Println("Block", i, "took", endTime, "to send")
 
 	}
-	endTime := time.Since(startTime)
+	endTime := time.Since(startTime).Seconds()
 	logging.Println("Sending all blocks took", endTime)
 	fmt.Println("Sending all blocks took", endTime)
 	return
@@ -539,6 +539,7 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 		bShards[idx] = wire.NewMsgBlockShard(&headerBlock.Header)
 	}
 
+	startTime := time.Now()
 	// Split transactions between blocks
 	for _, tx := range headerBlock.Transactions {
 		// spew.Dump(tx)
@@ -546,8 +547,11 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 		// logging.Println("Shard for tx", shardNum)
 		bShards[modRes].AddTransaction(tx)
 	}
-	// logging.Println("Sending shards")
+	endTime := time.Since(startTime).Seconds()
+	logging.Println("Creating bshards took", endTime)
+	fmt.Println("Creating bshards took", endTime)
 
+	startTime = time.Now()
 	for i := 0; i < numShards; i++ {
 
 		// All data is sent in gobs
@@ -566,13 +570,20 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 			logging.Println(err, "Encode failed for struct: %#v", msg)
 		}
 	}
+	endTime = time.Since(startTime).Seconds()
+	logging.Println("Sending bshards took", endTime)
+	fmt.Println("Sending bshards took", endTime)
 
+	startTime = time.Now()
 	// Perform preliminary sanity checks on the block and its transactions.
 	block := btcutil.NewBlockShard(headerBlock)
 	err = checkBlockShardSanity(block, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
 	if err != nil {
 		return err
 	}
+	endTime = time.Since(startTime).Seconds()
+	logging.Println("Merkle tree took", endTime)
+	fmt.Println("Merkle tree took", endTime)
 
 	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone

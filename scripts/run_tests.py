@@ -8,6 +8,7 @@ import csv
 import os
 import re
 import spur
+import gc
 
 DEFAULT_LOG_FILE = "debug_test.log"
 
@@ -58,6 +59,8 @@ def run_shard(server_num, shard_num, num_shards):
 
 def run_remote_shard(server_num, shard_num, num_shards, network):
     cmd = go_dir + '/btcd'
+    print("server ", server_num)
+    print("server ", server_num)
     conf = home_dir + '/config_s{}_{}.json'.format(server_num, shard_num)
     host = "10.0.0.{}".format(50 + int(server_num) * 50 + int(shard_num))
     print("Host " + host)
@@ -139,36 +142,42 @@ def run_remote_n_shard_node(coord_num, n, bootstrap, num_txs, network):
 
 def clean_with_ssh(num_coords, num_shards):
     for c in range(1, num_coords+1):
-        shell = spur.SshShell(hostname="10.0.0.1{}".format(c),
-                              username="ubuntu",
-                              private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
-                              missing_host_key=spur.ssh.MissingHostKey.accept)
-        cmd = go_dir + '/kill_all.sh'
-        print("Running" + cmd)
-        p = shell.run([cmd])
-        cmd = go_dir + '/clean_db.sh'
-        print("Running" + cmd)
-        p = shell.run([cmd])
         try:
-            p = shell.run(["rm", "/home/ubuntu/testlog{}.log".format(c)])
-            print(p)
-        except:
-            pass
-        for s in range(num_shards):
-            shell = spur.SshShell(hostname="10.0.0.{}".format(50 + int(c) * 50 + int(s)),
+            shell = spur.SshShell(hostname="10.0.0.1{}".format(c),
                                   username="ubuntu",
                                   private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
                                   missing_host_key=spur.ssh.MissingHostKey.accept)
             cmd = go_dir + '/kill_all.sh'
             print("Running" + cmd)
             p = shell.run([cmd])
-            print(p)
             cmd = go_dir + '/clean_db.sh'
             print("Running" + cmd)
             p = shell.run([cmd])
+        except:
+            pass
+        try:
+            p = shell.run(["rm", "/home/ubuntu/testlog{}.log".format(c)])
             print(p)
-            p = shell.run(["rm", "/home/ubuntu/stestlog{}_{}.log".format(c, s)])
-            print(p)
+        except:
+            pass
+        for s in range(num_shards):
+            try:
+                shell = spur.SshShell(hostname="10.0.0.{}".format(50 + int(c) * 50 + int(s)),
+                                      username="ubuntu",
+                                      private_key_file='/home/ubuntu/.ssh/aws-kp.pem',
+                                      missing_host_key=spur.ssh.MissingHostKey.accept)
+                cmd = go_dir + '/kill_all.sh'
+                print("Running" + cmd)
+                p = shell.run([cmd])
+                print(p)
+                cmd = go_dir + '/clean_db.sh'
+                print("Running" + cmd)
+                p = shell.run([cmd])
+                print(p)
+                p = shell.run(["rm", "/home/ubuntu/stestlog{}_{}.log".format(c, s)])
+                print(p)
+            except:
+                pass
 
 
 def remove_log_files(num_coords, num_shards):
@@ -289,69 +298,79 @@ def get_sync_time(num_shards, num_txs):
                     "-tx={}".format(str(num_txs))])
     print(rc)
 
+def collect_to_csv(num_shards, coord, num_txs):
 
+    def get_result(keyword, coord_num):
+        filename = (os.getcwd() + "/testlog{}.log".format(coord_num))
+        # print(filename)
+        for line in reverse_readline(filename):
+            if keyword in line:
+                result = re.findall(r"\d+\.\d+", line)[0]
+                print(keyword + "took "+ str(result))
+                if "ms" in line:
+                    result = float(float(result)/float(1000))
+                else:
+                    result = float(result)
+                return result
+
+    csv_file_name = "{}_shards.csv".format(num_shards)
+    file_exists = os.path.isfile(csv_file_name)
+    with open(csv_file_name, 'a') as csvfile:
+        fieldnames = ['Txs', 'Create', 'Send', 'Merkle', 'Total']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+        if not file_exists:
+            writer.writeheader()  # file doesn't exist yet, write a header
+
+        create = get_result("Creating", coord)
+        send = get_result("Sending", coord)
+        merkle = get_result("Merkle", coord)
+        total = get_result("Block", coord)
+        d = {'Txs': num_txs, 'Create': create, 'Send': send, 'Merkle': merkle, 'Total': total}
+        writer.writerow(d)
+        csvfile.flush()
 
 def run_multi_tests(network):
 
-    def get_top_block_time(coord_num):
-        filename = (os.getcwd() + "/testlog{}.log".format(coord_num))
-        for line in reverse_readline(filename):
-            if "took" in line:
-                print(line)
-                blocktime = float(
-                    re.findall(r"\d+\.\d+", (line.split(" ")[4]))[0])
-                if "ms" in line:
-                    blocktime = float(blocktime/1000)
-                print(blocktime)
-                return blocktime
 
     def run_test(num_coords, num_shards, num_txs, network):
-        p_list = run_remote_n_shard_node(DEFAULT_COORD, num_shards,
+        p_list = run_remote_n_shard_node(DEFAULT_COORD, 4,
                                          bootstrap=True, num_txs=num_txs,
                                          network=network)
-        #for i in range(num_coords - 1):
-        #    p_list += (run_n_shard_node(i + 2, num_shards,
-        #                                bootstrap=False, num_txs=num_txs,
-        #                                network=network))
+        for i in range(num_coords - 1):
+            p_list += (run_n_shard_node(i + 2, num_shards,
+                                        bootstrap=False, num_txs=num_txs,
+                                        network=network))
 
         # About the expected time to finish processing
-        time.sleep(150 * (num_txs/1000) + 10)
+        time.sleep((35 - num_shards) * (num_txs/100000) + 20)
+        # time.sleep(10)
 
         #if scan_log_files(num_coords, num_shards):
         #    logging.debug("An error detected in one of the files")
 
-        try:
-            top_block_time = get_top_block_time(num_coords)
-            print("Top block took {} s to process".format(top_block_time))
-        except:
-            pass
+        collect_to_csv(num_shards, 2, num_txs)
 
         get_sync_time(num_shards, num_txs)
         # remove_log_files(num_coords, num_shards)
 
         clean_with_ssh(num_coords, num_shards)
 
-        path = os.getcwd() + '/testlog{}.log'.format(num_coords)
-        print("Clearing " + path)
-        os.remove(path)
+        try:
+            path = os.getcwd() + '/testlog{}.log'.format(num_coords)
+            print("Clearing " + path)
+            os.remove(path)
+        except:
+            pass
 
         return top_block_time
 
-    for num_shards in range(16, 17):
-        csv_file_name = "proc_{}_shards.csv".format(num_shards)
-        with open(csv_file_name, 'w') as csvfile:
-            fieldnames = ['Txs', 'Time']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-            writer.writeheader()  # file doesn't exist yet, write a header
-
-            for num_txs in range(10000, 50000, 10000):
-                block_time = run_test(2, num_shards, num_txs, network)
-                d = {'Time': block_time, 'Txs': num_txs}
-                writer.writerow(d)
-                csvfile.flush()
-                if int(block_time > 15):
-                    break
+    options = [2**i for i in range(0, -1, -1)]
+    for num_shards in options:
+        for num_txs in range(2000, 13000, 2000):
+            run_test(2, num_shards, num_txs, network)
+            gc.collect()
 
 
 def main():
@@ -372,8 +391,8 @@ def main():
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
 
-    run_multi_tests(args.network)
-    # get_sync_time(1, 500)
+    # run_multi_tests(args.network)
+    collect_to_csv(1, 2, 2000)
 
     # This runs a single node, and makes sure the coordinator + orcacle work
     # p_list = run_n_shard_node(DEFAULT_COORD, 1, True, 1000)
