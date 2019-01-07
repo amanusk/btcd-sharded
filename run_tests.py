@@ -39,7 +39,7 @@ def run_shard(server_num, shard_num, num_shards, network):
     shard_id = "{}_{}".format(server_num, shard_num)
     cmd = [cmd, "--mode=shard", "--n=" + str(num_shards),
            "--conf=config_s" + shard_id + ".json", "--network=" + network]
-    print("Running "+ " ".join(cmd))
+    print("Running " + " ".join(cmd))
     p = subprocess.Popen(cmd, None, stdin=None, stdout=None,
                          stderr=None, shell=False)
     return p
@@ -281,7 +281,7 @@ def main():
     # Try with 2 nodes, 2 shards
     p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True,
                               num_txs=100, network=network)
-    p2_list = run_n_shard_node(2, 2, bootstrap=False, num_txs=100,
+    p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=100,
                                 network=network)
 
     time.sleep(100)

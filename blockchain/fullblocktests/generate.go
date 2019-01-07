@@ -2518,48 +2518,48 @@ func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInsta
 		})
 		accepted()
 	}
-
-	g.nextBlock("b41", outs[13+blocksNeeded+1], func(b *wire.MsgBlock) {
-		p2shScript := payToScriptHashScript(redeemScript)
-		prevTx := b.Transactions[1]
-		prevTx = createSpendTxForTx(prevTx, lowFee)
-		prevTx.TxOut[0].Value -= int64(4)
-		prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
-		prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
-		b.AddTransaction(prevTx)
-		for i := 0; i < txnsNeeded; i++ {
-			spend := makeSpendableOutForTx(prevTx, 2)
-			tx := createSpendTx(&spend, lowFee)
-			spend = makeSpendableOutForTx(prevTx, 3)
-			// Add another spending input
-			tx.AddTxIn(&wire.TxIn{
-				PreviousOutPoint: spend.prevOut,
-				Sequence:         wire.MaxTxInSequenceNum,
-				SignatureScript:  nil,
-			})
-			tx.TxOut[0].Value -= int64(1)
-			tx.AddTxOut(wire.NewTxOut(2, p2shScript))
-			tx.AddTxOut(wire.NewTxOut(2, p2shScript))
-			sig, err := txscript.RawTxInSignature(tx, 0,
-				redeemScript, txscript.SigHashAll, g.privKey)
-			if err != nil {
-				panic(err)
-			}
-			tx.TxIn[0].SignatureScript = pushDataScript(sig,
-				redeemScript)
-			sig, err = txscript.RawTxInSignature(tx, 1,
-				redeemScript, txscript.SigHashAll, g.privKey)
-			if err != nil {
-				panic(err)
-			}
-			tx.TxIn[1].SignatureScript = pushDataScript(sig,
-				redeemScript)
-			b.AddTransaction(tx)
-			prevTx = tx
-		}
-	})
-	g.assertTipBlockNumTxns(txnsNeeded + 3)
-	accepted()
+	// Tow signature per TX + All Txs in same block
+	// g.nextBlock("b41", outs[13+blocksNeeded+1], func(b *wire.MsgBlock) {
+	// 	p2shScript := payToScriptHashScript(redeemScript)
+	// 	prevTx := b.Transactions[1]
+	// 	prevTx = createSpendTxForTx(prevTx, lowFee)
+	// 	prevTx.TxOut[0].Value -= int64(4)
+	// 	prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
+	// 	prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
+	// 	b.AddTransaction(prevTx)
+	// 	for i := 0; i < txnsNeeded; i++ {
+	// 		spend := makeSpendableOutForTx(prevTx, 2)
+	// 		tx := createSpendTx(&spend, lowFee)
+	// 		spend = makeSpendableOutForTx(prevTx, 3)
+	// 		// Add another spending input
+	// 		tx.AddTxIn(&wire.TxIn{
+	// 			PreviousOutPoint: spend.prevOut,
+	// 			Sequence:         wire.MaxTxInSequenceNum,
+	// 			SignatureScript:  nil,
+	// 		})
+	// 		tx.TxOut[0].Value -= int64(1)
+	// 		tx.AddTxOut(wire.NewTxOut(2, p2shScript))
+	// 		tx.AddTxOut(wire.NewTxOut(2, p2shScript))
+	// 		sig, err := txscript.RawTxInSignature(tx, 0,
+	// 			redeemScript, txscript.SigHashAll, g.privKey)
+	// 		if err != nil {
+	// 			panic(err)
+	// 		}
+	// 		tx.TxIn[0].SignatureScript = pushDataScript(sig,
+	// 			redeemScript)
+	// 		sig, err = txscript.RawTxInSignature(tx, 1,
+	// 			redeemScript, txscript.SigHashAll, g.privKey)
+	// 		if err != nil {
+	// 			panic(err)
+	// 		}
+	// 		tx.TxIn[1].SignatureScript = pushDataScript(sig,
+	// 			redeemScript)
+	// 		b.AddTransaction(tx)
+	// 		prevTx = tx
+	// 	}
+	// })
+	// g.assertTipBlockNumTxns(txnsNeeded + 3)
+	// accepted()
 
 	// g.nextBlock("b42", outs[14], func(b *wire.MsgBlock) {
 	// 	for i := 0; i < txnsNeeded; i++ {

@@ -26,11 +26,12 @@ type DHTGob struct {
 
 // HeaderGob is a struct to send headers over tcp connections
 type HeaderGob struct {
-	Header *wire.BlockHeader
-	Flags  BehaviorFlags
-	Height int32
-	Index  int32
-	Salt   string
+	Header   *wire.BlockHeader
+	Flags    BehaviorFlags
+	Height   int32
+	Index    int
+	Salt     string
+	ShardNum int
 }
 
 // RawBlockGob is a struct to send full blocks
@@ -51,6 +52,7 @@ type Message struct {
 type FetchedBlocksLockedMap struct {
 	*sync.RWMutex
 	fetchedBlocks map[net.Conn]*wire.MsgBlockShard
+	Flags         BehaviorFlags
 }
 
 // Coordinator is the coordinator in a sharded bitcoin cluster
