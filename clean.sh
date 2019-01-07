@@ -4,7 +4,8 @@
 
 /bin/rm *.log
 
-/bin/rm -rf testdb/testdb*
+/bin/rm -rf /home/ubuntu/go/src/github.com/btcsuite/btcd/testdb/testdb*
+/bin/rm -rf /home/ubuntu/testdb/testdb*
 # /bin/rm -rf testdb/blocks_ffldb/
 # /bin/rm -rf testdb/testdb*
 # cp -r ~/.btcd/data/testnet/blocks_ffldb/ testdb/

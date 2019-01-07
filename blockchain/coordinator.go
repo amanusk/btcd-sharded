@@ -489,7 +489,7 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	header := headerBlock.Header
 
 	startTime := time.Now()
-	logging.Println("Processing block ", header.BlockHash(), " height ", height)
+	// logging.Println("Processing block ", header.BlockHash(), " height ", height)
 
 	// Start waiting for shards done before telling them to request it
 	go coord.waitForShardsDone()
