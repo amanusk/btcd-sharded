@@ -515,16 +515,16 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 			logging.Println(err, "Encode failed for struct: %#v", msg)
 		}
 	}
-	endTime := time.Since(startTime).Seconds()
-	logging.Println("Sending bshards took", endTime)
-	fmt.Println("Sending bshards took", endTime)
 
 	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone
 	logging.Println("All shards finished")
 
+	endTime := time.Since(startTime).Seconds()
+	logging.Println("Processing bshards took", endTime)
+	fmt.Println("Processing bshards took", endTime)
+
 	coord.Chain.CoordMaybeAcceptBlock(headerBlock, flags)
-	logging.Println("Done processing block")
 	return nil
 }
 

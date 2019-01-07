@@ -296,9 +296,10 @@ def get_sync_time(num_shards, num_txs):
                           missing_host_key=spur.ssh.MissingHostKey.accept)
     rc = shell.run(["python3", script, "-n={}".format(str(num_shards)),
                     "-tx={}".format(str(num_txs))])
-    print(rc)
+    print(rc.output)
+    return(rc.output)
 
-def collect_to_csv(num_shards, coord, num_txs):
+def collect_to_csv(num_shards, coord, num_txs, remote_result):
 
     def get_result(keyword, coord_num):
         filename = (os.getcwd() + "/testlog{}.log".format(coord_num))
@@ -316,7 +317,7 @@ def collect_to_csv(num_shards, coord, num_txs):
     csv_file_name = "{}_shards.csv".format(num_shards)
     file_exists = os.path.isfile(csv_file_name)
     with open(csv_file_name, 'a') as csvfile:
-        fieldnames = ['Txs', 'Create', 'Send', 'Merkle', 'Total']
+        fieldnames = ['Txs', 'Create', 'Send', 'Merkle', 'Processing', 'Total', 'Remote']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         if not file_exists:
@@ -325,8 +326,9 @@ def collect_to_csv(num_shards, coord, num_txs):
         create = get_result("Creating", coord)
         send = get_result("Sending", coord)
         merkle = get_result("Merkle", coord)
+        processing = get_result("Processing", coord)
         total = get_result("Block", coord)
-        d = {'Txs': num_txs, 'Create': create, 'Send': send, 'Merkle': merkle, 'Total': total}
+        d = {'Txs': num_txs, 'Create': create, 'Send': send, 'Merkle': merkle, 'Processing': processing, 'Total': total, 'Remote': remote_result}
         writer.writerow(d)
         csvfile.flush()
 
@@ -349,9 +351,11 @@ def run_multi_tests(network):
         #if scan_log_files(num_coords, num_shards):
         #    logging.debug("An error detected in one of the files")
 
-        collect_to_csv(num_shards, 2, num_txs)
+        remote_result = get_sync_time(num_shards, num_txs)
+        print("Block send took " + str(float(remote_result)))
 
-        get_sync_time(num_shards, num_txs)
+        collect_to_csv(num_shards, 2, num_txs, float(remote_result))
+
         # remove_log_files(num_coords, num_shards)
 
         clean_with_ssh(num_coords, num_shards)
@@ -363,14 +367,13 @@ def run_multi_tests(network):
         except:
             pass
 
-        return top_block_time
 
-
-    options = [2**i for i in range(0, -1, -1)]
+    options = [2**i for i in range(5, -1, -1)]
     for num_shards in options:
-        for num_txs in range(2000, 13000, 2000):
-            run_test(2, num_shards, num_txs, network)
-            gc.collect()
+        for num_txs in range(200000, 1300000, 200000):
+            for j in range(1):
+                run_test(2, num_shards, num_txs, network)
+                gc.collect()
 
 
 def main():
@@ -391,8 +394,7 @@ def main():
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
 
-    # run_multi_tests(args.network)
-    collect_to_csv(1, 2, 2000)
+    run_multi_tests(args.network)
 
     # This runs a single node, and makes sure the coordinator + orcacle work
     # p_list = run_n_shard_node(DEFAULT_COORD, 1, True, 1000)
