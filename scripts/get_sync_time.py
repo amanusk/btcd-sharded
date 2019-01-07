@@ -7,13 +7,11 @@ import re
 def get_top_block_time():
     filename = (os.getcwd() + "/testlog1.log")
     for line in reverse_readline(filename):
-        if "took" in line:
-            print(line)
+        if "Block" in line:
             blocktime = None
             try:
                 time = re.findall(r"\dm\d+\.\d+", line)[0]
                 minute, second = time.split("m")
-                print(minute, second)
                 blocktime = float(minute) * 60 + float(second)
             except:
                 time = re.findall(r"\d+\.\d+", line)[0]
@@ -68,7 +66,7 @@ def main():
             writer.writeheader()  # file doesn't exist yet, write a header
 
         sync_time = get_top_block_time()
-        print("Sync time is ", sync_time)
+        print(sync_time)
         d = {'Time': sync_time, 'Txs': num_txs}
         writer.writerow(d)
 

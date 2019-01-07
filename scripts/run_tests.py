@@ -317,18 +317,18 @@ def collect_to_csv(num_shards, coord, num_txs, remote_result):
     csv_file_name = "{}_shards.csv".format(num_shards)
     file_exists = os.path.isfile(csv_file_name)
     with open(csv_file_name, 'a') as csvfile:
-        fieldnames = ['Txs', 'Create', 'Send', 'Merkle', 'Processing', 'Total', 'Remote']
+        fieldnames = ['Txs', 'Processing', 'Total', 'Remote']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         if not file_exists:
             writer.writeheader()  # file doesn't exist yet, write a header
 
         create = get_result("Creating", coord)
-        send = get_result("Sending", coord)
-        merkle = get_result("Merkle", coord)
+        # send = get_result("Sending", coord)
+        # merkle = get_result("Merkle", coord)
         processing = get_result("Processing", coord)
         total = get_result("Block", coord)
-        d = {'Txs': num_txs, 'Create': create, 'Send': send, 'Merkle': merkle, 'Processing': processing, 'Total': total, 'Remote': remote_result}
+        d = {'Txs': num_txs, 'Processing': processing, 'Total': total, 'Remote': remote_result}
         writer.writerow(d)
         csvfile.flush()
 
@@ -336,7 +336,7 @@ def run_multi_tests(network):
 
 
     def run_test(num_coords, num_shards, num_txs, network):
-        p_list = run_remote_n_shard_node(DEFAULT_COORD, 4,
+        p_list = run_remote_n_shard_node(DEFAULT_COORD, num_shards,
                                          bootstrap=True, num_txs=num_txs,
                                          network=network)
         for i in range(num_coords - 1):
@@ -345,7 +345,7 @@ def run_multi_tests(network):
                                         network=network))
 
         # About the expected time to finish processing
-        time.sleep((35 - num_shards) * (num_txs/100000) + 20)
+        time.sleep((20 - num_shards) * (num_txs/100000) + 20)
         # time.sleep(10)
 
         #if scan_log_files(num_coords, num_shards):
@@ -364,11 +364,16 @@ def run_multi_tests(network):
             path = os.getcwd() + '/testlog{}.log'.format(num_coords)
             print("Clearing " + path)
             os.remove(path)
+            cmd = str(os.getcwd()) + '/clean.sh'
+            print("Running clean")
+            subprocess.call([cmd], None, stdin=None,
+                            stdout=None, stderr=None, shell=False)
+
         except:
             pass
 
 
-    options = [2**i for i in range(5, -1, -1)]
+    options = [2**i for i in range(4, -1, -1)]
     for num_shards in options:
         for num_txs in range(200000, 1300000, 200000):
             for j in range(1):
