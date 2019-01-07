@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
 )
@@ -110,6 +111,8 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 	logging.Println("Received request to request block")
 	// Start waiting for requests and responds from shard immediately
 	// Start the waiting routine before starting to send anything
+	shard.fetchedBlockShards = &FetchedBlocksLockedMap{&sync.RWMutex{}, map[net.Conn]*wire.MsgBlockShard{}, 0}
+
 	go shard.AwaitRequestedTxOuts()
 	// Start Listening for responses on your missing TxOuts from intershard
 	go shard.AwaitRetrievedTxOuts()
@@ -134,21 +137,28 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 		}
 
 	}
-	shard.fetchedBlockShards = &FetchedBlocksLockedMap{&sync.RWMutex{}, map[net.Conn]*wire.MsgBlockShard{}, 0}
+	start := time.Now()
 	for range shard.interShards {
 		<-shard.receiveRequestedShard
 	}
+	elapsed := time.Since(start).Seconds()
+	logging.Println("Fetching from remote shards took", elapsed)
 
 	msgBlockShard := wire.NewMsgBlockShard(header.Header)
 
+	start = time.Now()
 	for _, blockShard := range shard.fetchedBlockShards.fetchedBlocks {
 		for _, tx := range blockShard.Transactions {
 			msgBlockShard.AddTransaction(tx)
 		}
 	}
+	elapsed = time.Since(start).Seconds()
+	logging.Println("Constructing block to process took", elapsed)
 
+	start = time.Now()
 	_, err := shard.ShardMaybeAcceptBlock(msgBlockShard, shard.fetchedBlockShards.Flags)
-	//		*connectBestChain
+	elapsed = time.Since(start).Seconds()
+	logging.Println("Processing block shard took", elapsed)
 
 	if err != nil {
 		logging.Println(err)
@@ -157,7 +167,6 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 		return
 	}
 
-	logging.Println("Done processing block, sending SHARDDONE")
 	coordEnc := shard.CoordConn.Enc
 	doneMsg := Message{
 		Cmd: "SHARDDONE",
@@ -174,8 +183,11 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	logging.Println("Received request to send a block shard")
 
+	start := time.Now()
 	blockHash := header.Header.BlockHash()
 	block, _ := shard.Chain.BlockShardByHash(&blockHash)
+	elapsed := time.Since(start).Seconds()
+	logging.Println("Fetching block shard took", elapsed)
 
 	// salt := header.Salt
 	requestingShardIndex := header.Index
@@ -185,6 +197,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	// for _, tx := range block.TransactionsMap() {
 	// 	spew.Dump(tx)
 	// }
+	start = time.Now()
 	blockHeader := block.MsgBlock().(*wire.MsgBlockShard).Header
 	blockShardToSend := wire.NewMsgBlockShard(&blockHeader)
 	for idx, tx := range block.TransactionsMap() {
@@ -195,8 +208,11 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 			blockShardToSend.AddTransaction(newTx)
 		}
 	}
+	elapsed = time.Since(start).Seconds()
+	logging.Println("Constructing", elapsed)
 
 	// Create a gob of serialized msgBlock
+	start = time.Now()
 	msg := Message{
 		Cmd: "PRCBLOCK",
 		Data: RawBlockGob{
@@ -212,6 +228,8 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 		logging.Println(err, "Encode failed for struct: %#v", msg)
 	}
 	logging.Println("Sent block for process", block.Hash())
+	elapsed = time.Since(start).Seconds()
+	logging.Println("Sending blockshard", elapsed)
 
 }
 
@@ -335,7 +353,7 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 		// handle a request for block shard coming from another shard
 		case "SNDBLOCK":
 			header := msg.Data.(HeaderGob)
-			shard.handleSendBlock(&header, conn)
+			go shard.handleSendBlock(&header, conn)
 
 		// Messages related to processing a block
 		case "PRCBLOCK":
@@ -595,9 +613,9 @@ func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]*U
 	for shardNum, intraShard := range shard.ShardNumToShard {
 		// Send on the open socket with the relevant shard
 		logging.Println("Sending missing outs to", shardNum)
-		for txOut := range missingTxOuts[shardNum] {
-			logging.Println("Missing", txOut)
-		}
+		// for txOut := range missingTxOuts[shardNum] {
+		// 	logging.Println("Missing", txOut)
+		// }
 		enc := intraShard.Enc
 		// logging.Println("Sending info on", intraShard.Socket)
 
@@ -616,11 +634,11 @@ func (shard *Shard) SendMissingTxOuts(missingTxOuts map[int]map[wire.OutPoint]*U
 // SendRequestedTxOuts sends each shard a map of all the TxOuts it has earlier
 // requested.
 func (shard *Shard) SendRequestedTxOuts(requestedTxOuts map[int]map[wire.OutPoint]*UtxoEntry) {
-	for shardIdx, fetched := range requestedTxOuts {
-		for utxo := range fetched {
-			logging.Println("For shard", shardIdx, "Fetched", utxo)
-		}
-	}
+	// for shardIdx, fetched := range requestedTxOuts {
+	// 	for utxo := range fetched {
+	// 		logging.Println("For shard", shardIdx, "Fetched", utxo)
+	// 	}
+	// }
 	for shardNum, intraShard := range shard.ShardNumToShard {
 		// Send on the open socket with the relevant shard
 		logging.Println("Sending retrieved outs to", shardNum)
@@ -670,9 +688,9 @@ func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.Ou
 	shard.requestedTxOutsMap.Lock()
 	shard.requestedTxOutsMap.TxOutsMap[shard.intraShards[conn].Index] = missingTxOuts
 	shard.requestedTxOutsMap.Unlock()
-	for txOut := range missingTxOuts {
-		logging.Println("Got missing out", txOut)
-	}
+	// for txOut := range missingTxOuts {
+	// 	logging.Println("Got missing out", txOut)
+	// }
 	// Unlock wait for each shard to send missing
 	shard.receiveMissingRequest <- true
 }

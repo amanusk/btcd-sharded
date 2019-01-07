@@ -1202,9 +1202,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// signature operations in each of the input transaction public key
 	// scripts.
 	transactions := block.TransactionsMap()
-	for _, tx := range transactions {
-		logging.Println("Connecting Tx", tx.Hash(), "index", tx.Index())
-	}
+	// for _, tx := range transactions {
+	// 	logging.Println("Connecting Tx", tx.Hash(), "index", tx.Index())
+	// }
 	totalSigOpCost := 0
 	for i, tx := range transactions {
 		// Since the first (and only the first) transaction has
@@ -1244,7 +1244,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 
 	// TODO: pass block height to shard.
 	// Only relevant for checking if TX is older than CoinBase
-	logging.Println("Transactions in blockShard:")
+	// logging.Println("Transactions in blockShard:")
 	// NOTE: debut info
 	//for txIdx, tx := range transactions {
 	//	logging.Println("Tx id ", txIdx, " TX ", tx)
@@ -1257,15 +1257,15 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 		if IsCoinBase(tx) {
 			continue
 		}
-		for txInIndex, txIn := range tx.MsgTx().TxIn {
+		for _, txIn := range tx.MsgTx().TxIn {
 			// Ensure the referenced input transaction is available
 			utxo := view.LookupEntry(txIn.PreviousOutPoint)
 
 			if utxo == nil {
-				str := fmt.Sprintf("output %v referenced from "+
-					"transaction %s:%d "+
-					"does not exist", txIn.PreviousOutPoint,
-					tx.Hash(), txInIndex)
+				// str := fmt.Sprintf("output %v referenced from "+
+				// 	"transaction %s:%d "+
+				// 	"does not exist", txIn.PreviousOutPoint,
+				// 	tx.Hash(), txInIndex)
 				previousHash := txIn.PreviousOutPoint.Hash
 				// Get the txout owner
 				owner := binary.BigEndian.Uint64(previousHash[:]) % uint64(shard.NumShards)
@@ -1275,8 +1275,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 				}
 				// Fill with empty Utxo, so we don't send nils
 				localMissingTxOuts[int(owner)][txIn.PreviousOutPoint] = &UtxoEntry{}
-				logging.Println(str)
-				logging.Println("Append", &txIn.PreviousOutPoint, "to missing")
+				// logging.Println(str)
+				// logging.Println("Append", &txIn.PreviousOutPoint, "to missing")
 				continue
 			}
 		}
@@ -1296,12 +1296,12 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// Now we fetch the utxos others are missing and populate them with
 	// output information
 	retreivedTxOuts := GetRequestedMissingTxOuts(shard.requestedTxOutsMap, view, node.height, shard.Chain.db)
-	logging.Println("The fetched requested transactions:")
-	for shardIdx, reqTxOuts := range retreivedTxOuts {
-		for txOut := range reqTxOuts {
-			logging.Println("Fetched", txOut, "for", shardIdx)
-		}
-	}
+	// logging.Println("The fetched requested transactions:")
+	// for shardIdx, reqTxOuts := range retreivedTxOuts {
+	// 	for txOut := range reqTxOuts {
+	// 		logging.Println("Fetched", txOut, "for", shardIdx)
+	// 	}
+	// }
 
 	// Send all TxOuts requested from you
 	shard.SendRequestedTxOuts(retreivedTxOuts)
