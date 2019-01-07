@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 )
 
 // AddressesGob is a struct to send a list of tcp connections
@@ -413,8 +412,6 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 	// logging.Println("The fist block in chain")
 	logging.Println(coord.Chain.BlockHashByHeight(0))
 
-	gob.Register(HeaderGob{})
-
 	startTime := time.Now()
 	for i := 1; i < coord.Chain.BestChainLength(); i++ {
 		startTime := time.Now()
@@ -424,41 +421,10 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		}
 		header, err := coord.Chain.FetchHeader(blockHash)
 
-		// Request block from shards
-		coord.fetchedBlockShards = &FetchedBlocksLockedMap{&sync.RWMutex{}, map[net.Conn]*wire.MsgBlockShard{}}
-		go coord.waitForShardsDone()
-		for _, s := range coord.shards {
-			enc := s.Enc
-
-			msg := Message{
-				Cmd: "SNDBLOCK",
-				Data: HeaderGob{
-					Header: &header,
-					Flags:  BFNone,
-					Height: int32(i), // optionally this will be done after the coord accept block is performed
-				},
-			}
-
-			err := enc.Encode(msg)
-			if err != nil {
-				logging.Println(err, "Encode failed for struct: %#v", msg)
-			}
-
-		}
-		// Wait for all shards to fetch the block
-		logging.Println("Wait for all shards to fetch block")
-		<-coord.allShardsDone
-
 		headerBlock := wire.NewMsgBlockShard(&header)
 
 		logging.Println("sending block hash ", header.BlockHash())
 		logging.Println("Sending block on", conn)
-
-		for _, blockShard := range coord.fetchedBlockShards.fetchedBlocks {
-			for _, tx := range blockShard.Transactions {
-				headerBlock.AddTransaction(tx)
-			}
-		}
 
 		// Send block to coordinator
 
@@ -520,7 +486,8 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 
 	header := headerBlock.Header
 
-	// logging.Println("Processing block ", header.BlockHash(), " height ", height)
+	startTime := time.Now()
+	logging.Println("Processing block ", header.BlockHash(), " height ", height)
 
 	// Start waiting for shards done before telling them to request it
 	go coord.waitForShardsDone()
@@ -531,67 +498,32 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 		return err
 	}
 
-	numShards := coord.numShards
-	bShards := make([]*wire.MsgBlockShard, numShards)
-
-	// Create a block shard to send to shards
-	for idx := range bShards {
-		bShards[idx] = wire.NewMsgBlockShard(&headerBlock.Header)
-	}
-
-	startTime := time.Now()
-	// Split transactions between blocks
-	for _, tx := range headerBlock.Transactions {
-		// spew.Dump(tx)
-		modRes := tx.ModTxHash(numShards)
-		// logging.Println("Shard for tx", shardNum)
-		bShards[modRes].AddTransaction(tx)
-	}
-	endTime := time.Since(startTime).Seconds()
-	logging.Println("Creating bshards took", endTime)
-	fmt.Println("Creating bshards took", endTime)
-
-	startTime = time.Now()
-	for i := 0; i < numShards; i++ {
-
-		// All data is sent in gobs
+	// Send block header to request to all shards
+	for _, shard := range coord.shards {
+		enc := shard.Enc
+		// Generate a header gob to send to coordinator
 		msg := Message{
-			Cmd: "PRCBLOCK",
-			Data: RawBlockGob{
-				Block:  bShards[i],
+			Cmd: "REQBLOCK",
+			Data: HeaderGob{
+				Header: &header,
 				Flags:  BFNone,
-				Height: height,
+				Height: height, // optionally this will be done after the coord accept block is performed
 			},
 		}
-		//Actually write the GOB on the socket
-		enc := coord.shards[coord.dht[i]].Enc
 		err = enc.Encode(msg)
 		if err != nil {
 			logging.Println(err, "Encode failed for struct: %#v", msg)
 		}
 	}
-	endTime = time.Since(startTime).Seconds()
+	endTime := time.Since(startTime).Seconds()
 	logging.Println("Sending bshards took", endTime)
 	fmt.Println("Sending bshards took", endTime)
-
-	startTime = time.Now()
-	// Perform preliminary sanity checks on the block and its transactions.
-	block := btcutil.NewBlockShard(headerBlock)
-	err = checkBlockShardSanity(block, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
-	if err != nil {
-		return err
-	}
-	endTime = time.Since(startTime).Seconds()
-	logging.Println("Merkle tree took", endTime)
-	fmt.Println("Merkle tree took", endTime)
 
 	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone
 	logging.Println("All shards finished")
 
-	// Coord only needs to store the header of the block
-	blockHeader := wire.NewMsgBlockShard(&headerBlock.Header)
-	coord.Chain.CoordMaybeAcceptBlock(blockHeader, flags)
+	coord.Chain.CoordMaybeAcceptBlock(headerBlock, flags)
 	logging.Println("Done processing block")
 	return nil
 }

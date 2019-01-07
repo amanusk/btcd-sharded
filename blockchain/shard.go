@@ -128,7 +128,7 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 }
 
 // Handle request for a block shard by another shard
-func (shard *Shard) handleSendBlock(header *HeaderGob) {
+func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	logging.Println("Received request to send a block shard")
 
 	blockHash := header.Header.BlockHash()
@@ -140,7 +140,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob) {
 
 	// Create a gob of serialized msgBlock
 	msg := Message{
-		Cmd: "FTCHBLOCK",
+		Cmd: "PRCBLOCK",
 		Data: RawBlockGob{
 			Block:  block.MsgBlock().(*wire.MsgBlockShard),
 			Flags:  BFNone,
@@ -148,7 +148,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob) {
 		},
 	}
 	//Actually write the GOB on the socket
-	enc := shard.CoordConn.Enc
+	enc := shard.interShards[conn].Enc
 	err := enc.Encode(msg)
 	if err != nil {
 		logging.Println(err, "Encode failed for struct: %#v", msg)
@@ -203,11 +203,6 @@ func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob) {
 
 	coordEnc := shard.CoordConn.Enc
 
-	// Start the waiting routine before starting to send anything
-	go shard.AwaitRequestedTxOuts()
-	// Start Listening for responses on your missing TxOuts from intershard
-	go shard.AwaitRetrievedTxOuts()
-
 	doneMsg := Message{
 		Cmd: "SHARDDONE",
 	}
@@ -256,7 +251,6 @@ func (shard *Shard) handleCoordMessages() {
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
 	gob.Register(DHTGob{})
-	gob.Register(RawBlockGob{})
 
 	dec := shard.CoordConn.Dec
 	for {
@@ -283,15 +277,6 @@ func (shard *Shard) handleCoordMessages() {
 		case "REQBLOCK":
 			header := msg.Data.(HeaderGob)
 			shard.handleRequestBlock(&header)
-		// handle a request for block shard coming from another shard
-		case "SNDBLOCK":
-			header := msg.Data.(HeaderGob)
-			shard.handleSendBlock(&header)
-		// Messages related to processing a block
-		case "PRCBLOCK":
-			logging.Println("Received instruction to process block from intrashard")
-			block := msg.Data.(RawBlockGob)
-			shard.handleProcessBlock(&block)
 		// Receive a combined bloom filter from coordinator
 		case "BADBLOCK":
 			shard.handleBadBlock()
@@ -322,6 +307,10 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 
 		// handle according to received command
 		switch cmd {
+		// handle a request for block shard coming from another shard
+		case "SNDBLOCK":
+			header := msg.Data.(HeaderGob)
+			shard.handleSendBlock(&header, conn)
 
 		// Messages related to processing a block
 		case "PRCBLOCK":

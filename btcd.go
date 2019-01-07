@@ -683,6 +683,39 @@ func main() {
 		gob.Register(blockchain.AddressesGob{})
 		gob.Register(blockchain.DHTGob{})
 
+		coordEnc := coordConn.Enc
+
+		// Send request for shards
+		msg := blockchain.Message{
+			Cmd: "GETSHARDS",
+		}
+
+		err = coordEnc.Encode(msg)
+		if err != nil {
+			logging.Println(err, "Encode failed for struct: %#v", msg)
+		}
+
+		var receivedMessage blockchain.DHTGob
+
+		dec = coordConn.Dec
+		err = dec.Decode(&receivedMessage)
+		if err != nil {
+			logging.Println("Error decoding GOB data:", err)
+			return
+		}
+		receivedDht := receivedMessage.DHTTable
+		// Receive peer shards, and create connection with it
+		shardConn := make([]*blockchain.Shard, numShards)
+		// TODO: Connect according to the infomration in the GOB
+		for shardIdx, shardAddress := range receivedDht {
+			fmt.Println("Connecting to", shardAddress.IP, shardAddress.Port)
+			fmt.Println("Connecting to", shardAddress.IP.String()+":"+strconv.Itoa(shardAddress.Port))
+			connection, err = net.Dial("tcp", shardAddress.IP.String()+":"+strconv.Itoa(shardAddress.Port))
+			enc = gob.NewEncoder(connection)
+			dec = gob.NewDecoder(connection)
+			shardConn[shardIdx] = blockchain.NewShardConnection(connection, 0, shardIdx, enc, dec)
+		}
+
 		// testAcceptedBlock attempts to process the block in the provided test
 		// instance and ensures that it was accepted according to the flags
 		// specified in the test.
@@ -702,19 +735,6 @@ func main() {
 			coordEnc := coordConn.Enc
 
 			headerBlock := wire.NewMsgBlockShard(&block.Header)
-			for idx, tx := range block.Transactions {
-				// spew.Dump(tx)
-				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
-				// txHash := newTx.TxHash()
-				// logging.Println("txHash", txHash)
-				headerBlock.AddTransaction(newTx)
-			}
-			// logging.Println("Transactions in block")
-			// for idx, tx := range headerBlock.Transactions {
-			// 	logging.Println(idx, tx.MsgTx.TxHash())
-			// }
-			// logging.Println("Merkle root")
-			// logging.Println(headerBlock.Header.MerkleRoot)
 
 			// Generate a header gob to send to coordinator
 			msg := blockchain.Message{
@@ -729,6 +749,67 @@ func main() {
 			err = coordEnc.Encode(msg)
 			if err != nil {
 				logging.Println(err, "Encode failed for struct: %#v", msg)
+			}
+			logging.Println("Waiting for shards to request block")
+			// Wait for shard to request the block
+			for i := 0; i < numShards; i++ {
+				dec := shardConn[i].Dec
+				var msg blockchain.Message
+				err := dec.Decode(&msg)
+				if err != nil {
+					logging.Println("Error decoding GOB data:", err)
+					return
+				}
+				cmd := msg.Cmd
+
+				logging.Println("Recived command", cmd)
+				switch cmd {
+
+				case "SNDBLOCK":
+					logging.Println("'Shard' received requist SNDBLOCK")
+					break // Quit the switch case
+				default:
+					logging.Println("Command '", cmd, "' is not registered.")
+				}
+				//break // Quit the for loop
+			}
+
+			bShards := make([]*wire.MsgBlockShard, numShards)
+
+			// Create a block shard to send to shards
+			for idx := range bShards {
+				bShards[idx] = wire.NewMsgBlockShard(&block.Header)
+			}
+
+			// Split transactions between blocks
+			for idx, tx := range block.Transactions {
+				// spew.Dump(tx)
+				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
+				// txHash := newTx.TxHash()
+				// logging.Println("txHash", txHash)
+				shardNum := newTx.ModTxHash(numShards)
+				// logging.Println("Shard for tx", shardNum)
+				bShards[shardNum].AddTransaction(newTx)
+			}
+			logging.Println("Sending shards")
+
+			for i := 0; i < numShards; i++ {
+
+				// All data is sent in gobs
+				msg := blockchain.Message{
+					Cmd: "PRCBLOCK",
+					Data: blockchain.RawBlockGob{
+						Block:  bShards[i],
+						Flags:  blockchain.BFNone,
+						Height: blockHeight,
+					},
+				}
+				//Actually write the GOB on the socket
+				enc := shardConn[i].Enc
+				err = enc.Encode(msg)
+				if err != nil {
+					logging.Println(err, "Encode failed for struct: %#v", msg)
+				}
 			}
 
 			logging.Println("Waiting for conformation on block")
