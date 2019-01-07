@@ -575,6 +575,15 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	fmt.Println("Sending bshards took", endTime)
 
 	startTime = time.Now()
+	logging.Println("Wait for all shards to finish")
+	<-coord.allShardsDone
+	logging.Println("All shards finished")
+
+	endTime = time.Since(startTime).Seconds()
+	logging.Println("Processing bshards took", endTime)
+	fmt.Println("Processing bshards took", endTime)
+
+	startTime = time.Now()
 	// Perform preliminary sanity checks on the block and its transactions.
 	block := btcutil.NewBlockShard(headerBlock)
 	err = checkBlockShardSanity(block, coord.Chain.GetChainParams().PowLimit, coord.Chain.GetTimeSource(), flags)
@@ -584,10 +593,6 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 	endTime = time.Since(startTime).Seconds()
 	logging.Println("Merkle tree took", endTime)
 	fmt.Println("Merkle tree took", endTime)
-
-	logging.Println("Wait for all shards to finish")
-	<-coord.allShardsDone
-	logging.Println("All shards finished")
 
 	// Coord only needs to store the header of the block
 	blockHeader := wire.NewMsgBlockShard(&headerBlock.Header)
