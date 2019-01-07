@@ -29,6 +29,8 @@ type HeaderGob struct {
 	Header *wire.BlockHeader
 	Flags  BehaviorFlags
 	Height int32
+	Index  int32
+	Salt   string
 }
 
 // RawBlockGob is a struct to send full blocks

@@ -631,11 +631,11 @@ func main() {
 				logging.Println("Error decoding GOB data:", err)
 				return
 			}
-			// coord.NotifyShards(receivedShards.DHTTable)
+			coord.NotifyShards(receivedShards.DHTTable)
 
-			// for i := 0; i < numShards; i++ {
-			// 	<-coord.ConnectedOut
-			// }
+			for i := 0; i < numShards; i++ {
+				<-coord.ConnectedOut
+			}
 			logging.Println("All shards finished connecting")
 
 			// Once setup is complete, listen for messages from connected coord
