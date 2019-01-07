@@ -17,7 +17,6 @@ import (
 	logging "log"
 	"math"
 	"runtime"
-	"sort"
 	"strconv"
 	"time"
 
@@ -313,7 +312,7 @@ func calcMerkleRoot(txns []*wire.MsgTx) chainhash.Hash {
 	for _, tx := range txns {
 		utilTxns = append(utilTxns, btcutil.NewTx(tx))
 	}
-	sort.Sort(btcutil.TxSorter(utilTxns))
+	// sort.Sort(btcutil.TxSorter(utilTxns))
 	merkles := blockchain.BuildMerkleTreeStore(utilTxns, false)
 	return *merkles[len(merkles)-1]
 }
@@ -2271,7 +2270,7 @@ func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInsta
 	//
 	//   genesis -> bm0 -> bm1 -> ... -> bm99
 	// ---------------------------------------------------------------------
-	extraTxs := uint16(115)
+	extraTxs := uint16(117)
 	coinbaseMaturity := g.params.CoinbaseMaturity
 	fmt.Println("Coin base maturity", coinbaseMaturity)
 	var testInstances []TestInstance
@@ -2519,6 +2518,32 @@ func SimpleGenerate(includeLargeReorg bool, txnsNeeded int) (tests [][]TestInsta
 		})
 		accepted()
 	}
+
+	g.nextBlock("b41", outs[13+blocksNeeded+1], func(b *wire.MsgBlock) {
+		p2shScript := payToScriptHashScript(redeemScript)
+		prevTx := b.Transactions[1]
+		prevTx = createSpendTxForTx(prevTx, lowFee)
+		prevTx.TxOut[0].Value -= int64(2)
+		prevTx.AddTxOut(wire.NewTxOut(2, p2shScript))
+		b.AddTransaction(prevTx)
+		for i := 0; i < txnsNeeded; i++ {
+			spend := makeSpendableOutForTx(prevTx, 2)
+			tx := createSpendTx(&spend, lowFee)
+			tx.TxOut[0].Value -= int64(1)
+			tx.AddTxOut(wire.NewTxOut(2, p2shScript))
+			sig, err := txscript.RawTxInSignature(tx, 0,
+				redeemScript, txscript.SigHashAll, g.privKey)
+			if err != nil {
+				panic(err)
+			}
+			tx.TxIn[0].SignatureScript = pushDataScript(sig,
+				redeemScript)
+			b.AddTransaction(tx)
+			prevTx = tx
+		}
+	})
+	g.assertTipBlockNumTxns(txnsNeeded + 3)
+	accepted()
 
 	// g.nextBlock("b42", outs[14], func(b *wire.MsgBlock) {
 	// 	for i := 0; i < txnsNeeded; i++ {
