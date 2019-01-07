@@ -6,7 +6,6 @@ package blockchain
 
 import (
 	"fmt"
-	logging "log"
 	"math"
 	"runtime"
 	"time"
@@ -300,8 +299,8 @@ func checkBlockScripts(block btcutil.Block, utxoView UtxoView,
 	validator := newTxValidator(utxoView, scriptFlags, sigCache, hashCache)
 	start := time.Now()
 	if err := validator.Validate(txValItems); err != nil {
-		logging.Println("Validator  failed")
-		// return err
+		// logging.Println("Validator  failed")
+		return err
 	}
 	elapsed := time.Since(start)
 

@@ -39,7 +39,7 @@ def run_shard(server_num, shard_num, num_shards, network):
     shard_id = "{}_{}".format(server_num, shard_num)
     cmd = [cmd, "--mode=shard", "--n=" + str(num_shards),
            "--conf=config_s" + shard_id + ".json", "--network=" + network]
-    print("Running "+ " ".join(cmd))
+    print("Running " + " ".join(cmd))
     p = subprocess.Popen(cmd, None, stdin=None, stdout=None,
                          stderr=None, shell=False)
     return p
@@ -253,8 +253,8 @@ def main():
     # run_multi_tests()
     network = args.network
     # # This runs a single node, and makes sure the coordinator + orcacle work
-    p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True,
-                              num_txs=1000, network=network)
+    # p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True,
+    #                           num_txs=1000, network=network)
     # kill_all_prcesses(p_list)
     # if scan_log_files(2, 2):
     #     logging.debug("An error detected in one of the files")
@@ -269,7 +269,8 @@ def main():
     #                 stdout=None, stderr=None, shell=False)
 
     # # Try with 2 shards
-    # p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True, num_txs=1000)
+    # p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True,
+    #                           num_txs=1000, network=network)
     # kill_all_prcesses(p_list)
 
     # cmd = str(os.getcwd()) + '/clean.sh'
@@ -278,12 +279,12 @@ def main():
     #                 stdout=None, stderr=None, shell=False)
 
     # Try with 2 nodes, 2 shards
-    #p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True,
-    #                          num_txs=100, network=network)
-    # p2_list = run_n_shard_node(2, 1, bootstrap=False, num_txs=100,
-    #                            network=network)
+    p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True,
+                              num_txs=100, network=network)
+    p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=100,
+                                network=network)
 
-    # time.sleep(100)
+    time.sleep(100)
 
     # if scan_log_files(2, 2):
     #     logging.debug("An error detected in one of the files")

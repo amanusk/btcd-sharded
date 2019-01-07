@@ -43,10 +43,13 @@ type Shard struct {
 	IntraIP                   net.IP
 	InterPort                 int
 	IntraPort                 int
+	fetchedBlockShards        *FetchedBlocksLockedMap
 	receiveAllMissingRequests chan bool // A channel to unlock the requests from all shards
 	receiveMissingRequest     chan bool // A channel to unlock the requests from all shards
 	receiveAllRetrieved       chan bool // A channel to unlock when all retrieved TxOuts received
 	receiveRetrieved          chan bool // A channel to unlock per retrived TxOut received
+	receiveAllRequestedShards chan bool
+	receiveRequestedShard     chan bool
 	// For use in DHTmaps
 	Socket net.Conn     // Connection
 	Enc    *gob.Encoder // The encoder used to send information on connection
@@ -94,6 +97,8 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		receiveAllMissingRequests: make(chan bool),
 		receiveRetrieved:          make(chan bool),
 		receiveAllRetrieved:       make(chan bool),
+		receiveAllRequestedShards: make(chan bool),
+		receiveRequestedShard:     make(chan bool),
 		requestedTxOutsMap:        &TxOutsLockedMap{&sync.RWMutex{}, map[int]map[wire.OutPoint]*UtxoEntry{}},
 		retrievedTxOutsMap:        &TxOutsLockedMap{&sync.RWMutex{}, map[int]map[wire.OutPoint]*UtxoEntry{}},
 	}
@@ -108,6 +113,10 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 	go shard.AwaitRequestedTxOuts()
 	// Start Listening for responses on your missing TxOuts from intershard
 	go shard.AwaitRetrievedTxOuts()
+
+	header.Salt = "bar"
+	header.Index = shard.Index
+	header.ShardNum = shard.NumShards
 
 	// Send a request for txs from other shards
 	// Thes should have some logic, currently its 1:1
@@ -125,6 +134,40 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 		}
 
 	}
+	shard.fetchedBlockShards = &FetchedBlocksLockedMap{&sync.RWMutex{}, map[net.Conn]*wire.MsgBlockShard{}, 0}
+	for range shard.interShards {
+		<-shard.receiveRequestedShard
+	}
+
+	msgBlockShard := wire.NewMsgBlockShard(header.Header)
+
+	for _, blockShard := range shard.fetchedBlockShards.fetchedBlocks {
+		for _, tx := range blockShard.Transactions {
+			msgBlockShard.AddTransaction(tx)
+		}
+	}
+
+	_, err := shard.ShardMaybeAcceptBlock(msgBlockShard, shard.fetchedBlockShards.Flags)
+	//		*connectBestChain
+
+	if err != nil {
+		logging.Println(err)
+		shard.NotifyOfBadBlock()
+		// return!
+		return
+	}
+
+	logging.Println("Done processing block, sending SHARDDONE")
+	coordEnc := shard.CoordConn.Enc
+	doneMsg := Message{
+		Cmd: "SHARDDONE",
+	}
+
+	// Send conformation to coordinator!
+	err = coordEnc.Encode(doneMsg)
+	if err != nil {
+		logging.Println(err, "Encode failed for struct: %#v", doneMsg)
+	}
 }
 
 // Handle request for a block shard by another shard
@@ -134,15 +177,30 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	blockHash := header.Header.BlockHash()
 	block, _ := shard.Chain.BlockShardByHash(&blockHash)
 
+	// salt := header.Salt
+	requestingShardIndex := header.Index
+
+	logging.Println("Got a request from shard idx", requestingShardIndex)
+
 	// for _, tx := range block.TransactionsMap() {
 	// 	spew.Dump(tx)
 	// }
+	blockHeader := block.MsgBlock().(*wire.MsgBlockShard).Header
+	blockShardToSend := wire.NewMsgBlockShard(&blockHeader)
+	for idx, tx := range block.TransactionsMap() {
+		msgTx := tx.MsgTx()
+		newTx := wire.NewTxIndexFromTx(msgTx, int32(idx))
+		shardNum := newTx.ModTxHash(header.ShardNum)
+		if shardNum == uint64(requestingShardIndex) {
+			blockShardToSend.AddTransaction(newTx)
+		}
+	}
 
 	// Create a gob of serialized msgBlock
 	msg := Message{
 		Cmd: "PRCBLOCK",
 		Data: RawBlockGob{
-			Block:  block.MsgBlock().(*wire.MsgBlockShard),
+			Block:  blockShardToSend,
 			Flags:  BFNone,
 			Height: header.Height,
 		},
@@ -160,28 +218,26 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 // Receive a list of ip:port from coordinator, to which this shard will connect
 func (shard *Shard) handleConnectInterShard(receivedShardAddresses *DHTGob) {
 	logging.Println("My Index is ", shard.Index)
-	logging.Println("Received request to connect to shards")
 
 	addressesDHT := receivedShardAddresses.DHTTable
+	logging.Println("Connecting to", len(addressesDHT), "intershards")
 
 	for shardIdx, address := range addressesDHT {
-		if shardIdx == shard.Index {
-			logging.Println("Connecting to shard idx", shardIdx)
-			logging.Println("Shard connecting to shard on " + address.String())
-			connection, err := net.Dial("tcp", address.String())
-			if err != nil {
-				fmt.Println(err)
-			}
-			logging.Println("Dial connection", connection)
-
-			enc := gob.NewEncoder(connection)
-			dec := gob.NewDecoder(connection)
-
-			shardConn := NewShardConnection(connection, address.Port, 0, enc, dec) // TODO: change
-			shard.RegisterShard(shardConn)
-			<-shard.ConnectionAdded
-			go shard.ReceiveInterShard(shardConn)
+		logging.Println("Connecting to shard idx", shardIdx)
+		logging.Println("Shard connecting to shard on " + address.String())
+		connection, err := net.Dial("tcp", address.String())
+		if err != nil {
+			fmt.Println(err)
 		}
+		logging.Println("Dial connection", connection)
+
+		enc := gob.NewEncoder(connection)
+		dec := gob.NewDecoder(connection)
+
+		shardConn := NewShardConnection(connection, address.Port, 0, enc, dec) // TODO: change
+		shard.RegisterShard(shardConn)
+		<-shard.ConnectionAdded
+		go shard.ReceiveInterShard(shardConn)
 	}
 
 	// Send connection done to coordinator
@@ -196,46 +252,15 @@ func (shard *Shard) handleConnectInterShard(receivedShardAddresses *DHTGob) {
 
 }
 
-func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob) {
+func (shard *Shard) handleProcessBlock(receivedBlock *RawBlockGob, conn net.Conn) {
 	logging.Print("Received GOB data")
 
 	msgBlockShard := receivedBlock.Block
-
-	coordEnc := shard.CoordConn.Enc
-
-	doneMsg := Message{
-		Cmd: "SHARDDONE",
-	}
-
-	// Process the transactions
-	// Create a new block node for the block and add it to the in-memory
-	// block := btcutil.NewBlockShard(msgBlockShard)
-
-	// for _, tx := range block.TransactionsMap() {
-	// 	spew.Dump(tx)
-	// }
-
-	// TODO TODO TODO:
-	// Look at:
-	// ProcessBlock:
-	//	 *checkBlockSanity
-	_, err := shard.ShardMaybeAcceptBlock(msgBlockShard, receivedBlock.Flags)
-	//		*connectBestChain
-
-	if err != nil {
-		logging.Println(err)
-		shard.NotifyOfBadBlock()
-		// return!
-		return
-	}
-
-	logging.Println("Done processing block, sending SHARDDONE")
-
-	// Send conformation to coordinator!
-	err = coordEnc.Encode(doneMsg)
-	if err != nil {
-		logging.Println(err, "Encode failed for struct: %#v", doneMsg)
-	}
+	shard.fetchedBlockShards.Lock()
+	shard.fetchedBlockShards.fetchedBlocks[conn] = msgBlockShard
+	shard.fetchedBlockShards.Flags = receivedBlock.Flags
+	shard.fetchedBlockShards.Unlock()
+	shard.receiveRequestedShard <- true
 
 }
 
@@ -316,7 +341,7 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 		case "PRCBLOCK":
 			logging.Println("Received instruction to process block from intrashard")
 			block := msg.Data.(RawBlockGob)
-			shard.handleProcessBlock(&block)
+			shard.handleProcessBlock(&block, conn)
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
 		}
