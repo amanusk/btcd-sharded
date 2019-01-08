@@ -415,9 +415,8 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 
 	gob.Register(HeaderGob{})
 
-	startTime := time.Now()
 	for i := 1; i < coord.Chain.BestChainLength(); i++ {
-		startTime := time.Now()
+		allTime := time.Now()
 		blockHash, err := coord.Chain.BlockHashByHeight(int32(i))
 		if err != nil {
 			logging.Println("Unable to fetch hash of block ", i)
@@ -427,6 +426,8 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		// Request block from shards
 		coord.fetchedBlockShards = &FetchedBlocksLockedMap{&sync.RWMutex{}, map[net.Conn]*wire.MsgBlockShard{}}
 		go coord.waitForShardsDone()
+
+		startTime := time.Now()
 		for _, s := range coord.shards {
 			enc := s.Enc
 
@@ -449,19 +450,28 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		logging.Println("Wait for all shards to fetch block")
 		<-coord.allShardsDone
 
+		endTime := time.Since(startTime).Seconds()
+		logging.Println("Fetching from DB", i, "took", endTime)
+		fmt.Println("Fetching from DB", i, "took", endTime)
+
 		headerBlock := wire.NewMsgBlockShard(&header)
 
 		logging.Println("sending block hash ", header.BlockHash())
 		logging.Println("Sending block on", conn)
 
+		startTime = time.Now()
 		for _, blockShard := range coord.fetchedBlockShards.fetchedBlocks {
 			for _, tx := range blockShard.Transactions {
 				headerBlock.AddTransaction(tx)
 			}
 		}
+		endTime = time.Since(startTime).Seconds()
+		logging.Println("Constructing took", i, "took", endTime)
+		fmt.Println("Constructing took ", i, "took", endTime)
 
 		// Send block to coordinator
 
+		startTime = time.Now()
 		coordEnc := coord.coords[conn].Enc
 		// Generate a header gob to send to coordinator
 		msg := Message{
@@ -479,16 +489,17 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		// Wait for BLOCKDONE to send next block
 		logging.Println("Waiting for conformation on block")
 
+		endTime = time.Since(startTime).Seconds()
+		logging.Println("Sending took", i, "took", endTime)
+		fmt.Println("Sending took ", i, "took", endTime)
+
 		<-coord.BlockDone
 		logging.Println("Received block done")
-		endTime := time.Since(startTime)
+		endTime = time.Since(allTime).Seconds()
 		logging.Println("Block", i, "took", endTime, "to send")
 		fmt.Println("Block", i, "took", endTime, "to send")
 
 	}
-	endTime := time.Since(startTime).Seconds()
-	logging.Println("Sending all blocks took", endTime)
-	fmt.Println("Sending all blocks took", endTime)
 	return
 
 }
@@ -541,11 +552,21 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags Be
 
 	startTime := time.Now()
 	// Split transactions between blocks
-	for _, tx := range headerBlock.Transactions {
-		// spew.Dump(tx)
-		modRes := tx.ModTxHash(numShards)
-		// logging.Println("Shard for tx", shardNum)
-		bShards[modRes].AddTransaction(tx)
+	if height < 221 {
+		for _, tx := range headerBlock.Transactions {
+			// spew.Dump(tx)
+			modRes := tx.ModTxHash(numShards)
+			// logging.Println("Shard for tx", shardNum)
+			bShards[modRes].AddTransaction(tx)
+		}
+	} else {
+		for _, tx := range headerBlock.Transactions {
+			// spew.Dump(tx)
+			// modRes := tx.ModTxHash(numShards)
+			// logging.Println("Shard for tx", shardNum)
+			bShards[0].AddTransaction(tx)
+		}
+
 	}
 	endTime := time.Since(startTime).Seconds()
 	logging.Println("Creating bshards took", endTime)

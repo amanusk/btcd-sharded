@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
 )
@@ -131,8 +132,13 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 func (shard *Shard) handleSendBlock(header *HeaderGob) {
 	logging.Println("Received request to send a block shard")
 
+	startTime := time.Now()
 	blockHash := header.Header.BlockHash()
 	block, _ := shard.Chain.BlockShardByHash(&blockHash)
+
+	endTime := time.Since(startTime).Seconds()
+	logging.Println("Fetching from Shard DB", endTime)
+	// fmt.Println("Fetching from Shard DB", endTime)
 
 	// for _, tx := range block.TransactionsMap() {
 	// 	spew.Dump(tx)
