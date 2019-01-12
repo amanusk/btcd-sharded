@@ -18,6 +18,7 @@ import (
 	"runtime/pprof"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"encoding/gob"
@@ -892,6 +893,106 @@ func main() {
 		}
 		//<-s.Finish
 	} else if strings.ToLower(*flagMode) == "test" {
+		// Setting up my logging system
+		f, _ := os.OpenFile("otestlog.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		defer f.Close()
+		logging.SetOutput(f)
+		logging.SetFlags(logging.Lshortfile | logging.Ltime)
+		// logging.SetOutput(ioutil.Discard)
+
+		numTxs := *flagNumTxs
+
+		tests, err := fullblocktests.SimpleGenerate(false, numTxs)
+		if err != nil {
+			fmt.Printf("failed to generate tests: %v", err)
+		}
+
+		// testAcceptedBlock attempts to process the block in the provided test
+		// instance and ensures that it was accepted according to the flags
+		// specified in the test.
+		testAcceptedBlock := func(item fullblocktests.AcceptedBlock) {
+			blockHeight := item.Height
+			block := item.Block
+
+			logging.Printf("Testing block %s (hash %s, height %d)",
+				item.Name, block.BlockHash(), blockHeight)
+
+			hashValItems := make([]*wire.HashValidateItem, 0, len(block.Transactions))
+
+			startTime := time.Now()
+			for idx, tx := range block.Transactions {
+				hashVI := &wire.HashValidateItem{
+					MsgTxItem: tx,
+					Index:     idx,
+				}
+				hashValItems = append(hashValItems, hashVI)
+			}
+			endTime := time.Since(startTime)
+			fmt.Println("Creating items took", endTime)
+
+			startTime = time.Now()
+			validator := wire.NewHashValidator()
+			validator.Validate(hashValItems)
+			endTime = time.Since(startTime)
+			fmt.Println("Validation with validator took", endTime)
+
+			startTime = time.Now()
+			for _, tx := range block.Transactions {
+				tx.TxHash()
+			}
+			endTime = time.Since(startTime)
+			fmt.Println("Validation with signle thread took", endTime)
+
+			startTime = time.Now()
+			length := len(block.Transactions)
+			wg := new(sync.WaitGroup)
+			workers := 2
+			wg.Add(workers)
+			chunckSize := length / workers
+			for j := 0; j < workers; j++ {
+				go func(txs []*wire.MsgTx) {
+					for idx, tx := range txs {
+						// y := tx.TxHash().String()
+						// y += "!"
+						x := tx.Version
+						x += int32(idx)
+					}
+					wg.Done()
+				}(block.Transactions[chunckSize*j : chunckSize*(j+1)])
+			}
+			wg.Wait()
+			endTime = time.Since(startTime)
+			fmt.Println("Validation with go func", endTime)
+
+			// startTime = time.Now()
+			// btcblock := btcutil.NewFullBlock(block)
+			// merkles := blockchain.BuildMerkleTreeStore(btcblock.Transactions(), false)
+			// calculatedMerkleRoot := merkles[len(merkles)-1]
+			// fmt.Println(calculatedMerkleRoot)
+			// endTime = time.Since(startTime)
+			// fmt.Println("Merkle root took", endTime)
+
+		}
+		startTime := time.Now()
+		for testNum, test := range tests {
+			logging.Println("Test Num:", testNum)
+			for itemNum, item := range test {
+				logging.Println("Item Num:", testNum)
+				switch item := item.(type) {
+				case fullblocktests.AcceptedBlock:
+					testAcceptedBlock(item)
+				default:
+					fmt.Printf("test #%d, item #%d is not one of "+
+						"the supported test instance types -- "+
+						"got type: %T", testNum, itemNum, item)
+				}
+			}
+		}
+		endTime := time.Since(startTime)
+		fmt.Println("Run took ", endTime)
+		logging.Println("Run took ", endTime)
+		fmt.Println(endTime)
+
 	} else if strings.ToLower(*flagMode) == "full" {
 
 		config, _ := LoadConfig(strings.ToLower(*flagConfig))

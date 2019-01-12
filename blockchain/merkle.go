@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -105,8 +106,13 @@ func BuildMerkleTreeStore(transactions []*btcutil.Tx, witness bool) []*chainhash
 	// Calculate how many entries are required to hold the binary merkle
 	// tree as a linear array and create an array of that size.
 	nextPoT := nextPowerOfTwo(len(transactions))
+	fmt.Println("nextPoT", nextPoT)
+	exponent := uint(math.Log2(float64(nextPoT)))
+	fmt.Println("Exponent", exponent)
 	arraySize := nextPoT*2 - 1
+	fmt.Println("ArraySize", arraySize)
 	merkles := make([]*chainhash.Hash, arraySize)
+	newmerkles := make([]*chainhash.Hash, arraySize)
 
 	// Create the base transaction hashes and populate the array with them.
 	for i, tx := range transactions {
@@ -124,7 +130,65 @@ func BuildMerkleTreeStore(transactions []*btcutil.Tx, witness bool) []*chainhash
 		default:
 			merkles[i] = tx.Hash()
 		}
+	}
 
+	length := len(transactions)
+	wg := new(sync.WaitGroup)
+	workers := 4
+	if length < workers {
+		workers = 1
+	}
+	fmt.Println("TxCount:", length)
+	wg.Add(workers)
+	chunckSize := length / workers
+	fmt.Println("chunksize", chunckSize)
+	if workers == 1 {
+		go func(length int, txs []*btcutil.Tx, merkles []*chainhash.Hash) {
+			for i := 0; i < length; i++ {
+				if txs[i] == nil {
+					merkles[i] = nil
+				} else {
+					merkles[i] = txs[i].Hash()
+				}
+			}
+			wg.Done()
+		}(length, transactions[:], newmerkles[:])
+		wg.Wait()
+	} else {
+		for j := 0; j < workers-1; j++ {
+			go func(length int, txs []*btcutil.Tx, merkles []*chainhash.Hash) {
+				for i := 0; i < length; i++ {
+					if txs[i] == nil {
+						merkles[i] = nil
+					} else {
+						merkles[i] = txs[i].Hash()
+					}
+				}
+				wg.Done()
+			}(chunckSize, transactions[chunckSize*j:chunckSize*(j+1)], newmerkles[chunckSize*j:chunckSize*(j+1)])
+		}
+		go func(length int, txs []*btcutil.Tx, merkles []*chainhash.Hash) {
+			for i := 0; i < length; i++ {
+				if txs[i] == nil {
+					merkles[i] = nil
+				} else {
+					merkles[i] = txs[i].Hash()
+				}
+			}
+			wg.Done()
+		}(length-(chunckSize*(workers-1)), transactions[chunckSize*(workers-1):], newmerkles[chunckSize*(workers-1):])
+		wg.Wait()
+	}
+
+	for idx := range merkles {
+		if merkles[idx] != nil && newmerkles[idx] == nil {
+			panic(fmt.Sprintf("At idx %v No new merkle", idx))
+		}
+		if newmerkles[idx] != nil && merkles[idx] != nil {
+			if !(merkles[idx].IsEqual(newmerkles[idx])) {
+				panic(fmt.Sprintf("origh hash %v != %v", merkles[idx].String(), newmerkles[idx].String()))
+			}
+		}
 	}
 
 	// Start the array offset after the last transaction and adjusted to the
@@ -150,6 +214,11 @@ func BuildMerkleTreeStore(transactions []*btcutil.Tx, witness bool) []*chainhash
 		}
 		offset++
 	}
+	// offset = 0
+	// for level := uint(0); level < exponent; level++ {
+	// 	fmt.Println("Offset is", offset)
+	// 	offset += 1 << (exponent - level)
+	// }
 
 	return merkles
 }

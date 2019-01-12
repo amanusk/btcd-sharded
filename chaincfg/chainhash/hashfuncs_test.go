@@ -134,3 +134,15 @@ func TestDoubleHashFuncs(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkHash(b *testing.B) {
+	tests := []struct {
+		out string
+		in  string
+	}{
+		{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", ""},
+	}
+	for n := 0; n < b.N; n++ {
+		DoubleHashB([]byte(tests[0].in))
+	}
+}

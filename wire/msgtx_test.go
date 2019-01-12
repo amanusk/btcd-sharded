@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1019,3 +1021,172 @@ var multiWitnessTxEncodedNonZeroFlag = []byte{
 // multiTxPkScriptLocs is the location information for the public key scripts
 // located in multiWitnessTx.
 var multiWitnessTxPkScriptLocs = []int{58}
+
+// BenchmarkHashTx benchmarks TxHash performance
+func BenchmarkHashTx(b *testing.B) {
+	// First transaction from block 113875.
+	msgTx := NewMsgTx(1)
+	txIn := TxIn{
+		PreviousOutPoint: OutPoint{
+			Hash:  chainhash.Hash{},
+			Index: 0xffffffff,
+		},
+		SignatureScript: []byte{0x04, 0x31, 0xdc, 0x00, 0x1b, 0x01, 0x62},
+		Sequence:        0xffffffff,
+	}
+	txOut := TxOut{
+		Value: 5000000000,
+		PkScript: []byte{
+			0x41, // OP_DATA_65
+			0x04, 0xd6, 0x4b, 0xdf, 0xd0, 0x9e, 0xb1, 0xc5,
+			0xfe, 0x29, 0x5a, 0xbd, 0xeb, 0x1d, 0xca, 0x42,
+			0x81, 0xbe, 0x98, 0x8e, 0x2d, 0xa0, 0xb6, 0xc1,
+			0xc6, 0xa5, 0x9d, 0xc2, 0x26, 0xc2, 0x86, 0x24,
+			0xe1, 0x81, 0x75, 0xe8, 0x51, 0xc9, 0x6b, 0x97,
+			0x3d, 0x81, 0xb0, 0x1c, 0xc3, 0x1f, 0x04, 0x78,
+			0x34, 0xbc, 0x06, 0xd6, 0xd6, 0xed, 0xf6, 0x20,
+			0xd1, 0x84, 0x24, 0x1a, 0x6a, 0xed, 0x8b, 0x63,
+			0xa6, // 65-byte signature
+			0xac, // OP_CHECKSIG
+		},
+	}
+	msgTx.AddTxIn(&txIn)
+	msgTx.AddTxIn(&txIn)
+	msgTx.AddTxOut(&txOut)
+	msgTx.AddTxOut(&txOut)
+	msgTx.LockTime = 0
+
+	length := 100000
+	var testTxs [100000]*MsgTx
+	var resultHashes [10000000]chainhash.Hash
+	hashValItems := make([]*HashValidateItem, 0, length)
+
+	for i := 0; i < length; i++ {
+		testTxs[i] = msgTx.Copy()
+	}
+
+	for i := 0; i < length; i++ {
+		hashVI := &HashValidateItem{
+			MsgTxItem: msgTx,
+			Index:     i,
+		}
+		hashValItems = append(hashValItems, hashVI)
+
+	}
+	workers := 128
+	runtime.GOMAXPROCS(8)
+	chunckSize := length / workers
+	b.ResetTimer()
+	// start := time.Now()
+	for n := 0; n < b.N; n++ {
+		wg := new(sync.WaitGroup)
+		wg.Add(workers)
+		for j := 0; j < workers; j++ {
+			//go func(items int, testTxs []*MsgTx, results []chainhash.Hash) {
+			go func(items int) {
+				x := 0
+				for i := 0; i < items; i++ {
+					resultHashes[i] = testTxs[i].TxHash()
+					// x := testTxs[i].Version
+					x += i
+					// time.Sleep(time.Nanosecond * 1)
+				}
+				wg.Done()
+				//}(chunckSize, testTxs[chunckSize*j:chunckSize*(j+1)], resultHashes[chunckSize*j:chunckSize*(j+1)])
+				// }(chunckSize, testTxs[:], resultHashes[:])
+			}(chunckSize)
+		}
+		wg.Wait()
+	}
+	b.StopTimer()
+	// end := time.Since(start)
+	// fmt.Println("Scheduling took", end)
+
+	// for n := 0; n < b.N; n++ {
+	// 	for i := 0; i < length; i++ {
+	// 		resultHashes[i] = testTxs[i].TxHash()
+	// 	}
+	// }
+	// for n := 0; n < b.N; n++ {
+	// 	validator := newHashValidator()
+	// 	validator.Validate(hashValItems)
+	// }
+
+}
+
+func BenchmarkHashTxChan(b *testing.B) {
+	// First transaction from block 113875.
+	msgTx := NewMsgTx(1)
+	txIn := TxIn{
+		PreviousOutPoint: OutPoint{
+			Hash:  chainhash.Hash{},
+			Index: 0xffffffff,
+		},
+		SignatureScript: []byte{0x04, 0x31, 0xdc, 0x00, 0x1b, 0x01, 0x62},
+		Sequence:        0xffffffff,
+	}
+	txOut := TxOut{
+		Value: 5000000000,
+		PkScript: []byte{
+			0x41, // OP_DATA_65
+			0x04, 0xd6, 0x4b, 0xdf, 0xd0, 0x9e, 0xb1, 0xc5,
+			0xfe, 0x29, 0x5a, 0xbd, 0xeb, 0x1d, 0xca, 0x42,
+			0x81, 0xbe, 0x98, 0x8e, 0x2d, 0xa0, 0xb6, 0xc1,
+			0xc6, 0xa5, 0x9d, 0xc2, 0x26, 0xc2, 0x86, 0x24,
+			0xe1, 0x81, 0x75, 0xe8, 0x51, 0xc9, 0x6b, 0x97,
+			0x3d, 0x81, 0xb0, 0x1c, 0xc3, 0x1f, 0x04, 0x78,
+			0x34, 0xbc, 0x06, 0xd6, 0xd6, 0xed, 0xf6, 0x20,
+			0xd1, 0x84, 0x24, 0x1a, 0x6a, 0xed, 0x8b, 0x63,
+			0xa6, // 65-byte signature
+			0xac, // OP_CHECKSIG
+		},
+	}
+	msgTx.AddTxIn(&txIn)
+	msgTx.AddTxIn(&txIn)
+	msgTx.AddTxOut(&txOut)
+	msgTx.AddTxOut(&txOut)
+	msgTx.LockTime = 0
+
+	length := 10000000
+	var testTxs [10000000]*MsgTx
+	//var resultHashes [10000000]int32
+	var resultHashes [10000000]chainhash.Hash
+	hashValItems := make([]*HashValidateItem, 0, length)
+
+	for i := 0; i < length; i++ {
+		testTxs[i] = msgTx.Copy()
+	}
+
+	for i := 0; i < length; i++ {
+		hashVI := &HashValidateItem{
+			MsgTxItem: msgTx,
+			Index:     i,
+		}
+		hashValItems = append(hashValItems, hashVI)
+
+	}
+	workers := 2
+	runtime.GOMAXPROCS(workers)
+	chunckSize := int64(length / workers)
+	c := make(chan bool, workers)
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		for n := 0; n < workers; n++ {
+			j := int64(n)
+			go chunk(chunckSize, testTxs[chunckSize*j:chunckSize*(j+1)], resultHashes[chunckSize*j:chunckSize*(j+1)], c)
+		}
+		for n := 0; n < workers; n++ {
+			<-c
+		}
+	}
+
+}
+
+func chunk(items int64, testTxs []*MsgTx, results []chainhash.Hash, c chan bool) {
+	//func chunk(items int64, testTxs []*MsgTx, results []int32, c chan bool) {
+	for i := int64(0); i < items; i++ {
+		results[i] = testTxs[i].TxHash()
+		// results[i] = testTxs[i].Version + 1
+	}
+	c <- true
+}

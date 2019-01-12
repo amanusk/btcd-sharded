@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"runtime"
 	"strconv"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1035,4 +1036,95 @@ func writeTxWitness(w io.Writer, pver uint32, version int32, wit [][]byte) error
 		}
 	}
 	return nil
+}
+
+// HashValidateItem is an item for hash validation
+type HashValidateItem struct {
+	Index     int
+	MsgTxItem *MsgTx
+}
+
+// HashValidator is a worker group for calculaitng hashes
+type HashValidator struct {
+	validateChan chan *HashValidateItem
+	quitChan     chan struct{}
+	resultChan   chan error
+}
+
+// NewHashValidator returns a new hash validator object
+func NewHashValidator() *HashValidator {
+	return &HashValidator{
+		validateChan: make(chan *HashValidateItem),
+		quitChan:     make(chan struct{}),
+		resultChan:   make(chan error),
+	}
+}
+
+func (v *HashValidator) validateHandler() {
+	for {
+		select {
+		case hashVI := <-v.validateChan:
+			hashVI.MsgTxItem.TxHash()
+			// Validation succeeded.
+			v.sendResult(nil)
+		}
+	}
+}
+
+// Validate receivesa list of transactions, and calculates hashes
+func (v *HashValidator) Validate(items []*HashValidateItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	maxGoRoutines := runtime.NumCPU()
+	//maxGoRoutines := 8
+	if maxGoRoutines <= 0 {
+		maxGoRoutines = 1
+	}
+	if maxGoRoutines > len(items) {
+		maxGoRoutines = len(items)
+	}
+
+	for i := 0; i < maxGoRoutines; i++ {
+		go v.validateHandler()
+	}
+
+	// Validate each of the inputs.  The quit channel is closed when any
+	// errors occur so all processing goroutines exit regardless of which
+	// input had the validation error.
+	numInputs := len(items)
+	currentItem := 0
+	processedItems := 0
+	for processedItems < numInputs {
+		// Only send items while there are still items that need to
+		// be processed.  The select statement will never select a nil
+		// channel.
+		var validateChan chan *HashValidateItem
+		var item *HashValidateItem
+		if currentItem < numInputs {
+			validateChan = v.validateChan
+			item = items[currentItem]
+		}
+
+		select {
+		case validateChan <- item:
+			currentItem++
+
+		case err := <-v.resultChan:
+			processedItems++
+			if err != nil {
+				close(v.quitChan)
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (v *HashValidator) sendResult(result error) {
+	select {
+	case v.resultChan <- result:
+	case <-v.quitChan:
+	}
 }
