@@ -18,7 +18,6 @@ import (
 	"runtime/pprof"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"encoding/gob"
@@ -31,6 +30,7 @@ import (
 	"github.com/btcsuite/btcd/limits"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // Config is used for to save values from json config file
@@ -943,34 +943,34 @@ func main() {
 			endTime = time.Since(startTime)
 			fmt.Println("Validation with signle thread took", endTime)
 
-			startTime = time.Now()
-			length := len(block.Transactions)
-			wg := new(sync.WaitGroup)
-			workers := 2
-			wg.Add(workers)
-			chunckSize := length / workers
-			for j := 0; j < workers; j++ {
-				go func(txs []*wire.MsgTx) {
-					for idx, tx := range txs {
-						// y := tx.TxHash().String()
-						// y += "!"
-						x := tx.Version
-						x += int32(idx)
-					}
-					wg.Done()
-				}(block.Transactions[chunckSize*j : chunckSize*(j+1)])
-			}
-			wg.Wait()
-			endTime = time.Since(startTime)
-			fmt.Println("Validation with go func", endTime)
-
 			// startTime = time.Now()
-			// btcblock := btcutil.NewFullBlock(block)
-			// merkles := blockchain.BuildMerkleTreeStore(btcblock.Transactions(), false)
-			// calculatedMerkleRoot := merkles[len(merkles)-1]
-			// fmt.Println(calculatedMerkleRoot)
+			// length := len(block.Transactions)
+			// wg := new(sync.WaitGroup)
+			// workers := 2
+			// wg.Add(workers)
+			// chunckSize := length / workers
+			// for j := 0; j < workers; j++ {
+			// 	go func(txs []*wire.MsgTx) {
+			// 		for idx, tx := range txs {
+			// 			// y := tx.TxHash().String()
+			// 			// y += "!"
+			// 			x := tx.Version
+			// 			x += int32(idx)
+			// 		}
+			// 		wg.Done()
+			// 	}(block.Transactions[chunckSize*j : chunckSize*(j+1)])
+			// }
+			// wg.Wait()
 			// endTime = time.Since(startTime)
-			// fmt.Println("Merkle root took", endTime)
+			// fmt.Println("Validation with go func", endTime)
+
+			startTime = time.Now()
+			btcblock := btcutil.NewFullBlock(block)
+			merkles := blockchain.BuildMerkleTreeStore(btcblock.Transactions(), false)
+			calculatedMerkleRoot := merkles[len(merkles)-1]
+			fmt.Println(calculatedMerkleRoot)
+			endTime = time.Since(startTime)
+			fmt.Println("Merkle root took", endTime)
 
 		}
 		startTime := time.Now()

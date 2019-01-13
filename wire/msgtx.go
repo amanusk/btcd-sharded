@@ -10,7 +10,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"runtime"
 	"strconv"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -323,7 +322,10 @@ func (msg *MsgTx) TxHash() chainhash.Hash {
 	// cause a run-time panic.
 	buf := bytes.NewBuffer(make([]byte, 0, msg.SerializeSizeStripped()))
 	_ = msg.SerializeNoWitness(buf)
+	// foo := [5]byte{0, 1, 2, 3, 4}
 	return chainhash.DoubleHashH(buf.Bytes())
+	// return chainhash.DoubleHashH(chainhash.DoubleHashB(foo[:]))
+	// return newHash
 }
 
 // WitnessHash generates the hash of the transaction serialized according to
@@ -1077,8 +1079,8 @@ func (v *HashValidator) Validate(items []*HashValidateItem) error {
 		return nil
 	}
 
-	maxGoRoutines := runtime.NumCPU()
-	//maxGoRoutines := 8
+	// maxGoRoutines := runtime.NumCPU()
+	maxGoRoutines := 2
 	if maxGoRoutines <= 0 {
 		maxGoRoutines = 1
 	}

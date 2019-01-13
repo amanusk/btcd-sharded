@@ -1023,7 +1023,7 @@ var multiWitnessTxEncodedNonZeroFlag = []byte{
 var multiWitnessTxPkScriptLocs = []int{58}
 
 // BenchmarkHashTx benchmarks TxHash performance
-func BenchmarkHashTx(b *testing.B) {
+func BenchmarkHashTxFunc(b *testing.B) {
 	// First transaction from block 113875.
 	msgTx := NewMsgTx(1)
 	txIn := TxIn{
@@ -1056,9 +1056,9 @@ func BenchmarkHashTx(b *testing.B) {
 	msgTx.AddTxOut(&txOut)
 	msgTx.LockTime = 0
 
-	length := 100000
-	var testTxs [100000]*MsgTx
-	var resultHashes [10000000]chainhash.Hash
+	length := 1000000
+	var testTxs [1000000]*MsgTx
+	var resultHashes [1000000]chainhash.Hash
 	hashValItems := make([]*HashValidateItem, 0, length)
 
 	for i := 0; i < length; i++ {
@@ -1073,8 +1073,8 @@ func BenchmarkHashTx(b *testing.B) {
 		hashValItems = append(hashValItems, hashVI)
 
 	}
-	workers := 128
-	runtime.GOMAXPROCS(8)
+	workers := 1
+	runtime.GOMAXPROCS(workers)
 	chunckSize := length / workers
 	b.ResetTimer()
 	// start := time.Now()
@@ -1082,19 +1082,17 @@ func BenchmarkHashTx(b *testing.B) {
 		wg := new(sync.WaitGroup)
 		wg.Add(workers)
 		for j := 0; j < workers; j++ {
-			//go func(items int, testTxs []*MsgTx, results []chainhash.Hash) {
-			go func(items int) {
-				x := 0
+			go func(items int, testTxs []*MsgTx, results []chainhash.Hash) {
+				// go func(items int) {
 				for i := 0; i < items; i++ {
 					resultHashes[i] = testTxs[i].TxHash()
 					// x := testTxs[i].Version
-					x += i
 					// time.Sleep(time.Nanosecond * 1)
 				}
 				wg.Done()
-				//}(chunckSize, testTxs[chunckSize*j:chunckSize*(j+1)], resultHashes[chunckSize*j:chunckSize*(j+1)])
-				// }(chunckSize, testTxs[:], resultHashes[:])
-			}(chunckSize)
+			}(chunckSize, testTxs[chunckSize*j:chunckSize*(j+1)], resultHashes[chunckSize*j:chunckSize*(j+1)])
+			// }(chunckSize, testTxs[:], resultHashes[:])
+			// }(chunckSize)
 		}
 		wg.Wait()
 	}
@@ -1147,10 +1145,10 @@ func BenchmarkHashTxChan(b *testing.B) {
 	msgTx.AddTxOut(&txOut)
 	msgTx.LockTime = 0
 
-	length := 10000000
-	var testTxs [10000000]*MsgTx
+	length := 100000
+	var testTxs [100000]*MsgTx
 	//var resultHashes [10000000]int32
-	var resultHashes [10000000]chainhash.Hash
+	var resultHashes [100000]chainhash.Hash
 	hashValItems := make([]*HashValidateItem, 0, length)
 
 	for i := 0; i < length; i++ {
@@ -1165,7 +1163,7 @@ func BenchmarkHashTxChan(b *testing.B) {
 		hashValItems = append(hashValItems, hashVI)
 
 	}
-	workers := 2
+	workers := 4
 	runtime.GOMAXPROCS(workers)
 	chunckSize := int64(length / workers)
 	c := make(chan bool, workers)
