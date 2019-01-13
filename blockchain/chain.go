@@ -746,9 +746,9 @@ func (b *BlockChain) connectBlockShard(node *BlockNode, block btcutil.Block, vie
 	b.stateLock.RLock()
 	curTotalTxns := b.stateSnapshot.TotalTxns
 	b.stateLock.RUnlock()
-	numTxns := uint64(len(block.MsgBlock().(*wire.MsgBlockShard).Transactions))
-	blockSize := uint64(block.MsgBlock().(*wire.MsgBlockShard).SerializeSize())
-	blockWeight := uint64(GetBlockShardWeight(block))
+	numTxns := uint64(len(block.MsgBlock().(*wire.MsgBlock).Transactions))
+	blockSize := uint64(block.MsgBlock().(*wire.MsgBlock).SerializeSize())
+	blockWeight := uint64(GetBlockWeight(block))
 	state := newBestState(node, blockSize, blockWeight, numTxns,
 		curTotalTxns+numTxns, node.CalcPastMedianTime())
 
@@ -1062,7 +1062,7 @@ func (b *BlockChain) disconnectBlock(node *BlockNode, block btcutil.Block, view 
 func countSpentOutputs(block btcutil.Block) int {
 	// Exclude the coinbase transaction since it can't spend anything.
 	var numSpent int
-	for _, tx := range block.TransactionsMap() {
+	for _, tx := range block.Transactions() {
 		if !IsCoinBase(tx) {
 			numSpent += len(tx.MsgTx().TxIn)
 		}
@@ -1531,7 +1531,7 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block, 
 		view := NewUtxoViewpoint()
 		//view.SetBestHash(parentHash)
 		numStxos := 0
-		if len(block.TransactionsMap()) > 0 {
+		if len(block.Transactions()) > 0 {
 			numStxos = countSpentOutputs(block)
 		}
 		stxos := make([]spentTxOut, 0, numStxos)

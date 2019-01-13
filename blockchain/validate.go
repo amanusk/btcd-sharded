@@ -1201,7 +1201,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 	// expands the count to include a precise count of pay-to-script-hash
 	// signature operations in each of the input transaction public key
 	// scripts.
-	transactions := block.TransactionsMap()
+	transactions := block.Transactions()
 	// for _, tx := range transactions {
 	// 	logging.Println("Connecting Tx", tx.Hash(), "index", tx.Index())
 	// }

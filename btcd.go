@@ -734,7 +734,7 @@ func main() {
 
 			coordEnc := coordConn.Enc
 
-			headerBlock := wire.NewMsgBlockShard(&block.Header)
+			headerBlock := wire.NewMsgBlock(&block.Header)
 
 			// Generate a header gob to send to coordinator
 			msg := blockchain.Message{
@@ -774,22 +774,18 @@ func main() {
 				//break // Quit the for loop
 			}
 
-			bShards := make([]*wire.MsgBlockShard, numShards)
+			bShards := make([]*wire.MsgBlock, numShards)
 
 			// Create a block shard to send to shards
 			for idx := range bShards {
-				bShards[idx] = wire.NewMsgBlockShard(&block.Header)
+				bShards[idx] = wire.NewMsgBlock(&block.Header)
 			}
 
 			// Split transactions between blocks
-			for idx, tx := range block.Transactions {
+			for _, tx := range block.Transactions {
 				// spew.Dump(tx)
-				newTx := wire.NewTxIndexFromTx(tx, int32(idx))
-				// txHash := newTx.TxHash()
-				// logging.Println("txHash", txHash)
-				shardNum := newTx.ModTxHash(numShards)
-				// logging.Println("Shard for tx", shardNum)
-				bShards[shardNum].AddTransaction(newTx)
+				shardNum := tx.ModTxHash(numShards)
+				bShards[shardNum].AddTransaction(tx)
 			}
 			logging.Println("Sending shards")
 
@@ -1022,13 +1018,9 @@ func main() {
 			}
 			block, _ := chain.BlockByHash(blockHash)
 
-			blockToSend := wire.NewMsgBlockShard(block.Header())
-			for idx, tx := range block.Transactions() {
-				// spew.Dump(tx)
-				newTx := wire.NewTxIndexFromTx(tx.MsgTx(), int32(idx))
-				// txHash := newTx.TxHash()
-				// logging.Println("txHash", txHash)
-				blockToSend.AddTransaction(newTx)
+			blockToSend := wire.NewMsgBlock(block.Header())
+			for _, tx := range block.Transactions() {
+				blockToSend.AddTransaction(tx.MsgTx())
 			}
 
 			serializedSize := uint64(blockToSend.SerializeSizeStripped())

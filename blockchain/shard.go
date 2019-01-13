@@ -111,7 +111,7 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 	logging.Println("Received request to request block")
 	// Start waiting for requests and responds from shard immediately
 	// Start the waiting routine before starting to send anything
-	shard.fetchedBlockShards = &FetchedBlocksLockedMap{&sync.RWMutex{}, map[net.Conn]*wire.MsgBlockShard{}, 0}
+	shard.fetchedBlockShards = &FetchedBlocksLockedMap{&sync.RWMutex{}, map[net.Conn]*wire.MsgBlock{}, 0}
 
 	go shard.AwaitRequestedTxOuts()
 	// Start Listening for responses on your missing TxOuts from intershard
@@ -144,7 +144,7 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 	elapsed := time.Since(start).Seconds()
 	logging.Println("Fetching from remote shards took", elapsed)
 
-	msgBlockShard := wire.NewMsgBlockShard(header.Header)
+	msgBlockShard := wire.NewMsgBlock(header.Header)
 
 	start = time.Now()
 	for _, blockShard := range shard.fetchedBlockShards.fetchedBlocks {
@@ -185,7 +185,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 
 	start := time.Now()
 	blockHash := header.Header.BlockHash()
-	block, _ := shard.Chain.BlockShardByHash(&blockHash)
+	block, _ := shard.Chain.BlockByHash(&blockHash)
 	elapsed := time.Since(start).Seconds()
 	logging.Println("Fetching block shard took", elapsed)
 
@@ -198,11 +198,10 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	// 	spew.Dump(tx)
 	// }
 	start = time.Now()
-	blockHeader := block.MsgBlock().(*wire.MsgBlockShard).Header
-	blockShardToSend := wire.NewMsgBlockShard(&blockHeader)
-	for idx, tx := range block.TransactionsMap() {
-		msgTx := tx.MsgTx()
-		newTx := wire.NewTxIndexFromTx(msgTx, int32(idx))
+	blockHeader := block.MsgBlock().(*wire.MsgBlock).Header
+	blockShardToSend := wire.NewMsgBlock(&blockHeader)
+	for _, tx := range block.Transactions() {
+		newTx := tx.MsgTx()
 		shardNum := newTx.ModTxHash(header.ShardNum)
 		if shardNum == uint64(requestingShardIndex) {
 			blockShardToSend.AddTransaction(newTx)

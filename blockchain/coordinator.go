@@ -36,7 +36,7 @@ type HeaderGob struct {
 
 // RawBlockGob is a struct to send full blocks
 type RawBlockGob struct {
-	Block  *wire.MsgBlockShard
+	Block  *wire.MsgBlock
 	Flags  BehaviorFlags
 	Height int32
 }
@@ -51,7 +51,7 @@ type Message struct {
 // FetchedBlocksLockedMap save a map between shards and fetched blocks
 type FetchedBlocksLockedMap struct {
 	*sync.RWMutex
-	fetchedBlocks map[net.Conn]*wire.MsgBlockShard
+	fetchedBlocks map[net.Conn]*wire.MsgBlock
 	Flags         BehaviorFlags
 }
 
@@ -425,7 +425,7 @@ func (coord *Coordinator) handleRequestBlocks(conn net.Conn) {
 		}
 		header, err := coord.Chain.FetchHeader(blockHash)
 
-		headerBlock := wire.NewMsgBlockShard(&header)
+		headerBlock := wire.NewMsgBlock(&header)
 
 		logging.Println("sending block hash ", header.BlockHash())
 		logging.Println("Sending block on", conn)
@@ -484,7 +484,7 @@ func (coord *Coordinator) GetShardsConnections() map[int]net.TCPAddr {
 
 // ProcessBlock will make a sanity check on the block header and will wait for confirmations from all the shards
 // that the block has been processed
-func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlockShard, flags BehaviorFlags, height int32) error {
+func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlock, flags BehaviorFlags, height int32) error {
 	coord.Chain.chainLock.Lock()
 	defer coord.Chain.chainLock.Unlock()
 
