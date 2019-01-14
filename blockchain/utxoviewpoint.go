@@ -125,13 +125,13 @@ type UtxoView interface {
 	AddTxOut(tx *btcutil.Tx, txOutIdx uint32, blockHeight int32)
 	RemoveEntry(outpoint wire.OutPoint)
 	ConnectTransaction(tx *btcutil.Tx, blockHeight int32, stxos *[]spentTxOut) error
-	ConnectTransactions(block btcutil.Block, stxos *[]spentTxOut) error
-	DisconnectTransactions(db database.DB, block btcutil.Block, stxos []spentTxOut) error
+	ConnectTransactions(block *btcutil.Block, stxos *[]spentTxOut) error
+	DisconnectTransactions(db database.DB, block *btcutil.Block, stxos []spentTxOut) error
 	Entries() map[wire.OutPoint]*UtxoEntry
 	Commit()
 	FetchUtxosMain(db database.DB, outpoints map[wire.OutPoint]struct{}) error
 	FetchUtxos(db database.DB, outpoints map[wire.OutPoint]struct{}) error
-	FetchInputUtxos(db database.DB, block btcutil.Block) error
+	FetchInputUtxos(db database.DB, block *btcutil.Block) error
 }
 
 // Force UtxoViewpoint to implement the interface
@@ -302,7 +302,7 @@ func (view *UtxoViewpoint) ConnectTransaction(tx *btcutil.Tx, blockHeight int32,
 // spend as spent, and setting the best hash for the view to the passed block.
 // In addition, when the 'stxos' argument is not nil, it will be updated to
 // append an entry for each spent txout.
-func (view *UtxoViewpoint) ConnectTransactions(block btcutil.Block, stxos *[]spentTxOut) error {
+func (view *UtxoViewpoint) ConnectTransactions(block *btcutil.Block, stxos *[]spentTxOut) error {
 	// NOTE: debug information for stxos
 	//reallog.Printf("stxos Before", stxos)
 	for _, tx := range block.Transactions() {
@@ -352,7 +352,7 @@ func (view *UtxoViewpoint) FetchEntryByHash(db database.DB, hash *chainhash.Hash
 // created by the passed block, restoring all utxos the transactions spent by
 // using the provided spent txo information, and setting the best hash for the
 // view to the block before the passed block.
-func (view *UtxoViewpoint) DisconnectTransactions(db database.DB, block btcutil.Block, stxos []spentTxOut) error {
+func (view *UtxoViewpoint) DisconnectTransactions(db database.DB, block *btcutil.Block, stxos []spentTxOut) error {
 	// Sanity check the correct number of stxos are provided.
 	if len(stxos) != countSpentOutputs(block) {
 		return AssertError("DisconnectTransactions called with bad " +
@@ -569,7 +569,7 @@ func (view *UtxoViewpoint) FetchUtxos(db database.DB, outpoints map[wire.OutPoin
 // database as needed.  In particular, referenced entries that are earlier in
 // the block are added to the view and entries that are already in the view are
 // not modified.
-func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block btcutil.Block) error {
+func (view *UtxoViewpoint) FetchInputUtxos(db database.DB, block *btcutil.Block) error {
 	// Build a map of in-flight transactions because some of the inputs in
 	// this block could be referencing other transactions earlier in this
 	// block which are not yet in the chain.

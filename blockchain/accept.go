@@ -23,7 +23,7 @@ import (
 // their documentation for how the flags modify their behavior.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) maybeAcceptBlock(block btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags) (bool, error) {
 	// The height of this block is one more than the referenced previous
 	// block.
 	prevHash := &block.Header().PrevBlock
@@ -131,7 +131,7 @@ func (b *BlockChain) CoordMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beh
 	// expensive connection logic.  It also has some other nice properties
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
-	block := btcutil.NewFullBlock(headerBlock)
+	block := btcutil.NewBlock(headerBlock)
 	err := b.db.Update(func(dbTx database.Tx) error {
 		return dbStoreBlock(dbTx, block)
 	})
@@ -218,7 +218,7 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beha
 	// expensive connection logic.  It also has some other nice properties
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
-	block := btcutil.NewFullBlock(headerBlock)
+	block := btcutil.NewBlock(headerBlock)
 	err := shard.Chain.db.Update(func(dbTx database.Tx) error {
 		return dbStoreBlock(dbTx, block)
 	})

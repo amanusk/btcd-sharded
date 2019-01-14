@@ -191,7 +191,7 @@ func ExtractWitnessCommitment(tx *btcutil.Tx) ([]byte, bool) {
 
 // ValidateWitnessCommitment validates the witness commitment (if any) found
 // within the coinbase transaction of the passed block.
-func ValidateWitnessCommitment(blk btcutil.Block) error {
+func ValidateWitnessCommitment(blk *btcutil.Block) error {
 	// If the block doesn't have any transactions at all, then we won't be
 	// able to extract a commitment from the non-existent coinbase
 	// transaction. So we exit early here.

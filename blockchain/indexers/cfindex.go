@@ -141,7 +141,7 @@ func (idx *CfIndex) Create(dbTx database.Tx) error {
 
 // storeFilter stores a given filter, and performs the steps needed to
 // generate the filter's header.
-func storeFilter(dbTx database.Tx, block btcutil.Block, f *gcs.Filter,
+func storeFilter(dbTx database.Tx, block *btcutil.Block, f *gcs.Filter,
 	filterType wire.FilterType) error {
 	if uint8(filterType) > maxFilterType {
 		return errors.New("unsupported filter type")
@@ -201,10 +201,10 @@ func storeFilter(dbTx database.Tx, block btcutil.Block, f *gcs.Filter,
 // ConnectBlock is invoked by the index manager when a new block has been
 // connected to the main chain. This indexer adds a hash-to-cf mapping for
 // every passed block. This is part of the Indexer interface.
-func (idx *CfIndex) ConnectBlock(dbTx database.Tx, block btcutil.Block,
+func (idx *CfIndex) ConnectBlock(dbTx database.Tx, block *btcutil.Block,
 	view blockchain.UtxoView) error {
 
-	f, err := builder.BuildBasicFilter(block.MsgBlock().(*wire.MsgBlock))
+	f, err := builder.BuildBasicFilter(block.MsgBlock())
 	if err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func (idx *CfIndex) ConnectBlock(dbTx database.Tx, block btcutil.Block,
 		return err
 	}
 
-	f, err = builder.BuildExtFilter(block.MsgBlock().(*wire.MsgBlock))
+	f, err = builder.BuildExtFilter(block.MsgBlock())
 	if err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func (idx *CfIndex) ConnectBlock(dbTx database.Tx, block btcutil.Block,
 // DisconnectBlock is invoked by the index manager when a block has been
 // disconnected from the main chain.  This indexer removes the hash-to-cf
 // mapping for every passed block. This is part of the Indexer interface.
-func (idx *CfIndex) DisconnectBlock(dbTx database.Tx, block btcutil.Block,
+func (idx *CfIndex) DisconnectBlock(dbTx database.Tx, block *btcutil.Block,
 	view blockchain.UtxoView) error {
 
 	for _, key := range cfIndexKeys {

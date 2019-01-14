@@ -241,7 +241,7 @@ func ValidateTransactionScripts(tx *btcutil.Tx, utxoView UtxoView,
 
 // checkBlockScripts executes and validates the scripts for all transactions in
 // the passed block using multiple goroutines.
-func checkBlockScripts(block btcutil.Block, utxoView UtxoView,
+func checkBlockScripts(block *btcutil.Block, utxoView UtxoView,
 	scriptFlags txscript.ScriptFlags, sigCache *txscript.SigCache,
 	hashCache *txscript.HashCache) error {
 

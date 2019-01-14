@@ -45,7 +45,7 @@ type BlockLocator []*chainhash.Hash
 // is a normal block plus an expiration time to prevent caching the orphan
 // forever.
 type orphanBlock struct {
-	block      btcutil.Block
+	block      *btcutil.Block
 	expiration time.Time
 }
 
@@ -296,7 +296,7 @@ func (b *BlockChain) removeOrphanBlock(orphan *orphanBlock) {
 // It also imposes a maximum limit on the number of outstanding orphan
 // blocks and will remove the oldest received orphan block if the limit is
 // exceeded.
-func (b *BlockChain) addOrphanBlock(block btcutil.Block) {
+func (b *BlockChain) addOrphanBlock(block *btcutil.Block) {
 	// Remove expired orphan blocks.
 	for _, oBlock := range b.orphans {
 		if time.Now().After(oBlock.expiration) {
@@ -568,7 +568,7 @@ func (b *BlockChain) getReorganizeNodes(node *BlockNode) (*list.List, *list.List
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view UtxoView, stxos []spentTxOut) error {
+func (b *BlockChain) connectBlock(node *BlockNode, block *btcutil.Block, view UtxoView, stxos []spentTxOut) error {
 	// Make sure it's extending the end of the best chain.
 	prevHash := &block.Header().PrevBlock
 	if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
@@ -612,8 +612,8 @@ func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view Utx
 	b.stateLock.RLock()
 	curTotalTxns := b.stateSnapshot.TotalTxns
 	b.stateLock.RUnlock()
-	numTxns := uint64(len(block.MsgBlock().(*wire.MsgBlock).Transactions))
-	blockSize := uint64(block.MsgBlock().(*wire.MsgBlock).SerializeSize())
+	numTxns := uint64(len(block.MsgBlock().Transactions))
+	blockSize := uint64(block.MsgBlock().SerializeSize())
 	blockWeight := uint64(GetBlockWeight(block))
 	state := newBestState(node, blockSize, blockWeight, numTxns,
 		curTotalTxns+numTxns, node.CalcPastMedianTime())
@@ -702,7 +702,7 @@ func (b *BlockChain) connectBlock(node *BlockNode, block btcutil.Block, view Utx
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) connectBlockShard(node *BlockNode, block btcutil.Block, view UtxoView, stxos []spentTxOut) error {
+func (b *BlockChain) connectBlockShard(node *BlockNode, block *btcutil.Block, view UtxoView, stxos []spentTxOut) error {
 	// Make sure it's extending the end of the best chain.
 	prevHash := &block.Header().PrevBlock
 	if !prevHash.IsEqual(&b.bestChain.Tip().hash) {
@@ -746,8 +746,8 @@ func (b *BlockChain) connectBlockShard(node *BlockNode, block btcutil.Block, vie
 	b.stateLock.RLock()
 	curTotalTxns := b.stateSnapshot.TotalTxns
 	b.stateLock.RUnlock()
-	numTxns := uint64(len(block.MsgBlock().(*wire.MsgBlock).Transactions))
-	blockSize := uint64(block.MsgBlock().(*wire.MsgBlock).SerializeSize())
+	numTxns := uint64(len(block.MsgBlock().Transactions))
+	blockSize := uint64(block.MsgBlock().SerializeSize())
 	blockWeight := uint64(GetBlockWeight(block))
 	state := newBestState(node, blockSize, blockWeight, numTxns,
 		curTotalTxns+numTxns, node.CalcPastMedianTime())
@@ -835,7 +835,7 @@ func (b *BlockChain) connectBlockShard(node *BlockNode, block btcutil.Block, vie
 // it would be inefficient to repeat it.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func sqlConnectBlock(db database.DB, block btcutil.Block, view UtxoView, stxos []spentTxOut) error {
+func sqlConnectBlock(db database.DB, block *btcutil.Block, view UtxoView, stxos []spentTxOut) error {
 	// TODO: Lots of work in this function
 	// TODO: Locking updating DB to interface etc
 	// Make sure it's extending the end of the best chain.
@@ -950,7 +950,7 @@ func sqlConnectBlock(db database.DB, block btcutil.Block, view UtxoView, stxos [
 // the main (best) chain.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) disconnectBlock(node *BlockNode, block btcutil.Block, view UtxoView) error {
+func (b *BlockChain) disconnectBlock(node *BlockNode, block *btcutil.Block, view UtxoView) error {
 	// Make sure the node being disconnected is the end of the best chain.
 	if !node.hash.IsEqual(&b.bestChain.Tip().hash) {
 		return AssertError("disconnectBlock must be called with the " +
@@ -959,7 +959,7 @@ func (b *BlockChain) disconnectBlock(node *BlockNode, block btcutil.Block, view 
 
 	// Load the previous block since some details for it are needed below.
 	prevNode := node.parent
-	var prevBlock btcutil.Block
+	var prevBlock *btcutil.Block
 	err := b.db.View(func(dbTx database.Tx) error {
 		var err error
 		prevBlock, err = dbFetchBlockByNode(dbTx, prevNode)
@@ -980,10 +980,10 @@ func (b *BlockChain) disconnectBlock(node *BlockNode, block btcutil.Block, view 
 	b.stateLock.RLock()
 	curTotalTxns := b.stateSnapshot.TotalTxns
 	b.stateLock.RUnlock()
-	numTxns := uint64(len(prevBlock.MsgBlock().(*wire.MsgBlock).Transactions))
-	blockSize := uint64(prevBlock.MsgBlock().(*wire.MsgBlock).SerializeSize())
+	numTxns := uint64(len(prevBlock.MsgBlock().Transactions))
+	blockSize := uint64(prevBlock.MsgBlock().SerializeSize())
 	blockWeight := uint64(GetBlockWeight(prevBlock))
-	newTotalTxns := curTotalTxns - uint64(len(block.MsgBlock().(*wire.MsgBlock).Transactions))
+	newTotalTxns := curTotalTxns - uint64(len(block.MsgBlock().Transactions))
 	state := newBestState(prevNode, blockSize, blockWeight, numTxns,
 		newTotalTxns, prevNode.CalcPastMedianTime())
 
@@ -1059,7 +1059,7 @@ func (b *BlockChain) disconnectBlock(node *BlockNode, block btcutil.Block, view 
 }
 
 // countSpentOutputs returns the number of utxos the passed block spends.
-func countSpentOutputs(block btcutil.Block) int {
+func countSpentOutputs(block *btcutil.Block) int {
 	// Exclude the coinbase transaction since it can't spend anything.
 	var numSpent int
 	for _, tx := range block.Transactions() {
@@ -1087,9 +1087,9 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	// be loaded from the database during the reorg check phase below and
 	// then they are needed again when doing the actual database updates.
 	// Rather than doing two loads, cache the loaded data into these slices.
-	detachBlocks := make([]btcutil.Block, 0, detachNodes.Len())
+	detachBlocks := make([]*btcutil.Block, 0, detachNodes.Len())
 	detachSpentTxOuts := make([][]spentTxOut, 0, detachNodes.Len())
-	attachBlocks := make([]btcutil.Block, 0, attachNodes.Len())
+	attachBlocks := make([]*btcutil.Block, 0, attachNodes.Len())
 
 	// Disconnect all of the blocks back to the point of the fork.  This
 	// entails loading the blocks and their associated spent txos from the
@@ -1099,7 +1099,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 	view.SetBestHash(&b.bestChain.Tip().hash)
 	for e := detachNodes.Front(); e != nil; e = e.Next() {
 		n := e.Value.(*BlockNode)
-		var block btcutil.Block
+		var block *btcutil.Block
 		err := b.db.View(func(dbTx database.Tx) error {
 			var err error
 			block, err = dbFetchBlockByNode(dbTx, n)
@@ -1160,7 +1160,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 			continue
 		}
 
-		var block btcutil.Block
+		var block *btcutil.Block
 		err := b.db.View(func(dbTx database.Tx) error {
 			var err error
 			block, err = dbFetchBlockByNode(dbTx, n)
@@ -1301,7 +1301,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 //    This is useful when using checkpoints.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) connectBestChain(node *BlockNode, block btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) connectBestChain(node *BlockNode, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
 	fastAdd := flags&BFFastAdd == BFFastAdd
 
 	// We are extending the main (best) chain with a new block.  This is the
@@ -1425,7 +1425,7 @@ func (b *BlockChain) connectBestChain(node *BlockNode, block btcutil.Block, flag
 //    This is useful when using checkpoints.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
 	//fastAdd := flags&BFFastAdd == BFFastAdd
 	fastAdd := true
 
@@ -1518,7 +1518,7 @@ func (b *BlockChain) CoordConnectBestChain(node *BlockNode, block btcutil.Block,
 
 // ShardConnectBestChain is to be used by a shard connecting TXs to the blockchain
 // This is similar to ConnectBestChain but performed by each shard
-func (shard *Shard) ShardConnectBestChain(node *BlockNode, block btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
 	//fastAdd := true
 
 	// We are extending the main (best) chain with a new block.  This is the
@@ -2012,11 +2012,11 @@ type IndexManager interface {
 
 	// ConnectBlock is invoked when a new block has been connected to the
 	// main chain.
-	ConnectBlock(database.Tx, btcutil.Block, UtxoView) error
+	ConnectBlock(database.Tx, *btcutil.Block, UtxoView) error
 
 	// DisconnectBlock is invoked when a block has been disconnected from
 	// the main chain.
-	DisconnectBlock(database.Tx, btcutil.Block, UtxoView) error
+	DisconnectBlock(database.Tx, *btcutil.Block, UtxoView) error
 }
 
 // Config is a descriptor which specifies the blockchain instance configuration.

@@ -10,7 +10,6 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcd/wire"
 )
 
 // blockProgressLogger provides periodic logging for other services in order
@@ -41,12 +40,12 @@ func newBlockProgressLogger(progressMessage string, logger btclog.Logger) *block
 // LogBlockHeight logs a new block height as an information message to show
 // progress to the user. In order to prevent spam, it limits logging to one
 // message every 10 seconds with duration and totals included.
-func (b *blockProgressLogger) LogBlockHeight(block btcutil.Block) {
+func (b *blockProgressLogger) LogBlockHeight(block *btcutil.Block) {
 	b.Lock()
 	defer b.Unlock()
 
 	b.receivedLogBlocks++
-	b.receivedLogTx += int64(len(block.MsgBlock().(*wire.MsgBlock).Transactions))
+	b.receivedLogTx += int64(len(block.MsgBlock().Transactions))
 
 	now := time.Now()
 	duration := now.Sub(b.lastBlockLogTime)

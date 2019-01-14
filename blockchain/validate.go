@@ -342,7 +342,7 @@ func checkProofOfWork(header *wire.BlockHeader, powLimit *big.Int, flags Behavio
 // CheckProofOfWork ensures the block header bits which indicate the target
 // difficulty is in min/max range and that the block hash is less than the
 // target difficulty as claimed.
-func CheckProofOfWork(block btcutil.Block, powLimit *big.Int) error {
+func CheckProofOfWork(block *btcutil.Block, powLimit *big.Int) error {
 	return checkProofOfWork(block.Header(), powLimit, BFNone)
 }
 
@@ -468,7 +468,7 @@ func CheckBlockHeaderSanity(header *wire.BlockHeader, powLimit *big.Int, timeSou
 //
 // The flags do not modify the behavior of this function directly, however they
 // are needed to pass along to CheckBlockHeaderSanity.
-func checkBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
+func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
 	msgBlock := block.MsgBlock()
 	header := block.Header()
 	err := CheckBlockHeaderSanity(header, powLimit, timeSource, flags)
@@ -477,7 +477,7 @@ func checkBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianT
 	}
 
 	// A block must have at least one transaction.
-	numTx := len(msgBlock.(*wire.MsgBlock).Transactions)
+	numTx := len(msgBlock.Transactions)
 	if numTx == 0 {
 		return ruleError(ErrNoTransactions, "block does not contain "+
 			"any transactions")
@@ -576,7 +576,7 @@ func checkBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianT
 
 // CheckBlockSanity performs some preliminary checks on a block to ensure it is
 // sane before continuing with block processing.  These checks are context free.
-func CheckBlockSanity(block btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource) error {
+func CheckBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource) error {
 	return checkBlockSanity(block, powLimit, timeSource, BFNone)
 }
 
@@ -731,7 +731,7 @@ func (b *BlockChain) checkBlockHeaderContext(header *wire.BlockHeader, prevNode 
 // for how the flags modify its behavior.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) checkBlockContext(block btcutil.Block, prevNode *BlockNode, flags BehaviorFlags) error {
+func (b *BlockChain) checkBlockContext(block *btcutil.Block, prevNode *BlockNode, flags BehaviorFlags) error {
 	// Perform all block header related validation checks.
 	header := block.Header()
 	err := b.checkBlockHeaderContext(header, prevNode, flags)
@@ -837,7 +837,7 @@ func (b *BlockChain) checkBlockContext(block btcutil.Block, prevNode *BlockNode,
 // http://r6.ca/blog/20120206T005236Z.html.
 //
 // This function MUST be called with the chain state lock held (for reads).
-func (b *BlockChain) checkBIP0030(node *BlockNode, block btcutil.Block, view UtxoView) error {
+func (b *BlockChain) checkBIP0030(node *BlockNode, block *btcutil.Block, view UtxoView) error {
 	// Fetch utxos for all of the transaction ouputs in this block.
 	// Typically, there will not be any utxos for any of the outputs.
 	fetchSet := make(map[wire.OutPoint]struct{})
@@ -1146,7 +1146,7 @@ func GetRequestedMissingTxOuts(requestedTxOuts *TxOutsLockedMap, view UtxoView, 
 // block subsidy, or fail transaction script validation.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
+func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
 	//// If the side chain blocks end up in the database, a call to
 	//// CheckBlockSanity should be done here in case a previous version
 	//// allowed a block that is no longer valid.  However, since the
@@ -1505,7 +1505,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block btcutil.Block,
 // with that node.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
+func (b *BlockChain) checkConnectBlock(node *BlockNode, block *btcutil.Block, view UtxoView, stxos *[]spentTxOut) error {
 	// If the side chain blocks end up in the database, a call to
 	// CheckBlockSanity should be done here in case a previous version
 	// allowed a block that is no longer valid.  However, since the
@@ -1769,7 +1769,7 @@ func (b *BlockChain) checkConnectBlock(node *BlockNode, block btcutil.Block, vie
 // work requirement. The block must connect to the current tip of the main chain.
 //
 // This function is safe for concurrent access.
-func (b *BlockChain) CheckConnectBlockTemplate(block btcutil.Block) error {
+func (b *BlockChain) CheckConnectBlockTemplate(block *btcutil.Block) error {
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
 

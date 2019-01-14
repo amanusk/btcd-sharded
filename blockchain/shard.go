@@ -198,7 +198,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	// 	spew.Dump(tx)
 	// }
 	start = time.Now()
-	blockHeader := block.MsgBlock().(*wire.MsgBlock).Header
+	blockHeader := block.MsgBlock().Header
 	blockShardToSend := wire.NewMsgBlock(&blockHeader)
 	for _, tx := range block.Transactions() {
 		newTx := tx.MsgTx()
