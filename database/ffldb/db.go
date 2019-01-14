@@ -7,6 +7,7 @@ package ffldb
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1165,13 +1166,18 @@ func (tx *transaction) StoreBlock(block btcutil.Block) error {
 		return makeDbErr(database.ErrBlockExists, str, nil)
 	}
 
-	blockBytes, err := block.Bytes()
+	// blockBytes, err := block.Bytes()
+	// if err != nil {
+	// 	str := fmt.Sprintf("failed to get serialized bytes for block %s",
+	// 		blockHash)
+	// 	return makeDbErr(database.ErrDriverSpecific, str, err)
+	// }
+	var blockBytes bytes.Buffer        // Stand-in for a network connection
+	enc := gob.NewEncoder(&blockBytes) // Will write to network.
+	err := enc.Encode(block)
 	if err != nil {
-		str := fmt.Sprintf("failed to get serialized bytes for block %s",
-			blockHash)
-		return makeDbErr(database.ErrDriverSpecific, str, err)
+		log.Errorf("encode error:", err)
 	}
-
 	// Add the block to be stored to the list of pending blocks to store
 	// when the transaction is committed.  Also, add it to pending blocks
 	// map so it is easy to determine the block is pending based on the
@@ -1182,7 +1188,7 @@ func (tx *transaction) StoreBlock(block btcutil.Block) error {
 	tx.pendingBlocks[*blockHash] = len(tx.pendingBlockData)
 	tx.pendingBlockData = append(tx.pendingBlockData, pendingBlock{
 		hash:  blockHash,
-		bytes: blockBytes,
+		bytes: blockBytes.Bytes(),
 	})
 	log.Tracef("Added block %s to pending blocks", blockHash)
 

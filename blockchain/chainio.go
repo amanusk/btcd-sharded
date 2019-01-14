@@ -7,6 +7,7 @@ package blockchain
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"fmt"
 	logging "log"
 	"math/big"
@@ -1355,11 +1356,20 @@ func dbFetchBlockByNode(dbTx database.Tx, node *BlockNode) (btcutil.Block, error
 	}
 
 	// Create the encapsulated block and set the height appropriately.
-	block, err := btcutil.NewFullBlockFromBytes(blockBytes)
+	// block, err := btcutil.NewFullBlockFromBytes(blockBytes)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	var bytes bytes.Buffer
+	dec := gob.NewDecoder(&bytes)
+	bytes.Write(blockBytes)
+	var block btcutil.FullBlock
+	err = dec.Decode(&block)
 	if err != nil {
-		return nil, err
+		log.Errorf("decode error:", err)
 	}
-	block.SetHeight(node.height)
+
+	// block.SetHeight(node.height)
 
 	return block, nil
 }
