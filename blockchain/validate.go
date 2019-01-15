@@ -1180,10 +1180,13 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	////
 	//// These utxo entries are needed for verification of things such as
 	//// transaction inputs, counting pay-to-script-hashes, and scripts.
+	startTime := time.Now()
 	err := view.FetchInputUtxos(shard.Chain.db, block)
 	if err != nil {
 		return err
 	}
+	endTime := time.Since(startTime).Seconds()
+	logging.Println("Outputs fetch took", endTime)
 
 	// Print all of the view
 	// logging.Println("All of the view")
@@ -1282,6 +1285,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 		}
 	}
 
+	startTime = time.Now()
 	shard.SendMissingTxOuts(localMissingTxOuts)
 	// This is where we wait for the shard to receive all requests for missingTxOuts
 	// before we continue to find them in the view
@@ -1292,7 +1296,10 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	//		logging.Println("Shard ", shardIdx, "requested", txOut)
 	//	}
 	//}
+	endTime = time.Since(startTime).Seconds()
+	logging.Println("Sending and requesting TxOuts took", endTime)
 
+	startTime = time.Now()
 	// Now we fetch the utxos others are missing and populate them with
 	// output information
 	retreivedTxOuts := GetRequestedMissingTxOuts(shard.requestedTxOutsMap, view, node.height, shard.Chain.db)
@@ -1308,6 +1315,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 
 	// Wait to get responds from all shards before continuing with validation
 	<-shard.receiveAllRetrieved
+	endTime = time.Since(startTime).Seconds()
+	logging.Println("Sending and receiving requested TxOuts took", endTime)
 
 	//for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap.TxOutsMap {
 	//	for txOut := range reqTxOuts {
@@ -1323,6 +1332,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	// TODO TODO TODO: If all is well, remove the utxo from the sender!!
 	// Now we can start validating the block
 
+	startTime = time.Now()
 	for _, tx := range transactions {
 		//logging.Println("Checking inputs tx ", tx.Hash(), " ids ", tx.Index(), " at ", txIdx, " in block")
 		txFee, err := CheckTransactionInputs(tx, node.height, view,
@@ -1355,6 +1365,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 		}
 
 	}
+	endTime = time.Since(startTime).Seconds()
+	logging.Println("Verifying all transactions took", endTime)
 
 	// TODO: Perhaps move the coinbase the the coordinator for validation
 	//// The total output values of the coinbase transaction must not exceed

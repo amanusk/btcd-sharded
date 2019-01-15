@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	logging "log"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 )
 
@@ -22,10 +24,10 @@ type TxOutsLockedMap struct {
 // Shard is a single node in a sharded bitcoin client cluster
 type Shard struct {
 	Chain              *BlockChain
-	CoordConn          *Coordinator        // Hold coordinator connection + enc + dec
-	interShards        map[net.Conn]*Shard // A map of shards connected to this shard
-	ShardNumToShard    map[int]*Shard      // A map between shard index and shard connection
-	intraShards        map[net.Conn]*Shard // A reverse map between sockent and shard number
+	CoordConn          *Coordinator     // Hold coordinator connection + enc + dec
+	interShards        *LockedShardsMap // A map of shards connected to this shard
+	intraShards        *LockedShardsMap // A reverse map between sockent and shard number
+	ShardNumToShard    map[int]*Shard   // A map between shard index and shard connection
 	registerShard      chan *Shard
 	unregisterShard    chan *Shard
 	Finish             chan bool
@@ -45,6 +47,7 @@ type Shard struct {
 	InterPort                 int
 	IntraPort                 int
 	fetchedBlockShards        *FetchedBlocksLockedMap
+	cachedBlock               *FetchedBlockToSend
 	receiveAllMissingRequests chan bool // A channel to unlock the requests from all shards
 	receiveMissingRequest     chan bool // A channel to unlock the requests from all shards
 	receiveAllRetrieved       chan bool // A channel to unlock when all retrieved TxOuts received
@@ -81,9 +84,9 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		Finish:          make(chan bool),
 		CoordConn:       coordConn,
 		// Shard-to-shard comms
-		interShards:        make(map[net.Conn]*Shard),
+		interShards:        &LockedShardsMap{&sync.RWMutex{}, map[net.Conn]*Shard{}},
+		intraShards:        &LockedShardsMap{&sync.RWMutex{}, map[net.Conn]*Shard{}},
 		ShardNumToShard:    make(map[int]*Shard),
-		intraShards:        make(map[net.Conn]*Shard),
 		ShardInterListener: shardInterListener,
 		// Shard to intra shards
 		// Consider removing shardIntraShadListener and only have it during boot
@@ -102,6 +105,7 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		receiveRequestedShard:     make(chan bool),
 		requestedTxOutsMap:        &TxOutsLockedMap{&sync.RWMutex{}, map[int]map[wire.OutPoint]*UtxoEntry{}},
 		retrievedTxOutsMap:        &TxOutsLockedMap{&sync.RWMutex{}, map[int]map[wire.OutPoint]*UtxoEntry{}},
+		cachedBlock:               &FetchedBlockToSend{&sync.RWMutex{}, nil},
 	}
 	return shard
 }
@@ -123,7 +127,8 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 
 	// Send a request for txs from other shards
 	// Thes should have some logic, currently its 1:1
-	for _, s := range shard.interShards {
+	shard.interShards.RLock()
+	for _, s := range shard.interShards.Shards {
 		enc := s.Enc
 
 		headerToSend := Message{
@@ -137,8 +142,10 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 		}
 
 	}
+	shard.interShards.RUnlock()
+
 	start := time.Now()
-	for range shard.interShards {
+	for i := 0; i < shard.interShards.NumShards(); i++ {
 		<-shard.receiveRequestedShard
 	}
 	elapsed := time.Since(start).Seconds()
@@ -179,13 +186,36 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 	}
 }
 
+func (shard *Shard) cacheFetchedBlock(currentHash *chainhash.Hash) {
+	shard.cachedBlock.Lock()
+	defer shard.cachedBlock.Unlock()
+	if shard.cachedBlock.fetchedBlock == nil {
+		var err error
+		shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
+		if err != nil {
+			logging.Println("Unable to fetch block", err)
+		}
+		return
+	}
+	if shard.cachedBlock.fetchedBlock.Hash().IsEqual(currentHash) {
+		// logging.Println("Block", shard.cachedBlock.fetchedBlock.Hash(), "already fetched")
+		return
+	}
+	var err error
+	shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
+	if err != nil {
+		logging.Println("Unable to fetch block", err)
+	}
+	return
+}
+
 // Handle request for a block shard by another shard
 func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	logging.Println("Received request to send a block shard")
 
 	start := time.Now()
 	blockHash := header.Header.BlockHash()
-	block, _ := shard.Chain.BlockByHash(&blockHash)
+	shard.cacheFetchedBlock(&blockHash)
 	elapsed := time.Since(start).Seconds()
 	logging.Println("Fetching block shard took", elapsed)
 
@@ -198,13 +228,16 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	// 	spew.Dump(tx)
 	// }
 	start = time.Now()
-	blockHeader := block.MsgBlock().Header
+	shard.cachedBlock.RLock()
+	blockHeader := shard.cachedBlock.fetchedBlock.MsgBlock().Header
 	blockShardToSend := wire.NewMsgBlock(&blockHeader)
-	for _, tx := range block.Transactions() {
-		newTx := tx.MsgTx()
-		shardNum := newTx.ModTxHash(header.ShardNum)
+	for _, tx := range shard.cachedBlock.fetchedBlock.Transactions() {
+		// logging.Println("Hash exists?", tx.Hash())
+		txHash := tx.Hash()
+
+		shardNum := binary.BigEndian.Uint64(txHash[:]) % uint64(header.ShardNum)
 		if shardNum == uint64(requestingShardIndex) {
-			blockShardToSend.AddTransaction(newTx)
+			blockShardToSend.AddTransaction(tx.MsgTx())
 		}
 	}
 	elapsed = time.Since(start).Seconds()
@@ -221,12 +254,14 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 		},
 	}
 	//Actually write the GOB on the socket
-	enc := shard.interShards[conn].Enc
+	interShard := shard.interShards.GetShard(conn)
+	enc := interShard.Enc
 	err := enc.Encode(msg)
 	if err != nil {
 		logging.Println(err, "Encode failed for struct: %#v", msg)
 	}
-	logging.Println("Sent block for process", block.Hash())
+	shard.cachedBlock.RUnlock()
+	logging.Println("Sent block for process", shard.cachedBlock.fetchedBlock.Hash())
 	elapsed = time.Since(start).Seconds()
 	logging.Println("Sending blockshard", elapsed)
 
@@ -334,7 +369,8 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 
-	dec := shard.interShards[conn].Dec
+	interShard := shard.interShards.GetShard(conn)
+	dec := interShard.Dec
 	for {
 		var msg Message
 		err := dec.Decode(&msg)
@@ -371,7 +407,8 @@ func (shard *Shard) handleIntraShardMessages(conn net.Conn) {
 
 	gob.Register(map[wire.OutPoint]*UtxoEntry{})
 
-	dec := shard.intraShards[conn].Dec
+	intraShard := shard.intraShards.GetShard(conn)
+	dec := intraShard.Dec
 	for {
 		var msg Message
 		err := dec.Decode(&msg)
@@ -406,14 +443,11 @@ func (shard *Shard) StartShard() {
 		select {
 		// Handle shard connect/disconnect
 		case s := <-shard.registerShard:
-			shard.interShards[s.Socket] = s
+			shard.interShards.InsertShard(s.Socket, s)
 			fmt.Println("Added new shard to shard!")
 			shard.ConnectionAdded <- true
 		case s := <-shard.unregisterShard:
-			if _, ok := shard.interShards[s.Socket]; ok {
-				delete(shard.interShards, s.Socket)
-				fmt.Println("A connection has terminated!")
-			}
+			shard.interShards.RemoveShard(s.Socket)
 		}
 	}
 	// TODO: Here we can add listening to intra shards rejoining
@@ -544,7 +578,7 @@ func (shard *Shard) AwaitShards(numShards int) {
 		// Save mappings both ways for send and receive
 		// TODO: This is basically Register shard
 		shard.ShardNumToShard[shardIndex] = shardConn
-		shard.intraShards[connection] = shardConn
+		shard.intraShards.InsertShard(connection, shardConn)
 		go shard.ReceiveIntraShard(shardConn)
 	}
 	// Send connection done to coordinator
@@ -599,7 +633,7 @@ func (shard *Shard) handleConnectIntraShards(index int, dhtTable map[int]net.TCP
 		logging.Println("Connected to shard", shardIndex, "on", shardConn.Socket)
 		// Save mappings both ways for send and receive
 		shard.ShardNumToShard[shardIndex] = shardConn
-		shard.intraShards[connection] = shardConn
+		shard.intraShards.InsertShard(connection, shardConn)
 		go shard.ReceiveIntraShard(shardConn)
 		// Release the lock on CONCTDONE
 		shard.connected <- true
@@ -682,10 +716,10 @@ func (shard *Shard) AwaitRetrievedTxOuts() {
 }
 
 func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.OutPoint]*UtxoEntry) {
-	logging.Println("Got request from shard", shard.intraShards[conn].Index)
 	// socketToShard maps sockets to shard indexes
 	shard.requestedTxOutsMap.Lock()
-	shard.requestedTxOutsMap.TxOutsMap[shard.intraShards[conn].Index] = missingTxOuts
+	shardIndex := shard.intraShards.GetShard(conn).Index
+	shard.requestedTxOutsMap.TxOutsMap[shardIndex] = missingTxOuts
 	shard.requestedTxOutsMap.Unlock()
 	// for txOut := range missingTxOuts {
 	// 	logging.Println("Got missing out", txOut)
@@ -695,10 +729,10 @@ func (shard *Shard) handleRequestedOuts(conn net.Conn, missingTxOuts map[wire.Ou
 }
 
 func (shard *Shard) handleRetreivedTxOuts(conn net.Conn, retreivedTxOuts map[wire.OutPoint]*UtxoEntry) {
-	logging.Println("Got retrived from shard", shard.intraShards[conn].Index)
 	// socketToShard maps sockets to shard indexes
 	shard.retrievedTxOutsMap.Lock()
-	shard.retrievedTxOutsMap.TxOutsMap[shard.intraShards[conn].Index] = retreivedTxOuts
+	shardIndex := shard.intraShards.GetShard(conn).Index
+	shard.retrievedTxOutsMap.TxOutsMap[shardIndex] = retreivedTxOuts
 	shard.retrievedTxOutsMap.Unlock()
 	//for txOut := range retreivedTxOuts {
 	//	logging.Println("Got the retreived TxOut", txOut)

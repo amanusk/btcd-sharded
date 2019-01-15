@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // AddressesGob is a struct to send a list of tcp connections
@@ -55,12 +56,51 @@ type FetchedBlocksLockedMap struct {
 	Flags         BehaviorFlags
 }
 
+// FetchedBlockToSend holds the current block being requested by other peers
+// This is to cache the fetch to only be executed once.
+type FetchedBlockToSend struct {
+	*sync.RWMutex
+	fetchedBlock *btcutil.Block
+}
+
+// LockedShardsMap is a lockable map between connections and shards
+type LockedShardsMap struct {
+	*sync.RWMutex
+	Shards map[net.Conn]*Shard
+}
+
+// InsertShard inserts a new shard to the locked connection-shard map
+func (m *LockedShardsMap) InsertShard(conn net.Conn, shard *Shard) {
+	m.Lock()
+	defer m.Unlock()
+	m.Shards[conn] = shard
+}
+
+// RemoveShard removes a shard from the registered shards
+func (m *LockedShardsMap) RemoveShard(conn net.Conn) {
+	m.Lock()
+	defer m.Unlock()
+	delete(m.Shards, conn)
+}
+
+// GetShard returns a shard from a lockabale shards Map
+func (m *LockedShardsMap) GetShard(conn net.Conn) *Shard {
+	m.RLock()
+	defer m.RUnlock()
+	return m.Shards[conn]
+}
+
+// NumShards returns the number of shards currently registered in the map
+func (m *LockedShardsMap) NumShards() int {
+	m.RLock()
+	defer m.RUnlock()
+	return len(m.Shards)
+}
+
 // Coordinator is the coordinator in a sharded bitcoin cluster
 type Coordinator struct {
-	shards          map[net.Conn]*Shard // A map of shards connected to this coordinator
-	dht             map[int]net.Conn    // Mapping  between intra shard index and connection
+	shards          *LockedShardsMap // A map of shards connected to this coordinator
 	shardsIntraAddr map[int]net.TCPAddr
-	// shardIntraAddr: Mapping  between shard index and intra address
 	// Used to connect in initial connection
 	shardsInterAddr map[int]net.TCPAddr
 	// shardIntraAddr: Mapping  between shard index and inter address
@@ -101,8 +141,7 @@ func NewCoordConnection(connection net.Conn, enc *gob.Encoder, dec *gob.Decoder)
 // NewCoordinator Cerates and returns a new coordinator
 func NewCoordinator(shardListener net.Listener, coordListener net.Listener, blockchain *BlockChain, numShards int) *Coordinator {
 	coord := Coordinator{
-		shards:             make(map[net.Conn]*Shard),
-		dht:                make(map[int]net.Conn),
+		shards:             &LockedShardsMap{&sync.RWMutex{}, map[net.Conn]*Shard{}},
 		shardsIntraAddr:    make(map[int]net.TCPAddr),
 		shardsInterAddr:    make(map[int]net.TCPAddr),
 		coords:             make(map[net.Conn]*Coordinator),
@@ -125,7 +164,7 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 
 // GetNumShardes returns the number of shards connected to the coordinator
 func (coord *Coordinator) GetNumShardes() int {
-	return len(coord.shards)
+	return coord.shards.NumShards()
 }
 
 // RegisterShard saves the connection to a shard of the cluster
@@ -144,14 +183,11 @@ func (coord *Coordinator) Start() {
 		select {
 		// Handle shard connect/disconnect
 		case shard := <-coord.registerShard:
-			coord.shards[shard.Socket] = shard
+			coord.shards.InsertShard(shard.Socket, shard)
 			fmt.Println("Added new shard!")
 			coord.ConnectectionAdded <- true
 		case shard := <-coord.unregisterShard:
-			if _, ok := coord.shards[shard.Socket]; ok {
-				delete(coord.shards, shard.Socket)
-				fmt.Println("A connection has terminated!")
-			}
+			coord.shards.RemoveShard(shard.Socket)
 
 		// Register a new connected coordinator
 		case c := <-coord.registerCoord:
@@ -171,7 +207,8 @@ func (coord *Coordinator) HandleShardMessages(conn net.Conn) {
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
 
-	dec := coord.shards[conn].Dec
+	shard := coord.shards.GetShard(conn)
+	dec := shard.Dec
 	for {
 		var msg Message
 		err := dec.Decode(&msg)
@@ -247,7 +284,9 @@ func (coord *Coordinator) ReceiveIntraShard(shard *Shard) {
 // NotifyShards function sends a message to each of the shards connected to the coordinator
 // informing it of the connections to other shards it needs to establish
 func (coord *Coordinator) NotifyShards(dhtTable map[int]net.TCPAddr) {
-	for _, shard := range coord.shards {
+	coord.shards.RLock()
+	defer coord.shards.RUnlock()
+	for _, shard := range coord.shards.Shards {
 		enc := shard.Enc
 		msg := Message{
 			Cmd: "SHARDCON",
@@ -269,7 +308,9 @@ func (coord *Coordinator) NotifyShards(dhtTable map[int]net.TCPAddr) {
 // Sends a BADBLOCK message to all shards, instructing to move on
 func (coord *Coordinator) sendBadBlockToAll() {
 	logging.Println("Sending BADBLOCK to all")
-	for _, shard := range coord.shards {
+	coord.shards.RLock()
+	defer coord.shards.RUnlock()
+	for _, shard := range coord.shards.Shards {
 		enc := shard.Enc
 
 		msg := Message{
@@ -503,7 +544,8 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlock, flags Behavio
 	}
 
 	// Send block header to request to all shards
-	for _, shard := range coord.shards {
+	coord.shards.RLock()
+	for _, shard := range coord.shards.Shards {
 		enc := shard.Enc
 		// Generate a header gob to send to coordinator
 		msg := Message{
@@ -519,6 +561,7 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlock, flags Behavio
 			logging.Println(err, "Encode failed for struct: %#v", msg)
 		}
 	}
+	coord.shards.RUnlock()
 
 	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone
@@ -583,7 +626,8 @@ func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
 	logging.Println("Requesting Shard Info")
 	gob.Register(AddressesGob{})
 
-	enc := coord.shards[conn].Enc
+	shard := coord.shards.GetShard(conn)
+	enc := shard.Enc
 
 	msg := Message{
 		Cmd:  "REQINFO",
@@ -595,7 +639,7 @@ func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
 		return
 	}
 	// Wait for shard to reply info
-	dec := coord.shards[conn].Dec
+	dec := shard.Dec
 	err = dec.Decode(&msg)
 	if err != nil {
 		logging.Panicln("Error decoding GOB data:", err)
@@ -611,7 +655,8 @@ func (coord *Coordinator) RequestShardsInfo(conn net.Conn, shardIndex int) {
 // SendDHT sends the map between index and IP to each shard
 func (coord *Coordinator) SendDHT(conn net.Conn) {
 	gob.Register(DHTGob{})
-	enc := coord.shards[conn].Enc
+	shard := coord.shards.GetShard(conn)
+	enc := shard.Enc
 
 	// Shards will get the DHT of all who is current connected
 	msg := Message{
@@ -636,7 +681,6 @@ func (coord *Coordinator) handleRepliedInfo(addresses []*net.TCPAddr, shardIndex
 	logging.Println("The shard conn IP", conn.RemoteAddr())
 	logging.Println("The shard saved IP", addresses[0].IP)
 	// Map shard to index for coordinator communication
-	coord.dht[shardIndex] = conn
 	// Map intra Address to index, needed for other shards
 	coord.shardsIntraAddr[shardIndex] = *addresses[1]
 	// Map inter Address to index, needed by other inter shards

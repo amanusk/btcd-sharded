@@ -1406,6 +1406,11 @@ func dbStoreBlock(dbTx database.Tx, block *btcutil.Block) error {
 	if hasBlock {
 		return nil
 	}
+	// logging.Println("Storing block", block.Hash())
+	// TODO: remove this after you moved hashes calculation to start
+	for _, tx := range block.Transactions() {
+		tx.Hash()
+	}
 	return dbTx.StoreBlock(block)
 }
 

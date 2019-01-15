@@ -218,13 +218,15 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beha
 	// expensive connection logic.  It also has some other nice properties
 	// such as making blocks that never become part of the main chain or
 	// blocks that fail to connect available for further analysis.
+	// TODO: Creating the hashes should happen before this, so we do not need
+	// to do them when storing the block
 	block := btcutil.NewBlock(headerBlock)
-	err := shard.Chain.db.Update(func(dbTx database.Tx) error {
+	go shard.Chain.db.Update(func(dbTx database.Tx) error {
 		return dbStoreBlock(dbTx, block)
 	})
-	if err != nil {
-		return false, err
-	}
+	// if err != nil {
+	// 	return false, err
+	// }
 
 	// Create a new block node for the block and add it to the in-memory
 	// block chain (could be either a side chain or the main chain).
@@ -237,7 +239,7 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beha
 	}
 	// Block is added to the index, only the coordinator holds the index
 	shard.Chain.index.AddNode(newNode)
-	err = shard.Chain.index.flushToDB()
+	err := shard.Chain.index.flushToDB()
 
 	// NOTE: Each shard is validating its part
 	// The coorinator is validating the coinbase transaction!

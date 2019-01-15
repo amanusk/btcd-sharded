@@ -69,7 +69,7 @@ def run_n_shard_node(coord_num, n, bootstrap, num_txs, network):
     for i in range(n):
         p = run_shard(coord_num, i, n, network)
         processes.append(p)
-        time.sleep(1)
+        # time.sleep(1)
 
     if bootstrap:
         run_oracle(n, num_txs, network)
@@ -279,9 +279,9 @@ def main():
     #                 stdout=None, stderr=None, shell=False)
 
     # Try with 2 nodes, 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True,
-                              num_txs=40, network=network)
-    p2_list = run_n_shard_node(2, 2, bootstrap=False, num_txs=100,
+    p_list = run_n_shard_node(DEFAULT_COORD, 4, bootstrap=True,
+                              num_txs=4000, network=network)
+    p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=100,
                                 network=network)
 
     time.sleep(100)
