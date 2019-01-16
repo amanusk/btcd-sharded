@@ -4,10 +4,10 @@ import csv
 import os
 import re
 
-def get_top_block_time():
-    filename = (os.getcwd() + "/testlog1.log")
+def get_top_block_time(filename, keyword):
+    filename = (os.getcwd() + "/" + filename)
     for line in reverse_readline(filename):
-        if "Block" in line:
+        if keyword in line:
             blocktime = None
             try:
                 time = re.findall(r"\dm\d+\.\d+", line)[0]
@@ -54,6 +54,10 @@ def reverse_readline(filename, buf_size=8192):
 
 def main():
     args = get_args()
+    if args.single:
+        result = get_top_block_time(args.filename, args.keyword)
+        print(result)
+        return
     num_shards = args.num_shards
     num_txs = args.transactions
     csv_file_name = "proc_{}_shards.csv".format(num_shards)
@@ -65,7 +69,7 @@ def main():
         if not file_exists:
             writer.writeheader()  # file doesn't exist yet, write a header
 
-        sync_time = get_top_block_time()
+        sync_time = get_top_block_time("testlog1.log", "Block")
         print(sync_time)
         d = {'Time': sync_time, 'Txs': num_txs}
         writer.writerow(d)
@@ -81,6 +85,16 @@ def get_args():
     parser.add_argument('-tx', '--transactions',
                         default=1,
                         help="Number of transactions in block")
+    parser.add_argument('-single', '--single',
+                        default=False,
+                        action='store_true',
+                        help="Only get a single stat")
+    parser.add_argument('-keyword', '--keyword',
+                        default="",
+                        help="Keyword to search in file")
+    parser.add_argument('-filename', '--filename',
+                        default="",
+                        help="Log file to search")
     args = parser.parse_args()
     return args
 
