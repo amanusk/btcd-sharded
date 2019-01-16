@@ -319,20 +319,61 @@ def collect_to_csv(num_shards, coord, num_txs):
     csv_file_name = "{}_shards.csv".format(num_shards)
     file_exists = os.path.isfile(csv_file_name)
     with open(csv_file_name, 'a') as csvfile:
-        fieldnames = ['Txs', 'Verify', 'Processing', 'Total', 'Remote']
+        fieldnames = ['Txs',
+                      'FetchingBlockFromDB',
+                      'ConstructingToSend',
+                      'Sending',
+                      'OutputFetch',
+                      'ReqTxOuts',
+                      'SendReqTxOuts',
+                      'CheckInputs',
+                      'CheckSigs',
+                      'Total',
+                      'Remote']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         if not file_exists:
             writer.writeheader()  # file doesn't exist yet, write a header
 
-        create = get_result("Creating", coord)
-        verifying = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'Verifying', '10.0.0.150')
-        verifying = float(verifying)
-        remote_result = get_remote_result(num_shards, num_txs, 'testlog1.log', 'Block', '10.0.0.11')
-        remote_result = float(remote_result)
-        processing = get_result("Processing", coord)
+        fetch_from_db = get_remote_result(num_shards, num_txs, 'stestlog1_0.log', 'FetchingBlockFromDB', '10.0.0.100')
+        fetch_from_db = float(fetch_from_db)
+
+        const_to_send = get_remote_result(num_shards, num_txs, 'stestlog1_0.log', 'ConstructingToSend', '10.0.0.100')
+        const_to_send = float(const_to_send)
+
+        sending = get_remote_result(num_shards, num_txs, 'stestlog1_0.log', 'Sending', '10.0.0.100')
+        sending = float(sending)
+
+        output_fetch = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'OutputFetch', '10.0.0.150')
+        output_fetch = float(output_fetch)
+
+        req_tx_outs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'ReqTxOuts', '10.0.0.150')
+        req_tx_outs = float(req_tx_outs)
+
+        send_req_tx_outs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'SendReqTxOuts', '10.0.0.150')
+        send_req_tx_outs = float(send_req_tx_outs)
+
+        check_inputs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'CheckInputs', '10.0.0.150')
+        check_inputs = float(check_inputs)
+
+        check_sigs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'CheckSigs', '10.0.0.150')
+        check_sigs = float(check_sigs)
+
+        remote_send = get_remote_result(num_shards, num_txs, 'testlog1.log', 'Block', '10.0.0.11')
+        remote_send = float(remote_send)
+
         total = get_result("Block", coord)
-        d = {'Txs': num_txs, 'Verify': verifying, 'Processing': processing, 'Total': total, 'Remote': remote_result}
+        d = {'Txs': num_txs,
+             'FetchingBlockFromDB': fetch_from_db,
+             'ConstructingToSend': const_to_send,
+             'Sending': sending,
+             'OutputFetch': output_fetch,
+             'ReqTxOuts': req_tx_outs,
+             'SendReqTxOuts': send_req_tx_outs,
+             'CheckInputs': check_inputs,
+             'CheckSigs': check_sigs,
+             'Total': total,
+             'Remote': remote_send}
         writer.writerow(d)
         csvfile.flush()
 
@@ -349,7 +390,7 @@ def run_multi_tests(network):
                                         network=network))
 
         # About the expected time to finish processing
-        time.sleep((20 - num_shards) * (num_txs/10000) + 20)
+        time.sleep((20 - num_shards) * (num_txs/50000) + 20)
         # time.sleep(10)
 
         #if scan_log_files(num_coords, num_shards):
@@ -377,9 +418,9 @@ def run_multi_tests(network):
             pass
 
 
-    options = [2**i for i in range(4, -1, -1)]
+    options = [2**i for i in range(3, -1, -1)]
     for num_shards in options:
-        for num_txs in range(20000, 130000, 20000):
+        for num_txs in range(1000000, 1100000, 200000):
             for j in range(1):
                 run_test(2, num_shards, num_txs, network)
                 gc.collect()
