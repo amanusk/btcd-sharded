@@ -149,7 +149,7 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 		<-shard.receiveRequestedShard
 	}
 	elapsed := time.Since(start).Seconds()
-	logging.Println("Fetching from remote shards took", elapsed)
+	logging.Println("FetchRemoteBlock took", elapsed)
 
 	msgBlockShard := wire.NewMsgBlock(header.Header)
 
@@ -160,12 +160,12 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 		}
 	}
 	elapsed = time.Since(start).Seconds()
-	logging.Println("Constructing block to process took", elapsed)
+	logging.Println("ConstructToProcess took", elapsed)
 
 	start = time.Now()
 	_, err := shard.ShardMaybeAcceptBlock(msgBlockShard, shard.fetchedBlockShards.Flags)
 	elapsed = time.Since(start).Seconds()
-	logging.Println("Processing block shard took", elapsed)
+	logging.Println("ProcessingBlockShard took", elapsed)
 
 	if err != nil {
 		logging.Println(err)
@@ -211,18 +211,18 @@ func (shard *Shard) cacheFetchedBlock(currentHash *chainhash.Hash) {
 
 // Handle request for a block shard by another shard
 func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
-	logging.Println("Received request to send a block shard")
+	// logging.Println("Received request to send a block shard")
 
 	start := time.Now()
 	blockHash := header.Header.BlockHash()
 	shard.cacheFetchedBlock(&blockHash)
 	elapsed := time.Since(start).Seconds()
-	logging.Println("Fetching block shard took", elapsed)
+	logging.Println("FetchingBlockFromDB took", elapsed)
 
 	// salt := header.Salt
 	requestingShardIndex := header.Index
 
-	logging.Println("Got a request from shard idx", requestingShardIndex)
+	// logging.Println("Got a request from shard idx", requestingShardIndex)
 
 	// for _, tx := range block.TransactionsMap() {
 	// 	spew.Dump(tx)
@@ -241,7 +241,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 		}
 	}
 	elapsed = time.Since(start).Seconds()
-	logging.Println("Constructing", elapsed)
+	logging.Println("ConstructingToSend", elapsed)
 
 	// Create a gob of serialized msgBlock
 	start = time.Now()
@@ -263,7 +263,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	shard.cachedBlock.RUnlock()
 	logging.Println("Sent block for process", shard.cachedBlock.fetchedBlock.Hash())
 	elapsed = time.Since(start).Seconds()
-	logging.Println("Sending blockshard", elapsed)
+	logging.Println("SendingBlockShard", elapsed)
 
 }
 

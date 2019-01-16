@@ -1186,7 +1186,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 		return err
 	}
 	endTime := time.Since(startTime).Seconds()
-	logging.Println("Outputs fetch took", endTime)
+	logging.Println("OutputFetch", endTime)
 
 	// Print all of the view
 	// logging.Println("All of the view")
@@ -1297,7 +1297,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	//	}
 	//}
 	endTime = time.Since(startTime).Seconds()
-	logging.Println("Sending and requesting TxOuts took", endTime)
+	logging.Println("ReqTxOuts took", endTime)
 
 	startTime = time.Now()
 	// Now we fetch the utxos others are missing and populate them with
@@ -1316,7 +1316,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	// Wait to get responds from all shards before continuing with validation
 	<-shard.receiveAllRetrieved
 	endTime = time.Since(startTime).Seconds()
-	logging.Println("Sending and receiving requested TxOuts took", endTime)
+	logging.Println("SendReqTxOuts took", endTime)
 
 	//for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap.TxOutsMap {
 	//	for txOut := range reqTxOuts {
@@ -1366,7 +1366,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 
 	}
 	endTime = time.Since(startTime).Seconds()
-	logging.Println("Verifying all transactions took", endTime)
+	logging.Println("CheckInputs took", endTime)
 
 	// TODO: Perhaps move the coinbase the the coordinator for validation
 	//// The total output values of the coinbase transaction must not exceed
@@ -1476,6 +1476,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	//// transactions are actually allowed to spend the coins by running the
 	//// expensive ECDSA signature check scripts.  Doing this last helps
 	//// prevent CPU exhaustion attacks.
+	startTime = time.Now()
 	scriptFlags = 1
 	if runScripts {
 		//err := checkBlockScripts(block, view, scriptFlags, b.sigCache,
@@ -1488,6 +1489,8 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 			return err
 		}
 	}
+	endTime = time.Since(startTime).Seconds()
+	logging.Println("CheckSigs took", endTime)
 
 	//// Update the best hash for view to include this block since all of its
 	//// transactions have been connected.
