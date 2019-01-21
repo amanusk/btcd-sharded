@@ -191,25 +191,38 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 }
 
 func (shard *Shard) cacheFetchedBlock(currentHash *chainhash.Hash) {
-	shard.cachedBlock.Lock()
-	defer shard.cachedBlock.Unlock()
+	// shard.cachedBlock.Lock()
+	// defer shard.cachedBlock.Unlock()
+	// var err error
+	// if shard.cachedBlock.fetchedBlock == nil {
+	// 	if val, ok := shard.cachedChain[*currentHash]; ok {
+	// 		logging.Println("Block fetched from map")
+	// 		shard.cachedBlock.fetchedBlock = val
+	// 	} else {
+	// 		shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
+	// 		if err != nil {
+	// 			logging.Println("Unable to fetch block", err)
+	// 		}
+	// 	}
+	// 	return
+	// }
+	// if shard.cachedBlock.fetchedBlock.Hash().IsEqual(currentHash) {
+	// 	// logging.Println("Block", shard.cachedBlock.fetchedBlock.Hash(), "already fetched")
+	// 	return
+	// }
+	// if val, ok := shard.cachedChain[*currentHash]; ok {
+	// 	logging.Println("Block fetched from map")
+	// 	shard.cachedBlock.fetchedBlock = val
+	// } else {
+	// 	shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
+	// 	if err != nil {
+	// 		logging.Println("Unable to fetch block", err)
+	// 	}
+	// }
+
 	var err error
-	if shard.cachedBlock.fetchedBlock == nil {
-		if val, ok := shard.cachedChain[*currentHash]; ok {
-			shard.cachedBlock.fetchedBlock = val
-		} else {
-			shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
-			if err != nil {
-				logging.Println("Unable to fetch block", err)
-			}
-		}
-		return
-	}
-	if shard.cachedBlock.fetchedBlock.Hash().IsEqual(currentHash) {
-		// logging.Println("Block", shard.cachedBlock.fetchedBlock.Hash(), "already fetched")
-		return
-	}
 	if val, ok := shard.cachedChain[*currentHash]; ok {
+		logging.Println("Block fetched from map")
 		shard.cachedBlock.fetchedBlock = val
 	} else {
 		shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
@@ -217,7 +230,6 @@ func (shard *Shard) cacheFetchedBlock(currentHash *chainhash.Hash) {
 			logging.Println("Unable to fetch block", err)
 		}
 	}
-	return
 }
 
 // Handle request for a block shard by another shard
@@ -239,7 +251,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	// 	spew.Dump(tx)
 	// }
 	start = time.Now()
-	shard.cachedBlock.RLock()
+	// shard.cachedBlock.RLock()
 	blockHeader := shard.cachedBlock.fetchedBlock.MsgBlock().Header
 	blockShardToSend := wire.NewMsgBlock(&blockHeader)
 	for _, tx := range shard.cachedBlock.fetchedBlock.Transactions() {
@@ -271,7 +283,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	if err != nil {
 		logging.Println(err, "Encode failed for struct: %#v", msg)
 	}
-	shard.cachedBlock.RUnlock()
+	// shard.cachedBlock.RUnlock()
 	logging.Println("Sent block for process", shard.cachedBlock.fetchedBlock.Hash())
 	elapsed = time.Since(start).Seconds()
 	logging.Println("SendingBlockShard", elapsed)
