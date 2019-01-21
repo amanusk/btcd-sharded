@@ -224,6 +224,8 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beha
 	go shard.Chain.db.Update(func(dbTx database.Tx) error {
 		return dbStoreBlock(dbTx, block)
 	})
+	// Cache the block in memory
+	shard.cachedChain[*(block.Hash())] = block
 	// if err != nil {
 	// 	return false, err
 	// }

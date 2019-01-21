@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // TxOutsLockedMap save a map between output and UtxoEntry,
@@ -46,6 +47,7 @@ type Shard struct {
 	IntraIP                   net.IP
 	InterPort                 int
 	IntraPort                 int
+	cachedChain               map[chainhash.Hash]*btcutil.Block
 	fetchedBlockShards        *FetchedBlocksLockedMap
 	cachedBlock               *FetchedBlockToSend
 	receiveAllMissingRequests chan bool // A channel to unlock the requests from all shards
@@ -105,7 +107,9 @@ func NewShard(shardInterListener net.Listener, shardIntraListener net.Listener, 
 		receiveRequestedShard:     make(chan bool),
 		requestedTxOutsMap:        &TxOutsLockedMap{&sync.RWMutex{}, map[int]map[wire.OutPoint]*UtxoEntry{}},
 		retrievedTxOutsMap:        &TxOutsLockedMap{&sync.RWMutex{}, map[int]map[wire.OutPoint]*UtxoEntry{}},
-		cachedBlock:               &FetchedBlockToSend{&sync.RWMutex{}, nil},
+
+		cachedBlock: &FetchedBlockToSend{&sync.RWMutex{}, nil},
+		cachedChain: make(map[chainhash.Hash]*btcutil.Block),
 	}
 	return shard
 }
@@ -189,11 +193,15 @@ func (shard *Shard) handleRequestBlock(header *HeaderGob) {
 func (shard *Shard) cacheFetchedBlock(currentHash *chainhash.Hash) {
 	shard.cachedBlock.Lock()
 	defer shard.cachedBlock.Unlock()
+	var err error
 	if shard.cachedBlock.fetchedBlock == nil {
-		var err error
-		shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
-		if err != nil {
-			logging.Println("Unable to fetch block", err)
+		if val, ok := shard.cachedChain[*currentHash]; ok {
+			shard.cachedBlock.fetchedBlock = val
+		} else {
+			shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
+			if err != nil {
+				logging.Println("Unable to fetch block", err)
+			}
 		}
 		return
 	}
@@ -201,10 +209,13 @@ func (shard *Shard) cacheFetchedBlock(currentHash *chainhash.Hash) {
 		// logging.Println("Block", shard.cachedBlock.fetchedBlock.Hash(), "already fetched")
 		return
 	}
-	var err error
-	shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
-	if err != nil {
-		logging.Println("Unable to fetch block", err)
+	if val, ok := shard.cachedChain[*currentHash]; ok {
+		shard.cachedBlock.fetchedBlock = val
+	} else {
+		shard.cachedBlock.fetchedBlock, err = shard.Chain.BlockByHash(currentHash)
+		if err != nil {
+			logging.Println("Unable to fetch block", err)
+		}
 	}
 	return
 }
