@@ -17,6 +17,7 @@ import (
 	logging "log"
 	"math"
 	"runtime"
+	"sort"
 	"strconv"
 	"time"
 
@@ -312,7 +313,7 @@ func calcMerkleRoot(txns []*wire.MsgTx) chainhash.Hash {
 	for _, tx := range txns {
 		utilTxns = append(utilTxns, btcutil.NewTx(tx))
 	}
-	// sort.Sort(btcutil.TxSorter(utilTxns))
+	sort.Sort(btcutil.TxSorter(utilTxns))
 	merkles := blockchain.BuildMerkleTreeStore(utilTxns, false)
 	return *merkles[len(merkles)-1]
 }
