@@ -279,9 +279,9 @@ def main():
     #                 stdout=None, stderr=None, shell=False)
 
     # Try with 2 nodes, 2 shards
-    p_list = run_n_shard_node(DEFAULT_COORD, 4, bootstrap=True,
-                              num_txs=40000, network=network)
-    p2_list = run_n_shard_node(2, 4, bootstrap=False, num_txs=100,
+    p_list = run_n_shard_node(DEFAULT_COORD, 1, bootstrap=True,
+                              num_txs=4, network=network)
+    p2_list = run_n_shard_node(2, 1, bootstrap=False, num_txs=100,
                                 network=network)
 
     time.sleep(100)

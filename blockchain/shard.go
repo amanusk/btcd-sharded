@@ -351,6 +351,7 @@ func (shard *Shard) handleCoordMessages() {
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
 	gob.Register(DHTGob{})
+	gob.Register([]*chainhash.Hash{})
 
 	dec := shard.CoordConn.Dec
 	for {
@@ -766,5 +767,23 @@ func (shard *Shard) handleRetreivedTxOuts(conn net.Conn, retreivedTxOuts map[wir
 
 // SendTxHashes sends the calculated TxHashes of the block
 // to the coordinator to calculate the merkle tree
-func (*Shard) SendTxHashes(block *btcutil.Block) {
+func (shard *Shard) SendTxHashes(block *btcutil.Block) {
+	logging.Println("Sending tx hashes")
+	var txHashes []*chainhash.Hash
+	for _, tx := range block.Transactions() {
+		txHashes = append(txHashes, tx.Hash())
+	}
+	logging.Println("Sending hashes slice", txHashes)
+
+	coordEnc := shard.CoordConn.Enc
+	hashMsg := Message{
+		Cmd:  "BHASHES",
+		Data: txHashes,
+	}
+
+	// Send conformation to coordinator!
+	err := coordEnc.Encode(hashMsg)
+	if err != nil {
+		logging.Println(err, "Encode failed for struct: %#v", hashMsg)
+	}
 }

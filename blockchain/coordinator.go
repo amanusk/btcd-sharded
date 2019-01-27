@@ -5,6 +5,7 @@ import (
 	"fmt"
 	logging "log"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -60,7 +61,7 @@ type FetchedBlocksLockedMap struct {
 // LockedTxHashesMap stores slices of calculated Tx hashes, to calculate merkle tree
 type LockedTxHashesMap struct {
 	*sync.RWMutex
-	TxHasehs map[net.Conn]*chainhash.Hash
+	TxHashes map[net.Conn][]*chainhash.Hash
 }
 
 // FetchedBlockToSend holds the current block being requested by other peers
@@ -118,11 +119,14 @@ type Coordinator struct {
 	registerCoord      chan *Coordinator
 	unregisterCoord    chan *Coordinator
 	shardDone          chan bool
+	shardDoneTx        chan bool
 	allShardsDone      chan bool
+	allTxHashesDone    chan bool
 	ConnectectionAdded chan bool // Sends a sigal that a shard connection completed
 	ConnectedOut       chan bool // Sends shards finished connecting to shards
 	BlockDone          chan bool // channel to sleep untill blockDone signal is sent from peer before sending new block
 	fetchedBlockShards *FetchedBlocksLockedMap
+	merkleShards       *LockedTxHashesMap
 	KeepAlive          chan interface{}
 	ShardListener      net.Listener
 	CoordListener      net.Listener
@@ -157,7 +161,9 @@ func NewCoordinator(shardListener net.Listener, coordListener net.Listener, bloc
 		registerCoord:      make(chan *Coordinator),
 		unregisterCoord:    make(chan *Coordinator),
 		allShardsDone:      make(chan bool),
+		allTxHashesDone:    make(chan bool),
 		shardDone:          make(chan bool),
+		shardDoneTx:        make(chan bool),
 		ConnectectionAdded: make(chan bool),
 		ConnectedOut:       make(chan bool),
 		BlockDone:          make(chan bool),
@@ -213,6 +219,7 @@ func (coord *Coordinator) HandleShardMessages(conn net.Conn) {
 	gob.Register(RawBlockGob{})
 	gob.Register(HeaderGob{})
 	gob.Register(AddressesGob{})
+	gob.Register([]*chainhash.Hash{})
 
 	shard := coord.shards.GetShard(conn)
 	dec := shard.Dec
@@ -237,6 +244,9 @@ func (coord *Coordinator) HandleShardMessages(conn net.Conn) {
 			coord.handleConnectDone(conn)
 		case "BADBLOCK":
 			coord.handleBadBlock(conn)
+		case "BHASHES":
+			hashes := msg.Data.([]*chainhash.Hash)
+			coord.handleTxHashes(hashes, conn)
 		default:
 			logging.Println("Command '", cmd, "' is not registered.")
 		}
@@ -543,10 +553,13 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlock, flags Behavio
 
 	header := headerBlock.Header
 
+	coord.merkleShards = &LockedTxHashesMap{&sync.RWMutex{}, map[net.Conn][]*chainhash.Hash{}}
+
 	startTime := time.Now()
 	// logging.Println("Processing block ", header.BlockHash(), " height ", height)
 
 	// Start waiting for shards done before telling them to request it
+	go coord.waitForBlockHashesDone()
 	go coord.waitForShardsDone()
 
 	// TODO add more checks as per btcd + coinbase checks
@@ -575,6 +588,11 @@ func (coord *Coordinator) ProcessBlock(headerBlock *wire.MsgBlock, flags Behavio
 	}
 	coord.shards.RUnlock()
 
+	logging.Println("Waiting for merkle tree to complete")
+	<-coord.allTxHashesDone
+
+	coord.validateMerkleTree(header)
+
 	logging.Println("Wait for all shards to finish")
 	<-coord.allShardsDone
 	logging.Println("All shards finished")
@@ -593,6 +611,14 @@ func (coord *Coordinator) waitForShardsDone() {
 		<-coord.shardDone
 	}
 	coord.allShardsDone <- true
+}
+
+func (coord *Coordinator) waitForBlockHashesDone() {
+	// Wait for all the shards to send finish report
+	for i := 0; i < coord.numShards; i++ {
+		<-coord.shardDoneTx
+	}
+	coord.allTxHashesDone <- true
 }
 
 // ListenToCoordinators is go routine to listen for other coordinator (peers) to connect
@@ -702,4 +728,20 @@ func (coord *Coordinator) handleRepliedInfo(addresses []*net.TCPAddr, shardIndex
 	logging.Println("Intra", addresses[1])
 	coord.SendDHT(conn)
 
+}
+
+func (coord *Coordinator) handleTxHashes(hashes []*chainhash.Hash, conn net.Conn) {
+	coord.merkleShards.Lock()
+	coord.merkleShards.TxHashes[conn] = hashes
+	coord.merkleShards.Unlock()
+	coord.shardDoneTx <- true
+}
+
+func (coord *Coordinator) validateMerkleTree(header wire.BlockHeader) {
+	var combinedHashes []*chainhash.Hash
+	coord.merkleShards.RLock()
+	for _, s := range coord.merkleShards.TxHashes {
+		combinedHashes = append(combinedHashes, s...)
+	}
+	sort.Sort(chainhash.HashSorter(combinedHashes))
 }
