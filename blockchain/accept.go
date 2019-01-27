@@ -224,6 +224,8 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beha
 	go shard.Chain.db.Update(func(dbTx database.Tx) error {
 		return dbStoreBlock(dbTx, block)
 	})
+	shard.SendTxHashes(block)
+
 	// Cache the block in memory
 	shard.cachedChain[*(block.Hash())] = block
 	// if err != nil {
@@ -244,7 +246,6 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beha
 	err := shard.Chain.index.flushToDB()
 
 	// NOTE: Each shard is validating its part
-	// The coorinator is validating the coinbase transaction!
 	// selection according to the chain with the most proof of work.  This
 	// also handles validation of the transaction scripts.
 	// TODO: Check if added to main chain

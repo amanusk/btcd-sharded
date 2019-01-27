@@ -415,7 +415,7 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 
 		// Messages related to processing a block
 		case "PRCBLOCK":
-			logging.Println("Received instruction to process block from intrashard")
+			logging.Println("Received instruction to process block from intershard")
 			block := msg.Data.(RawBlockGob)
 			shard.handleProcessBlock(&block, conn)
 		default:
@@ -762,4 +762,9 @@ func (shard *Shard) handleRetreivedTxOuts(conn net.Conn, retreivedTxOuts map[wir
 	//}
 	// Unlock wait for each shard to send missing
 	shard.receiveRetrieved <- true
+}
+
+// SendTxHashes sends the calculated TxHashes of the block
+// to the coordinator to calculate the merkle tree
+func (*Shard) SendTxHashes(block *btcutil.Block) {
 }

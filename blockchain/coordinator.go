@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 )
@@ -54,6 +55,12 @@ type FetchedBlocksLockedMap struct {
 	*sync.RWMutex
 	fetchedBlocks map[net.Conn]*wire.MsgBlock
 	Flags         BehaviorFlags
+}
+
+// LockedTxHashesMap stores slices of calculated Tx hashes, to calculate merkle tree
+type LockedTxHashesMap struct {
+	*sync.RWMutex
+	TxHasehs map[net.Conn]*chainhash.Hash
 }
 
 // FetchedBlockToSend holds the current block being requested by other peers
@@ -350,6 +357,11 @@ func (coord *Coordinator) handleBadBlock(conn net.Conn) {
 // TODO: possiblly make shard/coordinator fit an interface
 func (coord *Coordinator) ReceiveCoord(c *Coordinator) {
 	coord.HandleCoordMessages(c.Socket)
+}
+
+//  receive slice of tx hashes to construct merkle tree
+func (coord *Coordinator) handleHashSlice(conn net.Conn) {
+
 }
 
 // Once a shards finishes processing a block this message is received
