@@ -239,7 +239,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	// 	spew.Dump(tx)
 	// }
 	start = time.Now()
-	shard.cachedBlock.RLock()
+	// shard.cachedBlock.RLock()
 	blockHeader := shard.cachedBlock.fetchedBlock.MsgBlock().Header
 	blockShardToSend := wire.NewMsgBlock(&blockHeader)
 	for _, tx := range shard.cachedBlock.fetchedBlock.Transactions() {
@@ -271,7 +271,7 @@ func (shard *Shard) handleSendBlock(header *HeaderGob, conn net.Conn) {
 	if err != nil {
 		logging.Println(err, "Encode failed for struct: %#v", msg)
 	}
-	shard.cachedBlock.RUnlock()
+	// shard.cachedBlock.RUnlock()
 	logging.Println("Sent block for process", shard.cachedBlock.fetchedBlock.Hash())
 	elapsed = time.Since(start).Seconds()
 	logging.Println("SendingBlockShard", elapsed)
@@ -403,7 +403,7 @@ func (shard *Shard) handleInterShardMessages(conn net.Conn) {
 
 		// Messages related to processing a block
 		case "PRCBLOCK":
-			logging.Println("Received instruction to process block from intrashard")
+			logging.Println("Received instruction to process block from intershard")
 			block := msg.Data.(RawBlockGob)
 			shard.handleProcessBlock(&block, conn)
 		default:
@@ -750,4 +750,9 @@ func (shard *Shard) handleRetreivedTxOuts(conn net.Conn, retreivedTxOuts map[wir
 	//}
 	// Unlock wait for each shard to send missing
 	shard.receiveRetrieved <- true
+}
+
+// SendTxHashes sends the calculated TxHashes of the block
+// to the coordinator to calculate the merkle tree
+func (*Shard) SendTxHashes(block *btcutil.Block) {
 }
