@@ -1477,7 +1477,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	//// expensive ECDSA signature check scripts.  Doing this last helps
 	//// prevent CPU exhaustion attacks.
 	startTime = time.Now()
-	// scriptFlags = 1
+	scriptFlags = 1
 	if runScripts {
 		//err := checkBlockScripts(block, view, scriptFlags, b.sigCache,
 		//	b.hashCache)

@@ -142,6 +142,11 @@ def run_remote_n_shard_node(coord_num, n, bootstrap, num_txs, network):
 
 def clean_with_ssh(num_coords, num_shards):
     for c in range(1, num_coords+1):
+        loc_shards = 8
+        if c == 1:
+            loc_shards = 8
+        else:
+            loc_shards = num_shards
         try:
             shell = spur.SshShell(hostname="10.0.0.1{}".format(c),
                                   username="ubuntu",
@@ -160,7 +165,7 @@ def clean_with_ssh(num_coords, num_shards):
             print(p)
         except:
             pass
-        for s in range(num_shards):
+        for s in range(loc_shards):
             try:
                 shell = spur.SshShell(hostname="10.0.0.{}".format(50 + int(c) * 50 + int(s)),
                                       username="ubuntu",
@@ -323,6 +328,8 @@ def collect_to_csv(num_shards, coord, num_txs):
                       'FetchingBlockFromDB',
                       'ConstructingToSend',
                       'Sending',
+                      'Sorting',
+                      'Merkle',
                       'OutputFetch',
                       'ReqTxOuts',
                       'SendReqTxOuts',
@@ -362,11 +369,17 @@ def collect_to_csv(num_shards, coord, num_txs):
         remote_send = get_remote_result(num_shards, num_txs, 'testlog1.log', 'Block', '10.0.0.11')
         remote_send = float(remote_send)
 
+        sorting = get_result("Sorting", coord)
+
+        merkle = get_result("Merkle", coord)
+
         total = get_result("Block", coord)
         d = {'Txs': num_txs,
              'FetchingBlockFromDB': fetch_from_db,
              'ConstructingToSend': const_to_send,
              'Sending': sending,
+             'Sorting': sorting,
+             'Merkle': merkle,
              'OutputFetch': output_fetch,
              'ReqTxOuts': req_tx_outs,
              'SendReqTxOuts': send_req_tx_outs,
@@ -381,7 +394,7 @@ def run_multi_tests(network):
 
 
     def run_test(num_coords, num_shards, num_txs, network):
-        p_list = run_remote_n_shard_node(DEFAULT_COORD, num_shards,
+        p_list = run_remote_n_shard_node(DEFAULT_COORD, 8,
                                          bootstrap=True, num_txs=num_txs,
                                          network=network)
         for i in range(num_coords - 1):
@@ -418,9 +431,9 @@ def run_multi_tests(network):
             pass
 
 
-    options = [2**i for i in range(3, -1, -1)]
+    options = [2**i for i in range(4, -1, -1)]
     for num_shards in options:
-        for num_txs in range(1000000, 1100000, 200000):
+        for num_txs in range(200000, 1100000, 200000):
             for j in range(1):
                 run_test(2, num_shards, num_txs, network)
                 gc.collect()
@@ -445,7 +458,7 @@ def main():
         root_logger.setLevel(level)
 
     run_multi_tests(args.network)
-    # collect_to_csv(15, 2, 300000)
+    #collect_to_csv(15, 2, 300000)
 
     # This runs a single node, and makes sure the coordinator + orcacle work
     # p_list = run_n_shard_node(DEFAULT_COORD, 1, True, 1000)
