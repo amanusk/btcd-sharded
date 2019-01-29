@@ -280,7 +280,7 @@ def main():
 
     # Try with 2 nodes, 2 shards
     p_list = run_n_shard_node(DEFAULT_COORD, 2, bootstrap=True,
-                              num_txs=100000, network=network)
+                              num_txs=1000, network=network)
     p2_list = run_n_shard_node(2, 2, bootstrap=False, num_txs=100,
                                 network=network)
 

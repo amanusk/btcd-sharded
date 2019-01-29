@@ -1316,7 +1316,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	// Wait to get responds from all shards before continuing with validation
 	<-shard.receiveAllRetrieved
 	endTime = time.Since(startTime).Seconds()
-	logging.Println("SendReqTxOuts took", endTime)
+	logging.Println("SendTxOuts took", endTime)
 
 	//for shardIdx, reqTxOuts := range shard.retrievedTxOutsMap.TxOutsMap {
 	//	for txOut := range reqTxOuts {

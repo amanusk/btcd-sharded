@@ -332,7 +332,7 @@ def collect_to_csv(num_shards, coord, num_txs):
                       'Merkle',
                       'OutputFetch',
                       'ReqTxOuts',
-                      'SendReqTxOuts',
+                      'SendTxOuts',
                       'CheckInputs',
                       'CheckSigs',
                       'Total',
@@ -390,7 +390,7 @@ def collect_to_csv(num_shards, coord, num_txs):
         writer.writerow(d)
         csvfile.flush()
 
-def run_multi_tests(network):
+def run_multi_tests(network, exponent):
 
 
     def run_test(num_coords, num_shards, num_txs, network):
@@ -431,7 +431,7 @@ def run_multi_tests(network):
             pass
 
 
-    options = [2**i for i in range(4, -1, -1)]
+    options = [2**i for i in range(int(exponent), int(exponent) -1, -1)]
     for num_shards in options:
         for num_txs in range(200000, 1100000, 200000):
             for j in range(1):
@@ -457,7 +457,7 @@ def main():
         root_logger.addHandler(file_handler)
         root_logger.setLevel(level)
 
-    run_multi_tests(args.network)
+    run_multi_tests(args.network, args.exponent)
     #collect_to_csv(15, 2, 300000)
 
     # This runs a single node, and makes sure the coordinator + orcacle work
@@ -510,6 +510,9 @@ def get_args():
     parser.add_argument('-tx', '--transactions',
                         default=100,
                         help="How many transactions in the main block")
+    parser.add_argument('-exp', '--exponent',
+                        default=1,
+                        help="How many power of 2 shards")
     parser.add_argument('-net', '--network',
                         default="regress",
                         help="Which network to test")
