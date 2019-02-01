@@ -1303,6 +1303,9 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	// Now we fetch the utxos others are missing and populate them with
 	// output information
 	retreivedTxOuts := GetRequestedMissingTxOuts(shard.requestedTxOutsMap, view, node.height, shard.Chain.db)
+
+	endTime = time.Since(startTime).Seconds()
+	logging.Println("FetchOthersTxOuts took", endTime)
 	// logging.Println("The fetched requested transactions:")
 	// for shardIdx, reqTxOuts := range retreivedTxOuts {
 	// 	for txOut := range reqTxOuts {
@@ -1311,6 +1314,7 @@ func (shard *Shard) ShardCheckConnectBlock(node *BlockNode, block *btcutil.Block
 	// }
 
 	// Send all TxOuts requested from you
+	startTime = time.Now()
 	shard.SendRequestedTxOuts(retreivedTxOuts)
 
 	// Wait to get responds from all shards before continuing with validation

@@ -6,7 +6,9 @@ package blockchain
 
 import (
 	"fmt"
+	logging "log"
 	reallog "log"
+	"time"
 
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcd/wire"
@@ -221,10 +223,17 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beha
 	// TODO: Creating the hashes should happen before this, so we do not need
 	// to do them when storing the block
 	block := btcutil.NewBlock(headerBlock)
-	go shard.Chain.db.Update(func(dbTx database.Tx) error {
+	startTime := time.Now()
+	shard.Chain.db.Update(func(dbTx database.Tx) error {
 		return dbStoreBlock(dbTx, block)
 	})
+	endTime := time.Since(startTime).Seconds()
+	logging.Println("StoreToDb", endTime)
+
+	startTime = time.Now()
 	shard.SendTxHashes(block)
+	endTime = time.Since(startTime).Seconds()
+	logging.Println("SendHashes", endTime)
 
 	// Cache the block in memory
 	shard.cachedChain[*(block.Hash())] = block
@@ -243,14 +252,14 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beha
 	}
 	// Block is added to the index, only the coordinator holds the index
 	shard.Chain.index.AddNode(newNode)
-	err := shard.Chain.index.flushToDB()
+	go shard.Chain.index.flushToDB()
 
 	// NOTE: Each shard is validating its part
 	// selection according to the chain with the most proof of work.  This
 	// also handles validation of the transaction scripts.
 	// TODO: Check if added to main chain
 	// TODO: This is where we will be able to reorgenise if needed
-	_, err = shard.ShardConnectBestChain(newNode, block, flags)
+	_, err := shard.ShardConnectBestChain(newNode, block, flags)
 	if err != nil {
 		return false, err
 	}

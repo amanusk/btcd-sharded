@@ -330,11 +330,15 @@ def collect_to_csv(num_shards, coord, num_txs):
                       'Sending',
                       'Sorting',
                       'Merkle',
+                      'StoreToDb'
+                      'SendHashes'
                       'OutputFetch',
                       'ReqTxOuts',
+                      'FetchOthersTxOuts',
                       'SendTxOuts',
                       'CheckInputs',
                       'CheckSigs',
+                      'ConnectBlock',
                       'Total',
                       'Remote']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -351,11 +355,20 @@ def collect_to_csv(num_shards, coord, num_txs):
         sending = get_remote_result(num_shards, num_txs, 'stestlog1_0.log', 'Sending', '10.0.0.100')
         sending = float(sending)
 
+        store_to_db = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'StoreToDb', '10.0.0.150')
+        store_to_db = float(store_to_db)
+
+        send_hashes = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'SendHashes', '10.0.0.150')
+        send_hashes = float(send_hashes)
+
         output_fetch = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'OutputFetch', '10.0.0.150')
         output_fetch = float(output_fetch)
 
         req_tx_outs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'ReqTxOuts', '10.0.0.150')
         req_tx_outs = float(req_tx_outs)
+
+        fetch_other_tx_outs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'FetchOthersTxOuts', '10.0.0.150')
+        fetch_other_tx_outs = float(fetch_other_tx_outs)
 
         send_req_tx_outs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'SendReqTxOuts', '10.0.0.150')
         send_req_tx_outs = float(send_req_tx_outs)
@@ -365,6 +378,9 @@ def collect_to_csv(num_shards, coord, num_txs):
 
         check_sigs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'CheckSigs', '10.0.0.150')
         check_sigs = float(check_sigs)
+
+        connect_block = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'ConnectBlock', '10.0.0.150')
+        connect_block = float(connect_block)
 
         remote_send = get_remote_result(num_shards, num_txs, 'testlog1.log', 'Block', '10.0.0.11')
         remote_send = float(remote_send)
@@ -380,11 +396,15 @@ def collect_to_csv(num_shards, coord, num_txs):
              'Sending': sending,
              'Sorting': sorting,
              'Merkle': merkle,
+             'StoreToDb': store_to_db,
+             'SendHashes': send_hashes,
              'OutputFetch': output_fetch,
              'ReqTxOuts': req_tx_outs,
+             'FetchOthersTxOuts': fetch_other_tx_outs,
              'SendReqTxOuts': send_req_tx_outs,
              'CheckInputs': check_inputs,
              'CheckSigs': check_sigs,
+             'ConnectBlock': connect_block,
              'Total': total,
              'Remote': remote_send}
         writer.writerow(d)
