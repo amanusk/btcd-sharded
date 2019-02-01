@@ -1569,12 +1569,15 @@ func (shard *Shard) ShardConnectBestChain(node *BlockNode, block *btcutil.Block,
 
 		// Connect the block to the main chain.
 		// NOTE: This writes all the updated databases to the DB
+		startTime := time.Now()
 		logging.Println("Connecting block", block.Hash())
 		err = shard.Chain.connectBlockShard(node, block, view, stxos)
 		if err != nil {
 			logging.Print("Failed to connect block: ", err)
 			return false, err
 		}
+		endTime := time.Since(startTime).Seconds()
+		logging.Println("ConnectBlock took", endTime)
 
 		return true, nil
 	}
