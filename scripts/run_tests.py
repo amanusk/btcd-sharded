@@ -370,8 +370,8 @@ def collect_to_csv(num_shards, coord, num_txs):
         fetch_other_tx_outs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'FetchOthersTxOuts', '10.0.0.150')
         fetch_other_tx_outs = float(fetch_other_tx_outs)
 
-        send_req_tx_outs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'SendReqTxOuts', '10.0.0.150')
-        send_req_tx_outs = float(send_req_tx_outs)
+        send_tx_outs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'SendTxOuts', '10.0.0.150')
+        send_tx_outs = float(send_tx_outs)
 
         check_inputs = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'CheckInputs', '10.0.0.150')
         check_inputs = float(check_inputs)
@@ -401,7 +401,7 @@ def collect_to_csv(num_shards, coord, num_txs):
              'OutputFetch': output_fetch,
              'ReqTxOuts': req_tx_outs,
              'FetchOthersTxOuts': fetch_other_tx_outs,
-             'SendReqTxOuts': send_req_tx_outs,
+             'SendTxOuts': send_tx_outs,
              'CheckInputs': check_inputs,
              'CheckSigs': check_sigs,
              'ConnectBlock': connect_block,
@@ -423,7 +423,7 @@ def run_multi_tests(network, exponent):
                                         network=network))
 
         # About the expected time to finish processing
-        time.sleep((20 - num_shards) * (num_txs/50000) + 20)
+        time.sleep((40 - num_shards) * (num_txs/100000) + 20)
         # time.sleep(10)
 
         #if scan_log_files(num_coords, num_shards):
