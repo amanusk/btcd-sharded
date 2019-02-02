@@ -1120,9 +1120,11 @@ func GetRequestedMissingTxOuts(requestedTxOuts *TxOutsLockedMap, view UtxoView, 
 			}
 			// Find the missing TxOut in the view
 			lookedup := view.LookupEntry(reqTxOut)
+			// logging.Println("Size of reqTxOut", unsafe.Sizeof(reqTxOut))
 			if lookedup == nil {
 				logging.Panicln("The requested txOut", reqTxOut, "was not found in view")
 			}
+			// logging.Println("Size of resTxOut", unsafe.Sizeof(lookedup))
 			txOutsToSend[shardIdx][reqTxOut] = lookedup
 		}
 	}

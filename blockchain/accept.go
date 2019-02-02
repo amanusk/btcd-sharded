@@ -222,12 +222,21 @@ func (shard *Shard) ShardMaybeAcceptBlock(headerBlock *wire.MsgBlock, flags Beha
 	// blocks that fail to connect available for further analysis.
 	// TODO: Creating the hashes should happen before this, so we do not need
 	// to do them when storing the block
+
 	block := btcutil.NewBlock(headerBlock)
+
 	startTime := time.Now()
+	for _, tx := range block.Transactions() {
+		tx.Hash()
+	}
+	endTime := time.Since(startTime).Seconds()
+	logging.Println("CalcHashes", endTime)
+
+	startTime = time.Now()
 	shard.Chain.db.Update(func(dbTx database.Tx) error {
 		return dbStoreBlock(dbTx, block)
 	})
-	endTime := time.Since(startTime).Seconds()
+	endTime = time.Since(startTime).Seconds()
 	logging.Println("StoreToDb", endTime)
 
 	startTime = time.Now()

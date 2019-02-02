@@ -330,8 +330,9 @@ def collect_to_csv(num_shards, coord, num_txs):
                       'Sending',
                       'Sorting',
                       'Merkle',
-                      'StoreToDb'
-                      'SendHashes'
+                      'CalcHashes',
+                      'StoreToDb',
+                      'SendHashes',
                       'OutputFetch',
                       'ReqTxOuts',
                       'FetchOthersTxOuts',
@@ -354,6 +355,9 @@ def collect_to_csv(num_shards, coord, num_txs):
 
         sending = get_remote_result(num_shards, num_txs, 'stestlog1_0.log', 'Sending', '10.0.0.100')
         sending = float(sending)
+
+        calc_hashes = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'CalcHashes', '10.0.0.150')
+        calc_hashes = float(calc_hashes)
 
         store_to_db = get_remote_result(num_shards, num_txs, 'stestlog2_0.log', 'StoreToDb', '10.0.0.150')
         store_to_db = float(store_to_db)
@@ -396,6 +400,7 @@ def collect_to_csv(num_shards, coord, num_txs):
              'Sending': sending,
              'Sorting': sorting,
              'Merkle': merkle,
+             'CalcHashes': calc_hashes,
              'StoreToDb': store_to_db,
              'SendHashes': send_hashes,
              'OutputFetch': output_fetch,
