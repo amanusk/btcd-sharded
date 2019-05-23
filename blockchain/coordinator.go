@@ -747,13 +747,16 @@ func (coord *Coordinator) validateMerkleTree(header wire.BlockHeader) {
 	sort.Sort(chainhash.HashSorter(combinedHashes))
 	endTime := time.Since(startTime).Seconds()
 	logging.Println("Sorting took", endTime)
-
+	for _, hash := range combinedHashes {
+		logging.Println(hash)
+	}
 	merkles := BuildMerkleRoot(combinedHashes)
 
 	endTime = time.Since(startTime).Seconds()
 	logging.Println("Merkle tree took", endTime)
 
 	calculatedMerkleRoot := merkles[len(merkles)-1]
+	logging.Println("Calculated root:", calculatedMerkleRoot)
 	if !header.MerkleRoot.IsEqual(calculatedMerkleRoot) {
 		str := fmt.Sprintf("block merkle root is invalid - block "+
 			"header indicates %v, but calculated value is %v",

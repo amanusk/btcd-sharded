@@ -771,9 +771,11 @@ func (shard *Shard) SendTxHashes(block *btcutil.Block) {
 	logging.Println("Sending tx hashes")
 	var txHashes []*chainhash.Hash
 	for _, tx := range block.Transactions() {
-		txHashes = append(txHashes, tx.Hash())
+		hash := tx.Hash()
+		// logging.Println("Size of Hash", unsafe.Sizeof(hash))
+		txHashes = append(txHashes, hash)
 	}
-	// logging.Println("Sending hashes slice", txHashes)
+	// logging.Println("Sending hashes", len(txHashes))
 
 	coordEnc := shard.CoordConn.Enc
 	hashMsg := Message{
